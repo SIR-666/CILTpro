@@ -1,7 +1,7 @@
 import * as Print from "expo-print";
 import { shareAsync } from "expo-sharing";
 import moment from "moment";
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -15,6 +15,7 @@ import {
   View,
 } from "react-native";
 import { COLORS } from "../../constants/theme";
+import { api } from "../../utils/axiosInstance";
 
 const DetailLaporanShiftly = ({ route }) => {
   const { item } = route.params;
@@ -39,17 +40,17 @@ const DetailLaporanShiftly = ({ route }) => {
     try {
       setIsLoading(true);
       const formattedDate = item.date.split("T")[0];
-      const response = await fetch(
-        `http://10.24.7.70:8080/getReportCILTAll/CILT/${encodeURIComponent(
+      const response = await api.get(
+        `/cilt/reportCILTAll/CILT/${encodeURIComponent(
           item.plant
         )}/${encodeURIComponent(item.line)}/${encodeURIComponent(
           item.shift
         )}/${encodeURIComponent(item.machine)}/${formattedDate}`
       );
-      if (!response.ok) {
+      if (!response.status === 200) {
         throw new Error(`HTTP Error: ${response.status}`);
       }
-      const result = await response.json();
+      const result = await response.data;
 
       console.log("result", result);
 

@@ -1,10 +1,9 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Picker } from "@react-native-picker/picker";
-import axios from "axios";
 import * as ScreenOrientation from "expo-screen-orientation";
 import moment from "moment-timezone";
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -21,16 +20,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ReusableOfflineUploadImage } from "../../components";
 import ReusableDatetime2 from "../../components/Reusable/ReusableDatetime2";
 import { COLORS } from "../../constants/theme";
+import { api, sqlApi, uploadImageApi } from "../../utils/axiosInstance";
 
 // Define uploadImageToServer function here
-// Image upload function
-// Image upload function with improved error handling
-
 const uploadImageToServer = async (uri) => {
-  const apiUrl2 = process.env.URL2;
-  const port33 = process.env.PORT_IMAGE_UPLOAD;
-  const apiUrl = "http://10.24.0.39:3003/upload"; // Image server URL
-  // const filename = localUri.split("/").pop();
   const formData = new FormData();
 
   formData.append("images", {
@@ -40,15 +33,7 @@ const uploadImageToServer = async (uri) => {
   });
 
   try {
-    // console.log("Uploading image:", uri); // Log the image path being uploaded
-
-    const response = await fetch(`${apiUrl2}:${port33}/upload`, {
-      method: "POST",
-      body: formData,
-      // headers: {
-      //   "Content-Type": "multipart/form-data",
-      // },
-    });
+    const response = await uploadImageApi.post("/upload", formData);
 
     if (!response.ok) {
       // If the response is not OK, log the full response and throw an error
@@ -65,8 +50,6 @@ const uploadImageToServer = async (uri) => {
     const responseJson = await response.json();
     let serverImageUrl = responseJson.uploadedFiles[0];
 
-    // const serverImageUrl = `${apiUrl2}:${port33}/${responseJson.uploadedFiles[0]}`;
-    // console.log("Uploaded image URL:", serverImageUrl);
     return serverImageUrl; // Return the server URL after upload
   } catch (error) {
     console.error("Image upload failed:", error);
@@ -98,22 +81,17 @@ const EditCILTinspection = ({ route, navigation }) => {
     getShiftByHour(moment(new Date()).tz("Asia/Jakarta").format("HH"))
   );
 
-  const [productOptions, setProductOptions] = useState([]);
   const [product, setProduct] = useState(item.product || "");
-
   const [machine, setMachine] = useState(item.machine || "");
-  const [batch, setBatch] = useState(item.batch || "2");
+  const [batch, setBatch] = useState(item.batch || "");
   const [remarks, setRemarks] = useState(item.remarks || "");
   const [agreed, setAgreed] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [isLoading, setIsLoading] = useState(false); // State to manage loading animation
   const [formOpenTime, setFormOpenTime] = useState(null);
   const [hideDateInput, setHideDateInput] = useState(false);
-
   const [inspectionData, setInspectionData] = useState([]);
   const [areas, setAreas] = useState([]);
-  const [lineOptions, setLineOptions] = useState([]);
-  const [machineOptions, setMachineOptions] = useState([]);
 
   useEffect(() => {
     // Lock the screen orientation to portrait
@@ -127,17 +105,6 @@ const EditCILTinspection = ({ route, navigation }) => {
     fetchUserData();
   }, []);
 
-  const packageOptions = [
-    { label: "END CYCLE", value: "END CYCLE" },
-    { label: "CHANGE OVER", value: "CHANGE OVER" },
-    { label: "CLEANING", value: "CLEANING" },
-    { label: "GI/GR", value: "GI/GR" },
-    // { label: "Paper Usage Report", value: "Paper Usage Report" },
-    { label: "CILT", value: "CILT" },
-    // { label: "Shiftly", value: "Shiftly" },
-    { label: "START UP", value: "START UP" },
-  ];
-
   const shiftOptions = [
     { label: "Shift 1", value: "Shift 1" },
     { label: "Shift 2", value: "Shift 2" },
@@ -150,108 +117,19 @@ const EditCILTinspection = ({ route, navigation }) => {
 
   const fetchUserData = async () => {
     try {
-      const urlApi = process.env.URL;
       const email = await AsyncStorage.getItem("user");
-      const response1 = await fetch(`${urlApi}/getUser?email=${email}`);
+      const response1 = await sqlApi.get(`/getUser?email=${email}`);
 
-      if (!response1.ok) {
-        throw new Error("Network response was not ok");
+      if (response1.status !== 200) {
+        throw new Error("Request failed");
       }
 
-      const data = await response1.json();
+      const data = response1.data;
       setUsername(data.username);
     } catch (error) {
       console.error("Error:", error);
     }
   };
-
-  // Fetch product options from API
-
-  const fetchProductOptionsX = async () => {
-    setIsLoading(true);
-    try {
-      const response = await axios.get("http://10.24.7.70:8080/getSKUv2/cilt");
-      const options = response.data.map((item) => ({
-        label: item.sku,
-        value: item.sku,
-        type: item.type,
-      }));
-      // setProductOptions(options);
-      //   console.log("data options:", options);
-      //   console.log("line options:", line);
-
-      let filteredOptions = [];
-
-      if (["A", "B", "C", "D"].includes(line)) {
-        // ESL lines
-        filteredOptions = options.filter((option) => option.type === "ESL");
-        console.log("ESL lines");
-      } else if (["E", "F", "G"].includes(line)) {
-        // UHT lines
-        filteredOptions = options.filter((option) => option.type === "UHT");
-        console.log("UHT lines");
-      }
-
-      // console.log("Filtered product options:", filteredOptions);
-
-      setProductOptions(filteredOptions);
-    } catch (error) {
-      console.error("Error fetching product options:", error);
-      Alert.alert("Error", "Failed to fetch product options.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  useEffect(() => {
-    fetchProductOptionsX();
-  }, []);
-
-  // Fetch product options from API
-  const fetchProductOptions = async () => {
-    setIsLoading(true);
-    try {
-      const response = await axios.get("http://10.24.7.70:8080/getSKUv2/cilt");
-      const options = response.data.map((item) => ({
-        label: item.sku,
-        value: item.sku,
-        type: item.type,
-      }));
-
-      // Ambil huruf terakhir dari nama line, contoh: "Line A" -> "A"
-      const lineSuffix = line.split(" ").pop().toUpperCase();
-      console.log("Line Suffix:", lineSuffix);
-
-      let filteredOptions = [];
-
-      if (["A", "B", "C", "D"].includes(lineSuffix)) {
-        // ESL lines
-        filteredOptions = options.filter((option) => option.type === "ESL");
-        // console.log("Filtered ESL products:", filteredOptions);
-      } else if (["E", "F", "G"].includes(lineSuffix)) {
-        // UHT lines
-        filteredOptions = options.filter((option) => option.type === "UHT");
-        // console.log("Filtered UHT products:", filteredOptions);
-      } else {
-        // Other lines
-        filteredOptions = options;
-        // console.log("Filtered other products:", filteredOptions);
-      }
-
-      setProductOptions(filteredOptions);
-    } catch (error) {
-      console.error("Error fetching product options:", error);
-      Alert.alert("Error", "Failed to fetch product options.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // useEffect to refetch products when line changes
-  useEffect(() => {
-    if (line) {
-      fetchProductOptions();
-    }
-  }, [line]);
 
   useEffect(() => {
     fetchAreaData();
@@ -261,7 +139,6 @@ const EditCILTinspection = ({ route, navigation }) => {
   }, [packageType, machine]);
 
   useEffect(() => {
-    filterOptions();
     updateProcessOrder();
   }, [plant, line, product, packageType, date, shift, machine]);
 
@@ -277,9 +154,7 @@ const EditCILTinspection = ({ route, navigation }) => {
 
   const fetchAreaData = async () => {
     try {
-      const response = await axios.get(
-        "http://10.24.7.70:8080/getgreenTAGarea"
-      );
+      const response = await sqlApi.get("/getgreenTAGarea");
       setAreas(response.data);
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -301,32 +176,6 @@ const EditCILTinspection = ({ route, navigation }) => {
     } finally {
       setIsLoading(false); // Stop loading animation
     }
-  };
-
-  const filterOptions = () => {
-    const filteredLines = areas
-      .filter((area) => area.observedArea === plant)
-      .map((area) => area.line)
-      .filter((value, index, self) => self.indexOf(value) === index);
-
-    setLineOptions(filteredLines);
-
-    const filteredMachines = areas
-      .filter((area) => area.observedArea === plant && area.line === line)
-      .map((area) => area.subGroup)
-      .filter(
-        (value, index, self) =>
-          self.indexOf(value) === index &&
-          value !== "Straw Applicator" &&
-          value !== "Cap Applicator" &&
-          value !== "Code Pack" &&
-          value !== "Helix" &&
-          value !== "Weight Checker"
-      );
-
-    setMachineOptions(filteredMachines);
-
-    fetchProductOptions();
   };
 
   const updateProcessOrder = () => {
@@ -446,15 +295,14 @@ const EditCILTinspection = ({ route, navigation }) => {
       console.log("Simpan data order:", order);
 
       // Kirim data ke server
-      const response = await axios.put(
-        `http://10.24.7.70:8080/cilt/${id}`,
-        order
-      );
+      const response = await api.put(`/cilt/${id}`, order);
 
       if (response.status === 200) {
         Alert.alert("Success", "Data submitted successfully!");
         await clearOfflineData(); // Hapus data offline setelah berhasil submit
-        navigation.navigate("HomeCILT");
+        setTimeout(() => {
+          navigation.navigate("HomeCILT");
+        }, 500);
       }
     } catch (error) {
       console.error("Submit failed, saving offline data:", error);
@@ -560,26 +408,7 @@ const EditCILTinspection = ({ route, navigation }) => {
                     size={24}
                     color={COLORS.lightBlue}
                   />
-                  <Picker
-                    selectedValue={plant}
-                    style={styles.dropdown}
-                    onValueChange={(itemValue) => {
-                      setPlant(itemValue);
-                      filterOptions();
-                    }}
-                    enabled={false}
-                  >
-                    <Picker.Item label="Select option" value="" />
-                    {[...new Set(areas.map((area) => area.observedArea))].map(
-                      (option, index) => (
-                        <Picker.Item
-                          key={index}
-                          label={option}
-                          value={option}
-                        />
-                      )
-                    )}
-                  </Picker>
+                  <Text style={styles.dropdown}>{plant}</Text>
                 </View>
               </View>
 
@@ -591,20 +420,7 @@ const EditCILTinspection = ({ route, navigation }) => {
                     size={24}
                     color={COLORS.lightBlue}
                   />
-                  <Picker
-                    selectedValue={line}
-                    style={styles.dropdown}
-                    onValueChange={(itemValue) => {
-                      setLine(itemValue);
-                      filterOptions();
-                    }}
-                    enabled={false}
-                  >
-                    <Picker.Item label={item.line} value="" />
-                    {lineOptions.map((option, index) => (
-                      <Picker.Item key={index} label={option} value={option} />
-                    ))}
-                  </Picker>
+                  <Text style={styles.dropdown}>{line}</Text>
                 </View>
               </View>
             </View>
@@ -618,17 +434,7 @@ const EditCILTinspection = ({ route, navigation }) => {
                     size={24}
                     color={COLORS.lightBlue}
                   />
-                  <Picker
-                    selectedValue={machine}
-                    style={styles.dropdown}
-                    onValueChange={(itemValue) => setMachine(itemValue)}
-                    enabled={false}
-                  >
-                    <Picker.Item label={item.machine} value="" />
-                    {machineOptions.map((option, index) => (
-                      <Picker.Item key={index} label={option} value={option} />
-                    ))}
-                  </Picker>
+                  <Text style={styles.dropdown}>{machine}</Text>
                 </View>
               </View>
 
@@ -640,24 +446,7 @@ const EditCILTinspection = ({ route, navigation }) => {
                     size={24}
                     color={COLORS.lightBlue}
                   />
-                  <Picker
-                    selectedValue={product}
-                    style={styles.dropdown}
-                    onValueChange={(itemValue) => {
-                      setProduct(itemValue);
-                      updateProcessOrder();
-                    }}
-                    enabled={false}
-                  >
-                    <Picker.Item label="Select option" value="" />
-                    {productOptions.map((option) => (
-                      <Picker.Item
-                        key={option.value}
-                        label={option.label}
-                        value={option.value}
-                      />
-                    ))}
-                  </Picker>
+                  <Text style={styles.dropdown}>{product}</Text>
                 </View>
               </View>
             </View>
@@ -671,25 +460,7 @@ const EditCILTinspection = ({ route, navigation }) => {
                     size={24}
                     color={COLORS.lightBlue}
                   />
-                  <Picker
-                    selectedValue={packageType}
-                    style={styles.dropdown}
-                    onValueChange={(itemValue) => {
-                      setPackageType(itemValue);
-                      // fetchInspectionData(); // Fetch data based on the selected package type
-                      fetchInspectionData(itemValue); // Fetch data based on the selected package type
-                    }}
-                    enabled={false}
-                  >
-                    <Picker.Item label="Select option" value="" />
-                    {packageOptions.map((option) => (
-                      <Picker.Item
-                        key={option.value}
-                        label={option.label}
-                        value={option.value}
-                      />
-                    ))}
-                  </Picker>
+                  <Text style={styles.dropdown}>{packageType}</Text>
                 </View>
               </View>
 
@@ -705,6 +476,7 @@ const EditCILTinspection = ({ route, navigation }) => {
                     style={styles.input}
                     value={batch}
                     onChangeText={(text) => setBatch(text)}
+                    placeholder="Isi batch (contoh: 2)"
                   />
                 </View>
               </View>
@@ -1065,7 +837,8 @@ const styles = StyleSheet.create({
   },
   dropdown: {
     flex: 1,
-    marginLeft: 10,
+    marginLeft: 16,
+    fontSize: 16,
   },
   // tableCSS
   wrapper: {

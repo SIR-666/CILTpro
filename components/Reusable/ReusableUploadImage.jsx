@@ -1,18 +1,17 @@
-import React, { useState, useEffect } from "react";
-import {
-  View,
-  Modal,
-  Button,
-  Image,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  TouchableWithoutFeedback,
-  ActivityIndicator,
-} from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Image,
+  Modal,
+  StyleSheet,
+  Text,
+  TouchableWithoutFeedback,
+  View,
+} from "react-native";
 import { ReusableBtn } from "../../components";
-import { COLORS, SIZES, TEXT } from "../../constants/theme";
+import { COLORS, SIZES } from "../../constants/theme";
+import { uploadImageApi } from "../../utils/axiosInstance";
 
 const ReusableUploadImage = ({
   onImagePathChange,
@@ -24,9 +23,6 @@ const ReusableUploadImage = ({
   const [selectedImage, setSelectedImage] = useState(initialImage || "");
   const [image, setImage] = useState("");
   const [loading, setLoading] = useState(false);
-
-  const apiUrl2 = process.env.URL3;
-  const port33 = process.env.PORT_IMAGE_UPLOAD;
 
   let judul = title ? title : "Select Image";
 
@@ -90,7 +86,7 @@ const ReusableUploadImage = ({
       try {
         const parts = image.split("/");
         const fileName = parts.pop();
-        let response = await fetch(`${apiUrl2}:${port33}/uploads/${fileName}`, {
+        let response = await uploadImageApi.delete(`/uploads/${fileName}`, {
           method: "DELETE",
           body: formData,
         });
@@ -106,10 +102,7 @@ const ReusableUploadImage = ({
     }
 
     try {
-      let response = await fetch(`${apiUrl2}:${port33}/upload`, {
-        method: "POST",
-        body: formData,
-      });
+      let response = await uploadImageApi.post("/upload", formData);
       let responseJson = await response.json();
       let imageUrl = responseJson.uploadedFiles[0];
 

@@ -1,8 +1,8 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { Picker } from "@react-native-picker/picker";
-import axios from "axios";
 import moment from "moment";
-import React, { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Button,
@@ -17,8 +17,11 @@ import { Searchbar } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { COLORS } from "../../constants/theme";
+import { api } from "../../utils/axiosInstance";
 
 const ListCILTDraft = ({ navigation }) => {
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [dataGreentag, setDataGreentag] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -29,19 +32,12 @@ const ListCILTDraft = ({ navigation }) => {
     key: "date",
     direction: "ascending",
   });
-  const [selectedShift, setSelectedShift] = useState(null);
+  const [selectedPlant, setSelectedPlant] = useState(null);
   const [selectedLine, setSelectedLine] = useState(null);
+  const [selectedShift, setSelectedShift] = useState(null);
+  const [plantOptions, setPlantOptions] = useState([]);
+  const [lineOptions, setLineOptions] = useState([]);
   const shiftOptions = ["Shift 1", "Shift 2", "Shift 3"];
-  const lineOptions = [
-    "Line A",
-    "Line B",
-    "Line C",
-    "Line D",
-    "Line E",
-    "Line F",
-    "Line G",
-    "Line H",
-  ];
 
   useEffect(() => {
     fetchDataFromAPI();
@@ -53,14 +49,42 @@ const ListCILTDraft = ({ navigation }) => {
 
   useEffect(() => {
     fetchDataFromAPI();
+    fetchPlantOptions();
   }, []);
+
+  useEffect(() => {
+    fetchLineOptions(selectedPlant);
+  }, [selectedPlant]);
 
   const fetchDataFromAPI = async () => {
     setIsLoading(true);
     try {
-      const apiUrl = process.env.URL;
-      const response = await axios.get(`${apiUrl}/cilt?status=1`);
+      const response = await api.get(`/cilt?status=1`);
       setDataGreentag(response.data);
+      setIsLoading(false);
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      setIsLoading(false);
+    }
+  };
+
+  const fetchPlantOptions = async () => {
+    setIsLoading(true);
+    try {
+      const response = await api.get(`/mastercilt/plant`);
+      setPlantOptions(response.data);
+      setIsLoading(false);
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      setIsLoading(false);
+    }
+  };
+
+  const fetchLineOptions = async (plant) => {
+    setIsLoading(true);
+    try {
+      const response = await api.get(`/mastercilt/line?plant=${plant}`);
+      setLineOptions(response.data);
       setIsLoading(false);
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -74,24 +98,49 @@ const ListCILTDraft = ({ navigation }) => {
     setRefreshing(false);
   };
 
-  // Modifikasi filteredData untuk menyertakan filter shift dan line
-  const filteredData = dataGreentag.filter((item) => {
-    const matchesSearch = item.processOrder
-      .toLowerCase()
-      .includes(searchQuery.toLowerCase());
-    const matchesShift = selectedShift
-      ? item.shift === selectedShift.toString()
-      : true;
-    const matchesLine = selectedLine
-      ? item.line === selectedLine.toString()
-      : true;
-    return matchesSearch && matchesShift && matchesLine;
-  });
+  const filteredData = useMemo(() => {
+    return dataGreentag.filter((item) => {
+      const matchesSearch = item.processOrder
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase());
 
-  const paginatedData = filteredData.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
+      const matchesDate = selectedDate
+        ? moment(item.date).isSame(moment(selectedDate), "day")
+        : true;
+
+      const matchesPlant = selectedPlant
+        ? item.plant === selectedPlant.toString()
+        : true;
+
+      const matchesLine = selectedLine
+        ? item.line === selectedLine.toString()
+        : true;
+
+      const matchesShift = selectedShift
+        ? item.shift === selectedShift.toString()
+        : true;
+
+      return (
+        matchesSearch &&
+        matchesDate &&
+        matchesPlant &&
+        matchesLine &&
+        matchesShift
+      );
+    });
+  }, [
+    dataGreentag,
+    searchQuery,
+    selectedDate,
+    selectedPlant,
+    selectedLine,
+    selectedShift,
+  ]);
+
+  const paginatedData = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    return filteredData.slice(startIndex, startIndex + itemsPerPage);
+  }, [filteredData, currentPage]);
 
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
 
@@ -277,6 +326,46 @@ const ListCILTDraft = ({ navigation }) => {
 
       <View style={styles.row}>
         <View style={styles.halfInputGroup}>
+          <TouchableOpacity
+            onPress={() => setShowDatePicker(true)}
+            style={styles.dropdownContainer}
+          >
+            <MaterialCommunityIcons
+              name="calendar"
+              size={24}
+              color={COLORS.lightBlue}
+            />
+            <Text style={{ marginLeft: 5 }}>
+              {selectedDate
+                ? moment(selectedDate).format("DD/MM/YYYY")
+                : "Date"}
+            </Text>
+          </TouchableOpacity>
+          {showDatePicker && (
+            <DateTimePicker
+              value={selectedDate || new Date()}
+              mode="date"
+              display="default"
+              onChange={(event, date) => {
+                setShowDatePicker(false);
+                if (date) {
+                  setSelectedDate(date);
+                }
+              }}
+            />
+          )}
+
+          {selectedDate && (
+            <TouchableOpacity
+              style={{ marginTop: 4 }}
+              onPress={() => setSelectedDate(null)}
+            >
+              <Text style={{ color: COLORS.red }}>Reset Date</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <View style={styles.halfInputGroup}>
           <View style={styles.dropdownContainer}>
             <MaterialCommunityIcons
               name="clock-outline"
@@ -284,15 +373,19 @@ const ListCILTDraft = ({ navigation }) => {
               color={COLORS.lightBlue}
             />
             <Picker
-              selectedValue={selectedShift}
+              selectedValue={selectedPlant}
               style={styles.dropdown}
               onValueChange={(itemValue) => {
-                setSelectedShift(itemValue);
+                setSelectedPlant(itemValue);
               }}
             >
-              <Picker.Item label="Filter Shift" value="" />
-              {shiftOptions.map((option, index) => (
-                <Picker.Item key={index} label={option} value={option} />
+              <Picker.Item label="Plant" value="" />
+              {plantOptions.map((option, index) => (
+                <Picker.Item
+                  key={index}
+                  label={option.plant}
+                  value={option.plant}
+                />
               ))}
             </Picker>
           </View>
@@ -312,8 +405,34 @@ const ListCILTDraft = ({ navigation }) => {
                 setSelectedLine(itemValue);
               }}
             >
-              <Picker.Item label="Filter Line" value="" />
+              <Picker.Item label="Line" value="" />
               {lineOptions.map((option, index) => (
+                <Picker.Item
+                  key={index}
+                  label={option.line}
+                  value={option.line}
+                />
+              ))}
+            </Picker>
+          </View>
+        </View>
+
+        <View style={styles.halfInputGroup}>
+          <View style={styles.dropdownContainer}>
+            <MaterialCommunityIcons
+              name="clock-outline"
+              size={24}
+              color={COLORS.lightBlue}
+            />
+            <Picker
+              selectedValue={selectedShift}
+              style={styles.dropdown}
+              onValueChange={(itemValue) => {
+                setSelectedShift(itemValue);
+              }}
+            >
+              <Picker.Item label="Shift" value="" />
+              {shiftOptions.map((option, index) => (
                 <Picker.Item key={index} label={option} value={option} />
               ))}
             </Picker>
@@ -418,7 +537,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   halfInputGroup: {
-    width: "25%",
+    width: "20%",
     marginVertical: 5,
   },
   label: {

@@ -1,25 +1,25 @@
-import React, { useState, useEffect } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "@react-navigation/native";
+import React, { useEffect, useState } from "react";
 import {
-  StyleSheet,
-  Text,
-  View,
-  TextInput,
-  TouchableOpacity,
-  ScrollView,
   Alert,
   BackHandler,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { Checkbox } from "react-native-paper";
-import axios from "axios";
-import { COLORS } from "../../constants/theme";
 import {
   ReusableDropdown,
-  ReusableUploadImage,
   ReusablePhotoImage,
+  ReusableUploadImage,
 } from "../../components";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Ionicons } from "@expo/vector-icons";
-import { useFocusEffect } from "@react-navigation/native";
+import { COLORS } from "../../constants/theme";
+import { sqlApi } from "../../utils/axiosInstance";
 
 const ShiftHandOver = ({ navigation }) => {
   const [name, setName] = useState("");
@@ -46,8 +46,7 @@ const ShiftHandOver = ({ navigation }) => {
 
   const fetchAreaData = async () => {
     try {
-      const urlApi = process.env.URL;
-      const response = await axios.get(`${urlApi}/getgreenTAGarea`);
+      const response = await sqlApi.get("getgreenTAGarea");
       setAreas(response.data);
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -80,10 +79,9 @@ const ShiftHandOver = ({ navigation }) => {
 
   const fetchUserData = async () => {
     try {
-      const urlApi = process.env.URL;
       const email = await AsyncStorage.getItem("user");
-      const response1 = await fetch(`${urlApi}/getUser?email=${email}`);
-      const data = await response1.json();
+      const response1 = await sqlApi.get(`/getUser?email=${email}`);
+      const data = await response1.data;
 
       setName(data.username);
       setPosition(data.level);
@@ -99,10 +97,8 @@ const ShiftHandOver = ({ navigation }) => {
   }, []);
 
   const checkDraftStatus = async () => {
-    const urlApi = process.env.URL;
-
     try {
-      const response = await axios.get(`${urlApi}/checkDraft?status=2`);
+      const response = await sqlApi.get(`/checkDraft?status=2`);
       if (response.data && response.data.length > 0) {
         // setDraftExists(true);
         Alert.alert(
@@ -174,7 +170,7 @@ const ShiftHandOver = ({ navigation }) => {
     }
 
     try {
-      const response = await axios.post(`${urlApi}/sho`, {
+      const response = await sqlApi.post("/sho", {
         nama: name,
         date: date,
         jabatan: position,
@@ -205,15 +201,13 @@ const ShiftHandOver = ({ navigation }) => {
   };
 
   const handleSaveAsDraft = async () => {
-    const urlApi = process.env.URL;
-
     if (draftExists) {
       Alert.alert("Error", "Draft sudah ada, tidak bisa menyimpan draft baru.");
       return;
     }
 
     try {
-      const response = await axios.post(`${urlApi}/sho`, {
+      const response = await sqlApi.post("/sho", {
         nama: name,
         date: date,
         jabatan: position,

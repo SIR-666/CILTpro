@@ -1,6 +1,5 @@
-// import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
-// import React from "react";
-import React, { useEffect, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Dimensions,
@@ -11,13 +10,10 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-// import { Image } from "expo-image";
 import { HeightSpacer } from "../../components";
-// import styles from "./home.style";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import axios from "axios";
 import { Border, Color, FontSize } from "../../GlobalStyles";
 import checkUser from "../../hook/checkUser";
+import { sqlApi } from "../../utils/axiosInstance";
 
 const Home = ({ navigation }) => {
   const { userLogin, userData, isLoading, time } = checkUser();
@@ -32,10 +28,14 @@ const Home = ({ navigation }) => {
     {
       id: 0,
       title: "ADD CILT",
-      // image: require("../../assets/startup.png"),
       image: require("../../assets/ciltproblack.png"),
       link: "AddCilt",
-      // link: "Search",
+    },
+    {
+      id: 1,
+      title: "ADD DOWNTIME",
+      image: require("../../assets/downtime.png"),
+      link: "AddDowntime",
     },
     // {
     //   id: 1,
@@ -63,6 +63,12 @@ const Home = ({ navigation }) => {
     },
     {
       id: 5,
+      title: "LIST DOWNTIME",
+      image: require("../../assets/list-downtime.png"),
+      link: "ListDowntime",
+    },
+    {
+      id: 6,
       title: "LIST SAVE AS DRAFT",
       image: require("../../assets/listHO.png"),
       link: "ListCILTDraft",
@@ -83,40 +89,37 @@ const Home = ({ navigation }) => {
 
   const fetchUserData = async () => {
     try {
-      const urlApi = process.env.URL;
-      // console.log(urlApi);
       const email = await AsyncStorage.getItem("user");
-      const fcmToken = await AsyncStorage.getItem("fcmToken");
+      // const fcmToken = await AsyncStorage.getItem("fcmToken");
 
       // const profile = await AsyncStorage.getItem("profile");
 
       console.log("fetchUserData email", email);
-      console.log("fetchUserData fcmToken", fcmToken);
+      // console.log("fetchUserData fcmToken", fcmToken);
       // console.log("profile", profile);
 
-      const response1 = await fetch(`${urlApi}/getUser?email=${email}`);
-      const response2 = await fetch(`${urlApi}/findIdByTokenFcm/${fcmToken}`);
+      const response1 = await sqlApi.get(`/getUser?email=${email}`);
+      // const response2 = await sqlApi.get(`/findIdByTokenFcm/${fcmToken}`);
 
       console.log("response1", response1);
-      console.log("response2", response2);
+      // console.log("response2", response2);
 
-      if (!response1.ok && !response2) {
+      if (response1.status !== 200) {
         throw new Error("Network response was not ok");
       }
 
-      const data = await response1.json();
-      const idToken = await response2.json();
+      const data = await response1.data;
+      // const idToken = await response2.data;
 
       console.log("data :", data);
-      console.log("idToken :", idToken);
-      // console.log("id Token :", idToken.id, "id User :", data.id);
-      const url = `${urlApi}/greenTAGuserFcm`; // Sesuaikan dengan URL endpoint Anda
-      const userData = {
-        id_greenTAGuser: data.id, // Ganti dengan ID pengguna yang sesuai
-        id_greenTAGfcm: idToken.id, // Ganti dengan FCM ID yang sesuai
-      };
-      const response = await axios.post(url, userData);
-      console.log("Response:", response.data);
+      // console.log("idToken :", idToken);
+
+      // const userData = {
+      //   id_greenTAGuser: data.id, // Ganti dengan ID pengguna yang sesuai
+      //   id_greenTAGfcm: idToken.id, // Ganti dengan FCM ID yang sesuai
+      // };
+      // const response = await sqlApi.post("/greenTAGuserFcm", userData);
+      // console.log("Response:", response.data);
 
       setUsername(data.username);
       setProfile(data.profile);

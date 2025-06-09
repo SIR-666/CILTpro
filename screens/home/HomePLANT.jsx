@@ -1,33 +1,23 @@
 // import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 // import React from "react";
-import React, { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
+  Alert,
+  Dimensions,
+  FlatList,
+  Image,
   StyleSheet,
   Text,
-  View,
   TouchableOpacity,
-  Image,
-  Alert,
-  FlatList,
-  Dimensions,
+  View,
 } from "react-native";
 // import { Image } from "expo-image";
-import reusable from "../../components/Reusable/reusable.style";
-import {
-  AssetImage,
-  ReusableText,
-  HeightSpacer,
-  Recommendations,
-} from "../../components";
-import Places from "../../components/Home/Places";
-import { COLORS, SIZES, TEXT } from "../../constants/theme";
-import { AntDesign, Feather } from "@expo/vector-icons";
+import { HeightSpacer } from "../../components";
 // import styles from "./home.style";
-import BestHotels from "../../components/Home/BestHotels";
-import checkUser from "../../hook/checkUser";
-import { Color, FontFamily, FontSize, Border } from "../../GlobalStyles";
-import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Border, Color, FontSize } from "../../GlobalStyles";
+import checkUser from "../../hook/checkUser";
+import { sqlApi } from "../../utils/axiosInstance";
 
 const Home = ({ navigation }) => {
   const { userLogin, userData, isLoading, time } = checkUser();
@@ -85,40 +75,37 @@ const Home = ({ navigation }) => {
 
   const fetchUserData = async () => {
     try {
-      const urlApi = process.env.URL;
-      // console.log(urlApi);
       const email = await AsyncStorage.getItem("user");
-      const fcmToken = await AsyncStorage.getItem("fcmToken");
+      // const fcmToken = await AsyncStorage.getItem("fcmToken");
 
       // const profile = await AsyncStorage.getItem("profile");
 
       console.log("fetchUserData email", email);
-      console.log("fetchUserData fcmToken", fcmToken);
+      // console.log("fetchUserData fcmToken", fcmToken);
       // console.log("profile", profile);
 
-      const response1 = await fetch(`${urlApi}/getUser?email=${email}`);
-      const response2 = await fetch(`${urlApi}/findIdByTokenFcm/${fcmToken}`);
+      const response1 = await sqlApi.get(`/getUser?email=${email}`);
+      // const response2 = await sqlApi.get(`/findIdByTokenFcm/${fcmToken}`);
 
       console.log("response1", response1);
-      console.log("response2", response2);
+      // console.log("response2", response2);
 
-      if (!response1.ok && !response2) {
+      if (response1.status !== 200) {
         throw new Error("Network response was not ok");
       }
 
-      const data = await response1.json();
-      const idToken = await response2.json();
+      const data = await response1.data;
+      // const idToken = await response2.data;
 
       console.log("data :", data);
-      console.log("idToken :", idToken);
-      // console.log("id Token :", idToken.id, "id User :", data.id);
-      const url = `${urlApi}/greenTAGuserFcm`; // Sesuaikan dengan URL endpoint Anda
-      const userData = {
-        id_greenTAGuser: data.id, // Ganti dengan ID pengguna yang sesuai
-        id_greenTAGfcm: idToken.id, // Ganti dengan FCM ID yang sesuai
-      };
-      const response = await axios.post(url, userData);
-      console.log("Response:", response.data);
+      // console.log("idToken :", idToken);
+
+      // const userData = {
+      //   id_greenTAGuser: data.id, // Ganti dengan ID pengguna yang sesuai
+      //   id_greenTAGfcm: idToken.id, // Ganti dengan FCM ID yang sesuai
+      // };
+      // const response = await sqlApi.post("/greenTAGuserFcm", userData);
+      // console.log("Response:", response.data);
 
       setUsername(data.username);
       setProfile(data.profile);

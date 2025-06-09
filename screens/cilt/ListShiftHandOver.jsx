@@ -1,22 +1,21 @@
-import React, { useState, useEffect } from "react";
-import {
-  ScrollView,
-  View,
-  Text,
-  StyleSheet,
-  ActivityIndicator,
-  TouchableOpacity,
-  RefreshControl,
-  Image,
-  Button,
-  Modal,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { Searchbar } from "react-native-paper";
-import axios from "axios";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { COLORS } from "../../constants/theme";
 import moment from "moment";
+import { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Button,
+  Image,
+  Modal,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { Searchbar } from "react-native-paper";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { COLORS } from "../../constants/theme";
+import { sqlApi } from "../../utils/axiosInstance";
 
 const ListSHO = ({ navigation }) => {
   const [dataGreentag, setDataGreentag] = useState([]);
@@ -46,8 +45,7 @@ const ListSHO = ({ navigation }) => {
   const fetchDataFromAPI = async () => {
     setIsLoading(true);
     try {
-      const apiUrl = process.env.URL;
-      const response = await axios.get(`${apiUrl}/sho`);
+      const response = await sqlApi.get("/sho");
       setDataGreentag(response.data);
       setIsLoading(false);
     } catch (error) {

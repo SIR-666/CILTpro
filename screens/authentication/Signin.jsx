@@ -1,31 +1,26 @@
-import {
-  TextInput,
-  Text,
-  View,
-  TouchableOpacity,
-  Alert,
-  Button,
-  Image,
-  Modal,
-  Dimensions,
-} from "react-native";
-import React, { useState, useEffect } from "react";
-import styles from "./signin.style";
-import { Formik } from "formik";
-import * as Yup from "yup";
-import { COLORS, SIZES, TEXT } from "../../constants/theme";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { WidthSpacer, HeightSpacer, ReusableBtn } from "../../components";
+import { AntDesign, MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import axios from "axios";
-import reusable from "../../components/Reusable/reusable.style";
-import { AntDesign } from "@expo/vector-icons";
 import {
   GoogleSignin,
-  GoogleSigninButton,
   statusCodes,
 } from "@react-native-google-signin/google-signin";
-import { FontSize } from "../../GlobalStyles";
+import { Formik } from "formik";
+import { useEffect, useState } from "react";
+import {
+  Alert,
+  Dimensions,
+  Image,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import * as Yup from "yup";
+import { HeightSpacer, ReusableBtn, WidthSpacer } from "../../components";
+import reusable from "../../components/Reusable/reusable.style";
+import { COLORS, SIZES } from "../../constants/theme";
+import { greatApi, sqlApi } from "../../utils/axiosInstance";
+import styles from "./signin.style";
 
 const validationSchema = Yup.object().shape({
   password: Yup.string()
@@ -76,14 +71,9 @@ const Signin = ({ navigation }) => {
   const login = async (values) => {
     setLoader(true);
 
-    const apiUrl2 = process.env.URL;
-
     try {
-      const endpoint = `${apiUrl2}/login`;
-      console.log(endpoint);
-
       const data = values;
-      const response = await axios.post(endpoint, data);
+      const response = await sqlApi.post("/login", data);
       // console.log("response ", response);
       if (response.status === 200) {
         setLoader(false);
@@ -132,9 +122,8 @@ const Signin = ({ navigation }) => {
   };
 
   const addUser = async (userData) => {
-    const apiUrl2 = process.env.URL;
     try {
-      const response = await axios.post(`${apiUrl2}/googleSignIn`, userData);
+      const response = await sqlApi.post("/googleSignIn", userData);
       console.log(response.data); // Menampilkan respons dari server
       return response.data;
     } catch (error) {
@@ -185,20 +174,13 @@ const Signin = ({ navigation }) => {
   };
 
   const handleStrapiSignIn = async (values) => {
-    const urlGreat = process.env.URL_LOGIN_GREAT;
     try {
-      const res = await fetch(`http://10.24.0.155:3000/api/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          identifier: values.email, // Menggunakan email dari formik
-          password: values.password, // Menggunakan password dari formik
-        }),
+      const res = await greatApi.post("/api/login", {
+        identifier: values.email, // Menggunakan email dari formik
+        password: values.password, // Menggunakan password dari formik
       });
-      if (res.ok) {
-        const responseData = await res.json(); // Mengambil data JSON dari respons
+      if (res.status == 200) {
+        const responseData = res.data; // Mengambil data JSON dari respons
         await AsyncStorage.setItem("user", responseData.user.email);
         const userData = {
           email: responseData.user.email,
@@ -206,7 +188,7 @@ const Signin = ({ navigation }) => {
           username: responseData.user.username,
           profile: "user",
         };
-        addUser(userData);
+        // addUser(userData);
         navigation.replace("Bottom");
       } else {
         console.error("Error during sign-in:", res.status);

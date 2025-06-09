@@ -1,13 +1,12 @@
-import { TextInput, Text, View, TouchableOpacity, Alert } from "react-native";
-import React, { useState } from "react";
-import styles from "./signin.style";
-import { Formik } from "formik";
-import * as Yup from "yup";
-import { COLORS, SIZES, TEXT } from "../../constants/theme";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { WidthSpacer, HeightSpacer, ReusableBtn } from "../../components";
-import axios from "axios";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Formik } from "formik";
+import { useState } from "react";
+import { Alert, Text, TextInput, TouchableOpacity, View } from "react-native";
+import * as Yup from "yup";
+import { HeightSpacer, ReusableBtn, WidthSpacer } from "../../components";
+import { COLORS, SIZES } from "../../constants/theme";
+import { sqlApi } from "../../utils/axiosInstance";
+import styles from "./signin.style";
 
 const validationSchema = Yup.object().shape({
   password: Yup.string()
@@ -42,16 +41,10 @@ const Registration = () => {
   const register = async (values) => {
     setLoader(true);
 
-    const apiUrl2 = process.env.URL;
-    // const port5 = process.env.PORT_MO;
-    const port3 = process.env.PORT_NO;
-
     try {
-      // const endpoint = "http://localhost:5003/api/register";
-      const endpoint = `${apiUrl2}/users`;
       const data = values;
 
-      const response = await axios.post(endpoint, data);
+      const response = await sqlApi.post("/users", data);
       if (response.status === 201) {
         setLoader(false);
         Alert.alert(

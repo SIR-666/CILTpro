@@ -6,35 +6,21 @@ import * as Splashscreen from "expo-splash-screen";
 import { useCallback, useEffect, useState } from "react";
 import {
   AddCilt,
-  AllReviews,
-  ChecklistScreen,
-  CountryDetails,
+  AddDowntime,
   DetailLaporanCILT,
   DetailLaporanCILTGIGR,
   DetailLaporanShiftlyCILT,
+  DetailShiftlyDowntime,
   EditCilt,
   EditShiftHandOver,
-  Failed,
   HomeCILT,
   HomeHO,
-  HotelDetails,
-  HotelList,
-  HotelSearch,
   ListCILT,
   ListCILTDraft,
+  ListDowntime,
   ListShiftHandOver,
   Onboarding,
-  PaymentMethod,
-  PlaceDetails,
-  PopularDestinations,
-  PopularHotels,
-  Recommended,
-  Search,
-  SelectedRoom,
-  SelectRoom,
-  Settings,
   ShiftHandOver,
-  Successful,
 } from "./screens";
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -44,32 +30,16 @@ import { StatusBar } from "expo-status-bar";
 import { Alert } from "react-native";
 import AuthTopTab from "./navigation/AuthTopTab";
 import BottomTabNavigation from "./navigation/BottomTabNavigation";
-import AddCard from "./screens/setttings/AddCard";
+import { sqlApi } from "./utils/axiosInstance";
 //import PushNotification from 'react-native-push-notification';
 
 const Stack = createNativeStackNavigator();
 
 // Fungsi untuk mengirim token ke server
 const sendTokenToServer = async (token) => {
-  console.log("registrasi Token:", token);
-  const apiUrl2 = process.env.URL2;
-  const port3 = process.env.PORT_NO;
-  const endpoint = `${apiUrl2}:${port3}/notification/registerToken`;
-
-  console.log("endpoint ", endpoint);
-
   try {
-    let response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ token }),
-      // body: token,
-    });
-
-    // let responseJson = await response.json();
-    let responseJson = await response.text();
+    const response = await sqlApi.post("/notification/registerToken", token);
+    const responseJson = await response.text();
     console.log("Server response:", responseJson);
   } catch (error) {
     console.error("error ", error);
@@ -78,7 +48,6 @@ const sendTokenToServer = async (token) => {
 
 export default function App() {
   const [firstLaunch, setFirstLaunch] = useState(true);
-  //const [modalWarning, setModalWarning] = useState(false);
 
   //lock orientation to portrait
   useEffect(() => {
@@ -93,6 +62,7 @@ export default function App() {
       }
     };
     lockOrientation();
+    appFirstLaunch();
   }, []);
 
   // Lock orientation before rendering
@@ -104,9 +74,9 @@ export default function App() {
   useEffect(() => {
     const checkNetworkConnection = async () => {
       try {
-        const apiUrl = process.env.URL;
-        const response = await fetch(`${apiUrl}/getgreenTAGallOpen/open`); // or your API endpoint
-        if (response.ok) {
+        const response = await sqlApi.get("/getgreenTAGallOpen/open");
+
+        if (response.status == 200) {
           // Connection is active, you can proceed with API calls or data retrieval
           console.log("Connected to the office network");
         } else {
@@ -129,33 +99,6 @@ export default function App() {
     checkNetworkConnection();
   }, []);
 
-  // useEffect(() => {
-  //   const fetchData = async () => {
-  //     console.log('ini anjg')
-
-  //     try {
-  //       const apiUrl = process.env.URL;
-  //       const response = await axios.get(`${apiUrl}/getgreenTAGallOpen/open`);
-  //       if (response.status === 200) {
-  //         console.log('berhasil');
-  //         Alert.alert(
-  //           'Warning',
-  //           'You are not connected to the office network. Please connect to use this App.',
-  //         );
-  //       } else {
-  //         console.log('tidak berhasil');
-  //         Alert.alert(
-  //           'Warning',
-  //           'You are not connected to the office network. Please connect to use this App.',
-  //         );
-  //       }
-  //     } catch (error) {
-  //       console.error("Error fetching data:", error);
-  //     }
-  //   };
-  //   fetchData();
-  // }, []);
-
   const requestPermmission = async () => {
     const authStatus = await messaging().requestPermission();
     const enabled =
@@ -168,8 +111,8 @@ export default function App() {
   };
 
   const appFirstLaunch = async () => {
-    const onboarding = await AsyncStorage.getItem("user");
-    if (onboarding !== null) {
+    const user = await AsyncStorage.getItem("user");
+    if (user !== null) {
       setFirstLaunch(false);
     } else {
       setFirstLaunch(true);
@@ -177,28 +120,28 @@ export default function App() {
   };
 
   useEffect(() => {
-    const requestPermissionAndGetToken = async () => {
-      const authStatus = await messaging().requestPermission();
-      const enabled =
-        authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-        authStatus === messaging.AuthorizationStatus.PROVISIONAL;
+    // const requestPermissionAndGetToken = async () => {
+    //   const authStatus = await messaging().requestPermission();
+    //   const enabled =
+    //     authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
+    //     authStatus === messaging.AuthorizationStatus.PROVISIONAL;
 
-      if (enabled) {
-        console.log("Authorization status:", authStatus);
+    //   if (enabled) {
+    //     console.log("Authorization status:", authStatus);
 
-        // Mendapatkan token FCM
-        const fcmToken = await messaging().getToken();
-        console.log("FCM Token:", fcmToken);
-        await AsyncStorage.setItem("fcmToken", fcmToken);
-        // TODO: Kirim token ke server Anda disini
-        // Kirim token ke server
-        sendTokenToServer(fcmToken);
-      } else {
-        console.log("Failed to get the permission to notify.");
-      }
-    };
+    //     // Mendapatkan token FCM
+    //     const fcmToken = await messaging().getToken();
+    //     console.log("FCM Token:", fcmToken);
+    //     await AsyncStorage.setItem("fcmToken", fcmToken);
+    //     // TODO: Kirim token ke server Anda disini
+    //     // Kirim token ke server
+    //     sendTokenToServer(fcmToken);
+    //   } else {
+    //     console.log("Failed to get the permission to notify.");
+    //   }
+    // };
 
-    requestPermissionAndGetToken();
+    // requestPermissionAndGetToken();
 
     // Menangani pemberitahuan saat aplikasi dibuka dari keadaan tertutup
     messaging()
@@ -300,23 +243,13 @@ export default function App() {
           options={{ headerShown: false }}
         />
         <Stack.Screen
-          name="Search"
-          component={Search}
+          name="AuthTop"
+          component={AuthTopTab}
           options={{ headerShown: false }}
         />
         <Stack.Screen
-          name="CountryDetails"
-          component={CountryDetails}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="Recommended"
-          component={Recommended}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="ChecklistScreen"
-          component={ChecklistScreen}
+          name="AddDowntime"
+          component={AddDowntime}
           options={{ headerShown: false }}
         />
         <Stack.Screen
@@ -329,82 +262,6 @@ export default function App() {
           component={EditCilt}
           options={{ headerShown: false }}
         />
-        {/* inputMuatan */}
-        <Stack.Screen
-          name="AllReviews"
-          component={AllReviews}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="PlaceDetails"
-          component={PlaceDetails}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="HotelDetails"
-          component={HotelDetails}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="HotelList"
-          component={HotelList}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="HotelSearch"
-          component={HotelSearch}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="SelectRoom"
-          component={SelectRoom}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="PlacesByCountry"
-          component={PopularDestinations}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="Payments"
-          component={PaymentMethod}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="Success"
-          component={Successful}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="AuthTop"
-          component={AuthTopTab}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="Fail"
-          component={Failed}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="Settings"
-          component={Settings}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="SelectedRoom"
-          component={SelectedRoom}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="AddCard"
-          component={AddCard}
-          options={{ headerShown: false }}
-        />
-        <Stack.Screen
-          name="PopularHotels"
-          component={PopularHotels}
-          options={{ headerShown: false }}
-        />
         <Stack.Screen
           name="ShiftHandOver"
           component={ShiftHandOver}
@@ -415,7 +272,11 @@ export default function App() {
           component={ListShiftHandOver}
           options={{ headerShown: false }}
         />
-
+        <Stack.Screen
+          name="ListDowntime"
+          component={ListDowntime}
+          options={{ headerShown: false }}
+        />
         <Stack.Screen
           name="ListCILT"
           component={ListCILT}
@@ -424,6 +285,11 @@ export default function App() {
         <Stack.Screen
           name="ListCILTDraft"
           component={ListCILTDraft}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="DetailShiftlyDowntime"
+          component={DetailShiftlyDowntime}
           options={{ headerShown: false }}
         />
         <Stack.Screen
@@ -456,14 +322,6 @@ export default function App() {
           component={EditShiftHandOver}
           options={{ headerShown: false }}
         />
-        {/* 
-    
-       
-        <Stack.Screen
-          name="EditShiftHandOver"
-          component={EditShiftHandOver}
-          options={{ headerShown: false }}
-        /> */}
       </Stack.Navigator>
     </NavigationContainer>
   );

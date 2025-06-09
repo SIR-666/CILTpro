@@ -1,27 +1,23 @@
-import React, { useState, useEffect } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useEffect, useState } from "react";
 import {
+  Alert,
+  ScrollView,
   StyleSheet,
   Text,
-  View,
   TextInput,
   TouchableOpacity,
-  ScrollView,
-  Alert,
+  View,
 } from "react-native";
 import { Checkbox } from "react-native-paper";
-import axios from "axios";
-import { COLORS, SIZES, TEXT } from "../../constants/theme";
 import {
   ReusableDropdown,
-  ReusableBtn,
-  ReusableUploadImage,
   ReusablePhotoImage,
-  WidthSpacer,
-  HeightSpacer,
+  ReusableUploadImage,
 } from "../../components";
-import reusable from "../../components/Reusable/reusable.style";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Ionicons } from "@expo/vector-icons";
+import { COLORS } from "../../constants/theme";
+import { sqlApi } from "../../utils/axiosInstance";
 
 export default EditShiftHandOver = ({ route, navigation }) => {
   const [name, setName] = useState("");
@@ -47,10 +43,15 @@ export default EditShiftHandOver = ({ route, navigation }) => {
 
   const fetchUserData = async () => {
     try {
-      const urlApi = process.env.URL;
       const email = await AsyncStorage.getItem("user");
-      const response1 = await fetch(`${urlApi}/getUser?email=${email}`);
-      const data = await response1.json();
+      const response1 = await sqlApi.get(`/getUser?email=${email}`);
+
+      if (response1.status !== 200) {
+        throw new Error("Request failed");
+      }
+
+      const data = response1.data;
+      setUsername(data.username);
       setName(data.username);
       setPosition(data.level);
       setEmailuser(data.email);
@@ -61,8 +62,7 @@ export default EditShiftHandOver = ({ route, navigation }) => {
 
   const fetchData = async () => {
     try {
-      const urlApi = process.env.URL;
-      const response = await axios.get(`${urlApi}/sho/${id}`);
+      const response = await sqlApi.get(`/sho/${id}`);
       const data = response.data[0];
       setName(data.nama);
       setDate(data.date);
@@ -97,8 +97,6 @@ export default EditShiftHandOver = ({ route, navigation }) => {
   };
 
   const handleSubmit = async () => {
-    const urlApi = process.env.URL;
-
     if (
       !name ||
       !date ||
@@ -122,7 +120,7 @@ export default EditShiftHandOver = ({ route, navigation }) => {
     }
 
     try {
-      const response = await axios.put(`${urlApi}/sho/${id}`, {
+      const response = await sqlApi.put(`/sho/${id}`, {
         nama: name,
         date: date,
         jabatan: position,
@@ -153,13 +151,13 @@ export default EditShiftHandOver = ({ route, navigation }) => {
     const urlApi = process.env.URL;
 
     try {
-      const checkDraftResponse = await axios.get(`${urlApi}/checkDraft`);
+      const checkDraftResponse = await sqlApi.get(`/checkDraft`);
       if (checkDraftResponse.data.length > 0) {
         Alert.alert("Error", "Draft already exists.");
         return;
       }
 
-      const response = await axios.put(`${urlApi}/sho/${id}`, {
+      const response = await sqlApi.put(`/sho/${id}`, {
         nama: name,
         date: date,
         jabatan: position,
