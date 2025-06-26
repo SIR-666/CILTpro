@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  FlatList,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,14 +17,10 @@ import {
 } from "react-native";
 import { Checkbox } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
-import ChecklistCILTInspectionTable from "../../components/package/filler/ChecklistCILTInspectionTable";
-import GnrPerformanceInspectionTable from "../../components/package/filler/GnrPerformanceInspectionTable";
-import H2o2CheckInspectionTable from "../../components/package/filler/h2o2CheckInspectionTable";
-import PaperUsageInspectionTable from "../../components/package/filler/PaperUsageInspectionTable";
-import ScrewCapInspectionTable from "../../components/package/filler/ScrewCapInspectionTable";
+import { ReusableOfflineUploadImage } from "../../components";
 import ReusableDatetime2 from "../../components/Reusable/ReusableDatetime2";
 import { COLORS } from "../../constants/theme";
-import { api, uploadImageApi } from "../../utils/axiosInstance";
+import { api, sqlApi, uploadImageApi } from "../../utils/axiosInstance";
 
 // Image upload function with improved error handling
 const uploadImageToServer = async (uri) => {
@@ -71,9 +68,9 @@ const getShiftByHour = (hour) => {
   return "Unknown Shift";
 };
 
-const CILTinspection = ({ route, navigation }) => {
+const CILTinspectionOld = ({ route, navigation }) => {
   const { username } = route.params;
-  const [processOrder, setProcessOrder] = useState("");
+  const [processOrder, setProcessOrder] = useState("#Plant_Line_SKU");
   const [packageType, setPackageType] = useState("");
   const [plant, setPlant] = useState("");
   const [line, setLine] = useState("");
@@ -94,29 +91,24 @@ const CILTinspection = ({ route, navigation }) => {
   const [hideDateInput, setHideDateInput] = useState(false);
 
   const [inspectionData, setInspectionData] = useState([]);
+  const [areas, setAreas] = useState([]);
   const [plantOptions, setPlantOptions] = useState([]);
   const [lineOptions, setLineOptions] = useState([]);
   const [machineOptions, setMachineOptions] = useState([]);
   const [packageOptions, setPackageOptions] = useState([]);
 
-  const fetchPackageMaster = async () => {
-    try {
-      const response = await api.get("/package-master");
-      const data = response.data;
-
-      const uniquePlants = [...new Set(data.map((item) => item.plant))];
-      const uniqueLines = [...new Set(data.map((item) => item.line))];
-      const uniqueMachines = [...new Set(data.map((item) => item.machine))];
-      const uniquePackages = [...new Set(data.map((item) => item.package))];
-
-      setPlantOptions(uniquePlants);
-      setLineOptions(uniqueLines);
-      setMachineOptions(uniqueMachines);
-      setPackageOptions(uniquePackages);
-    } catch (error) {
-      console.error("Failed to fetch /package-master:", error);
-    }
-  };
+  const [inspectionDataGIGR, setInspectionDataGIGR] = useState(
+    Array(50)
+      .fill()
+      .map(() => ({
+        noPalet: "",
+        noCarton: "",
+        jumlahCarton: "",
+        waktu: "",
+        user: "",
+        time: "",
+      }))
+  );
 
   useEffect(() => {
     // Lock the screen orientation to portrait
@@ -126,51 +118,31 @@ const CILTinspection = ({ route, navigation }) => {
       );
     };
     lockOrientation();
-    fetchPackageMaster();
+
+    fetchPlant();
     setFormOpenTime(moment().tz("Asia/Jakarta").format()); // Record the time the form is opened
   }, []);
 
-  useEffect(() => {
-    const loadDate = async () => {
-      setPlant(await AsyncStorage.getItem("plant"));
-      setLine(await AsyncStorage.getItem("line"));
-    };
-    loadDate();
-  }, []);
+  // const packageOptions = [
+  //   { label: "END CYCLE", value: "END CYCLE" },
+  //   { label: "CHANGE OVER", value: "CHANGE OVER" },
+  //   { label: "CLEANING", value: "CLEANING" },
+  //   { label: "GI/GR", value: "GI/GR" },
+  //   { label: "Paper Usage Report", value: "Paper Usage Report" },
+  //   { label: "CILT", value: "CILT" },
+  //   { label: "Shiftly", value: "Shiftly" },
+  //   { label: "START UP", value: "START UP" },
+  // ];
 
   const shiftOptions = [
     { label: "Shift 1", value: "Shift 1" },
     { label: "Shift 2", value: "Shift 2" },
     { label: "Shift 3", value: "Shift 3" },
+    // { label: "Long shift Pagi", value: "Long shift Pagi" },
+    // { label: "Long shift Malam", value: "Long shift Malam" },
+    // { label: "Start shift", value: "Start shift" },
+    // { label: "End shift", value: "End shift" },
   ];
-
-  const checkIfDataExists = async () => {
-    try {
-      const response = await api.get(
-        `/cilt/getCILTByProcessOrder?processOrder=${processOrder}`
-      );
-      // console.log("processOrder", processOrder);
-      // console.log("Data", response.data);
-
-      if (response.data.exists) {
-        // Jika sudah ada, preload data sebelumnya
-        const parsedData = JSON.parse(response.data.data.inspectionData);
-        setInspectionData(parsedData);
-        Alert.alert("Info", "Data ditemukan. Form akan dilanjutkan.");
-      } else {
-        Alert.alert("Info", "Data belum ada. Mulai dari kosong.");
-        // setInspectionData([]); // atau reset data input
-      }
-    } catch (error) {
-      console.error("Failed to check existing data:", error);
-      Alert.alert("Error", "Gagal cek data. Coba lagi.");
-    }
-  };
-
-  useEffect(() => {
-    setInspectionData([]); // clear form data ketika komponen ganti
-    console.log("RESET inspectionData karena machine/packageType berubah");
-  }, [machine, packageType]);
 
   // Fetch product options from API
   const fetchProductOptions = async (plant) => {
@@ -184,9 +156,28 @@ const CILTinspection = ({ route, navigation }) => {
         type: item.material,
       }));
 
+      // // Ambil huruf terakhir dari nama line, contoh: "Line A" -> "A"
+      // const lineSuffix = line.split(" ").pop().toUpperCase();
+      // console.log("Line Suffix:", lineSuffix);
+
+      // let filteredOptions = [];
+
+      // if (["A", "B", "C", "D"].includes(lineSuffix)) {
+      //   // ESL lines
+      //   filteredOptions = options.filter((option) => option.type === "ESL");
+      //   // console.log("Filtered ESL products:", filteredOptions);
+      // } else if (["E", "F", "G"].includes(lineSuffix)) {
+      //   // UHT lines
+      //   filteredOptions = options.filter((option) => option.type === "UHT");
+      //   // console.log("Filtered UHT products:", filteredOptions);
+      // } else {
+      //   // Other lines
+      //   filteredOptions = options;
+      //   // console.log("Filtered other products:", filteredOptions);
+      // }
+
       setProduct("");
       setProductOptions(options);
-      setProduct(await AsyncStorage.getItem("product"));
     } catch (error) {
       console.error("Error fetching product options:", error);
       Alert.alert("Error", "Failed to fetch product options.");
@@ -200,28 +191,156 @@ const CILTinspection = ({ route, navigation }) => {
   }, [plant, line]);
 
   useEffect(() => {
-    if (!plant || !line || !machine || !packageType || !shift) return;
+    updateProcessOrder();
+    fetchLine(plant);
+    fetchMachine(plant, line);
+    fetchPackage(plant, line, machine);
+    fetchInspection(plant, line, machine, packageType);
+  }, [plant, line, packageType, date, shift, machine]);
 
+  const fetchAreaData = async () => {
+    try {
+      const response = await sqlApi.get("/getgreenTAGarea");
+      setAreas(response.data);
+    } catch (error) {
+      console.error("Error fetching data:", error);
+    }
+  };
+
+  const fetchPlant = async () => {
+    try {
+      const response = await api.get("/mastercilt/plant");
+      setPlantOptions(response.data);
+    } catch (error) {
+      console.error("Error fetching data:", error);
+    }
+  };
+
+  const fetchLine = async (plant) => {
+    try {
+      const response = await api.get(`/mastercilt/line?plant=${plant}`);
+      setLineOptions(response.data);
+    } catch (error) {
+      console.error("Error fetching data:", error);
+    }
+  };
+
+  const fetchMachine = async (plant, line) => {
+    try {
+      const response = await api.get(
+        `/mastercilt/machine?plant=${plant}&line=${line}`
+      );
+      setMachineOptions(response.data);
+    } catch (error) {
+      console.error("Error fetching data:", error);
+    }
+  };
+
+  const fetchPackage = async (plant, line, machine) => {
+    try {
+      const response = await api.get(
+        `/mastercilt/type?plant=${plant}&line=${line}&machine=${machine}`
+      );
+      setPackageOptions(response.data);
+    } catch (error) {
+      console.error("Error fetching data:", error);
+    }
+  };
+
+  const fetchInspection = async (plant, line, machine, type) => {
+    setIsLoading(true); // Start loading animation
+    setInspectionData([]); // Reset inspection data before fetching new data
+
+    try {
+      const response = await api.get(
+        `/mastercilt?plant=${plant}&line=${line}&machine=${machine}&type=${type}`
+      );
+
+      if (!response.data || !Array.isArray(response.data)) {
+        throw new Error("Invalid response format");
+      }
+
+      const formattedData = response.data.map((item) => ({
+        activity: item.activity,
+        standard: `${item.min} - ${item.max}`,
+        good: item.good,
+        need: item.need,
+        red: item.red,
+        status: item.status,
+        periode: item.frekwensi,
+        picture: item.image === "Y" ? "" : null, // If "Y", allow image upload
+        results: "",
+        done: false,
+        content: item.content,
+        user: "",
+        time: "",
+      }));
+
+      setInspectionData(formattedData); // Set the new inspection data
+    } catch (error) {
+      console.error("Error fetching data:", error);
+    } finally {
+      setIsLoading(false); // Stop loading animation
+    }
+  };
+
+  const updateProcessOrder = () => {
     const formattedPlant = plant.replace(/\s+/g, "-");
     const formattedLine = line.replace(/\s+/g, "-");
+    const formattedProduct = product.replace(/\s+/g, "-");
     const formattedDate = moment(date).tz("Asia/Jakarta").format("YYYY-MM-DD");
+    const formattedTime = moment(date).tz("Asia/Jakarta").format("HH-mm-ss");
     const formattedShift = shift.replace(/\s+/g, "-");
     const formattedMachine = machine.replace(/\s+/g, "-");
-    const formattedPackage = packageType.replace(/\s+/g, "-");
 
-    const updated = `${formattedPlant}_${formattedLine}_${formattedDate}_${formattedShift}_${formattedMachine}_${formattedPackage}`;
-    setProcessOrder(updated);
-  }, [plant, line, date, shift, machine, packageType]);
+    // setProcessOrder(
+    //   `#${formattedPlant}_${formattedLine}_${formattedProduct}_${formattedDate}_${formattedTime}_${formattedShift}_${formattedMachine}`
+    // );
 
-  useEffect(() => {
-    if (!plant || !line || !date || !shift || !machine || !packageType) return;
-    checkIfDataExists(); // ini akan dijalankan setelah processOrder updated
-  }, [processOrder]);
+    setProcessOrder(
+      `#${formattedPlant}_${formattedLine}_${formattedDate}_${formattedShift}_${formattedMachine}`
+    );
+  };
+
+  const toggleSwitch = (index) => {
+    let data = [...inspectionData];
+    data[index].done = !data[index].done;
+    setInspectionData(data);
+  };
 
   const handleImageSelected = (uri, index) => {
     let data = [...inspectionData];
     data[index].picture = uri; // Update picture field with uploaded image URI or local URI
     setInspectionData(data);
+  };
+
+  const handleInputChange = (text, index) => {
+    let data = [...inspectionData];
+
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, "0");
+    const minutes = String(now.getMinutes()).padStart(2, "0");
+    const formattedTime = `${hours}:${minutes}`;
+
+    data[index].results = text; // Perbarui nilai results
+    data[index].user = username; // Perbarui nilai user
+    data[index].time = formattedTime; // Perbarui nilai time
+    data[index].done = !!text; // Jika ada teks yang dimasukkan, atur done menjadi true
+    setInspectionData(data); // Perbarui state inspectionData
+  };
+
+  const handleInputChangeGIGR = (text, index, field) => {
+    const newData = [...inspectionDataGIGR];
+
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, "0");
+    const minutes = String(now.getMinutes()).padStart(2, "0");
+    const formattedTime = `${hours}:${minutes}`;
+
+    newData[index][field] = text;
+    newData[index].time = formattedTime; // Perbarui nilai time
+    newData[index].user = username; // Perbarui nilai user
+    setInspectionDataGIGR(newData);
   };
 
   // Submit form and handle image upload
@@ -233,18 +352,33 @@ const CILTinspection = ({ route, navigation }) => {
       let updatedInspectionData;
 
       // Cek kondisi untuk penggunaan inspectionData
-      updatedInspectionData = await Promise.all(
-        inspectionData.map(async (item, index) => {
-          let updatedItem = { ...item, id: index + 1 };
+      if (machine === "Robot Palletizer" && packageType === "GI/GR") {
+        updatedInspectionData = await Promise.all(
+          inspectionDataGIGR.map(async (item, index) => {
+            let updatedItem = { ...item, id: index + 1 };
 
-          if (item.picture && item.picture.startsWith("file://")) {
-            const serverImageUrl = await uploadImageToServer(item.picture);
-            updatedItem.picture = serverImageUrl;
-          }
+            if (item.picture && item.picture.startsWith("file://")) {
+              const serverImageUrl = await uploadImageToServer(item.picture);
+              updatedItem.picture = serverImageUrl;
+            }
 
-          return updatedItem;
-        })
-      );
+            return updatedItem;
+          })
+        );
+      } else {
+        updatedInspectionData = await Promise.all(
+          inspectionData.map(async (item, index) => {
+            let updatedItem = { ...item, id: index + 1 };
+
+            if (item.picture && item.picture.startsWith("file://")) {
+              const serverImageUrl = await uploadImageToServer(item.picture);
+              updatedItem.picture = serverImageUrl;
+            }
+
+            return updatedItem;
+          })
+        );
+      }
 
       // Siapkan objek order
       order = {
@@ -389,14 +523,17 @@ const CILTinspection = ({ route, navigation }) => {
                   <Picker
                     selectedValue={plant}
                     style={styles.dropdown}
-                    onValueChange={async (itemValue) => {
+                    onValueChange={(itemValue) => {
                       setPlant(itemValue);
-                      await AsyncStorage.setItem("plant", itemValue);
                     }}
                   >
                     <Picker.Item label="Select option" value="" />
                     {plantOptions.map((option, index) => (
-                      <Picker.Item key={index} label={option} value={option} />
+                      <Picker.Item
+                        key={index}
+                        label={option.plant}
+                        value={option.plant}
+                      />
                     ))}
                   </Picker>
                 </View>
@@ -413,14 +550,17 @@ const CILTinspection = ({ route, navigation }) => {
                   <Picker
                     selectedValue={line}
                     style={styles.dropdown}
-                    onValueChange={async (itemValue) => {
+                    onValueChange={(itemValue) => {
                       setLine(itemValue);
-                      await AsyncStorage.setItem("line", itemValue);
                     }}
                   >
                     <Picker.Item label="Select option" value="" />
                     {lineOptions.map((option, index) => (
-                      <Picker.Item key={index} label={option} value={option} />
+                      <Picker.Item
+                        key={index}
+                        label={option.line}
+                        value={option.line}
+                      />
                     ))}
                   </Picker>
                 </View>
@@ -445,7 +585,11 @@ const CILTinspection = ({ route, navigation }) => {
                   >
                     <Picker.Item label="Select option" value="" />
                     {machineOptions.map((option, index) => (
-                      <Picker.Item key={index} label={option} value={option} />
+                      <Picker.Item
+                        key={index}
+                        label={option.machine}
+                        value={option.machine}
+                      />
                     ))}
                   </Picker>
                 </View>
@@ -468,7 +612,11 @@ const CILTinspection = ({ route, navigation }) => {
                   >
                     <Picker.Item label="Select option" value="" />
                     {packageOptions.map((option, index) => (
-                      <Picker.Item key={index} label={option} value={option} />
+                      <Picker.Item
+                        key={index}
+                        label={option.type}
+                        value={option.type}
+                      />
                     ))}
                   </Picker>
                 </View>
@@ -487,9 +635,8 @@ const CILTinspection = ({ route, navigation }) => {
                   <Picker
                     selectedValue={product}
                     style={styles.dropdown}
-                    onValueChange={async (itemValue) => {
+                    onValueChange={(itemValue) => {
                       setProduct(itemValue);
-                      await AsyncStorage.setItem("product", itemValue);
                     }}
                   >
                     <Picker.Item label="Select option" value="" />
@@ -540,55 +687,232 @@ const CILTinspection = ({ route, navigation }) => {
             </View>
 
             <View style={styles.wrapper}>
-              {machine === "FILLER" &&
-                packageType === "PEMAKAIAN SCREW CAP" && (
-                  <ScrewCapInspectionTable
-                    key="screw-cap"
-                    username={username}
-                    onDataChange={(data) => setInspectionData(data)}
-                    initialData={inspectionData}
+              {machine === "Robot Palletizer" && packageType === "GI/GR" ? (
+                <View style={styles.table}>
+                  {/* Table Head */}
+                  <View style={styles.tableHead}>
+                    <Text style={[styles.tableCaption, { width: "10%" }]}>
+                      NO
+                    </Text>
+                    <Text style={[styles.tableCaption, { width: "10%" }]}>
+                      NO PALET
+                    </Text>
+                    <Text style={[styles.tableCaption, { width: "30%" }]}>
+                      NO CARTON {"\n"}(1-64)
+                    </Text>
+                    <Text style={[styles.tableCaption, { width: "20%" }]}>
+                      JUMLAH CARTON
+                    </Text>
+                    <Text
+                      style={[
+                        styles.tableCaption,
+                        { width: "30%", textAlign: "center" },
+                      ]}
+                    >
+                      WAKTU {"\n"}(07:00-07:10)
+                    </Text>
+                  </View>
+
+                  {/* Table Body */}
+                  <FlatList
+                    data={inspectionDataGIGR}
+                    keyExtractor={(_, index) => index.toString()}
+                    nestedScrollEnabled={true}
+                    renderItem={({ item, index }) => (
+                      <View key={index} style={styles.tableBody}>
+                        <View style={{ width: "10%" }}>
+                          <View
+                            style={[styles.tableData, styles.centeredContent]}
+                          >
+                            <Text>{index + 1}</Text>
+                          </View>
+                        </View>
+
+                        <View style={{ width: "10%" }}>
+                          <View
+                            style={[styles.tableData, styles.centeredContent]}
+                          >
+                            <TextInput
+                              placeholder="Isi disini"
+                              style={styles.tableData}
+                              value={item.noPalet}
+                              onChangeText={(text) =>
+                                handleInputChangeGIGR(text, index, "noPalet")
+                              }
+                            />
+                          </View>
+                        </View>
+
+                        <View style={{ width: "30%" }}>
+                          <View
+                            style={[styles.tableData, styles.centeredContent]}
+                          >
+                            <TextInput
+                              placeholder="Isi disini"
+                              style={styles.tableData}
+                              value={item.noCarton}
+                              onChangeText={(text) =>
+                                handleInputChangeGIGR(text, index, "noCarton")
+                              }
+                            />
+                          </View>
+                        </View>
+
+                        <View style={{ width: "20%" }}>
+                          <View
+                            style={[styles.tableData, styles.centeredContent]}
+                          >
+                            <TextInput
+                              placeholder="Isi disini"
+                              keyboardType="numeric"
+                              style={styles.tableData}
+                              value={item.jumlahCarton}
+                              onChangeText={(text) =>
+                                handleInputChangeGIGR(
+                                  text,
+                                  index,
+                                  "jumlahCarton"
+                                )
+                              }
+                            />
+                          </View>
+                        </View>
+
+                        <View style={{ width: "30%" }}>
+                          <View
+                            style={[styles.tableData, styles.centeredContent]}
+                          >
+                            <TextInput
+                              placeholder="Isi disini"
+                              style={styles.tableData}
+                              value={item.waktu}
+                              onChangeText={(text) =>
+                                handleInputChangeGIGR(text, index, "waktu")
+                              }
+                            />
+                          </View>
+                        </View>
+                      </View>
+                    )}
                   />
-                )}
-              {machine === "FILLER" && packageType === "PEMAKAIAN PAPER" && (
-                <PaperUsageInspectionTable
-                  key="paper"
-                  username={username}
-                  onDataChange={(data) => setInspectionData(data)}
-                  initialData={inspectionData}
-                />
-              )}
-              {machine === "FILLER" &&
-                packageType === "PENGECEKAN H2O2 ( SPRAY )" && (
-                  <H2o2CheckInspectionTable
-                    key="h2o2-check"
-                    username={username}
-                    onDataChange={(data) => setInspectionData(data)}
-                    initialData={inspectionData}
-                  />
-                )}
-              {machine === "FILLER" &&
-                packageType === "PERFORMA RED AND GREEN" && (
-                  <GnrPerformanceInspectionTable
-                    key="gnr-performance"
-                    username={username}
-                    onDataChange={(data) => setInspectionData(data)}
-                    plant={plant}
-                    line={line}
-                    machine={machine}
-                    type={packageType}
-                  />
-                )}
-              {machine === "FILLER" && packageType === "CHECKLIST CILT" && (
-                <ChecklistCILTInspectionTable
-                  key="checklist-cilt"
-                  username={username}
-                  onDataChange={(data) => setInspectionData(data)}
-                  initialData={inspectionData}
-                  plant={plant}
-                  line={line}
-                  machine={machine}
-                  type={packageType}
-                />
+                </View>
+              ) : (
+                <>
+                  {/* Table Container */}
+                  <View style={styles.table}>
+                    {/* Table Head */}
+                    <View style={styles.tableHead}>
+                      {/* Header Caption */}
+                      {/* <View style={{ width: "10%" }}>
+                        <Text style={styles.tableCaption}>Done</Text>
+                      </View> */}
+                      <View style={{ width: "20%" }}>
+                        <Text style={styles.tableCaption}>Activity</Text>
+                      </View>
+                      <View style={{ width: "7%" }}>
+                        <Text style={styles.tableCaption}>G</Text>
+                      </View>
+                      <View style={{ width: "7%" }}>
+                        <Text style={styles.tableCaption}>N</Text>
+                      </View>
+                      <View style={{ width: "7%" }}>
+                        <Text style={styles.tableCaption}>R</Text>
+                      </View>
+                      <View style={{ width: "20%" }}>
+                        <Text style={styles.tableCaption}>Periode</Text>
+                      </View>
+                      <View style={{ width: "20%" }}>
+                        <Text style={styles.tableCaption}>Hasil</Text>
+                      </View>
+                      <View style={{ width: "20%" }}>
+                        <Text style={styles.tableCaption}>Picture</Text>
+                      </View>
+                    </View>
+
+                    {/* Table Body */}
+                    {inspectionData.map((item, index) => (
+                      <View key={index} style={styles.tableBody}>
+                        {/* Header Caption */}
+                        {/* <View style={{ width: "10%" }}>
+                          <View
+                            style={[styles.tableData, styles.centeredContent]}
+                          >
+                            <Switch
+                              style={styles.tableData}
+                              value={item.done}
+                              onValueChange={() => toggleSwitch(index)}
+                            />
+                          </View>
+                        </View> */}
+                        <View style={{ width: "20%" }}>
+                          <Text style={styles.tableData}>{item.activity}</Text>
+                        </View>
+                        <View style={{ width: "7%" }}>
+                          <Text style={styles.tableData}>
+                            {item.good ?? "-"}
+                          </Text>
+                        </View>
+                        <View style={{ width: "7%" }}>
+                          <Text style={styles.tableData}>
+                            {item.need ?? "-"}
+                          </Text>
+                        </View>
+                        <View style={{ width: "7%" }}>
+                          <Text style={styles.tableData}>
+                            {item.red ?? "-"}
+                          </Text>
+                        </View>
+                        <View style={{ width: "20%" }}>
+                          <Text style={styles.tableData}>{item.periode}</Text>
+                        </View>
+                        <View style={{ width: "20%" }}>
+                          <View
+                            style={[styles.tableData, styles.centeredContent]}
+                          >
+                            {item.status === "1" ? (
+                              <TextInput
+                                placeholder="isi disini"
+                                style={styles.tableData}
+                                value={item.results}
+                                onChangeText={(text) =>
+                                  handleInputChange(text, index)
+                                }
+                              />
+                            ) : (
+                              <Picker
+                                selectedValue={item.results}
+                                onValueChange={(value) =>
+                                  handleInputChange(value, index)
+                                }
+                                style={styles.picker}
+                              >
+                                <Picker.Item label="Select" value="" />
+                                <Picker.Item label="OK" value="OK" />
+                                <Picker.Item label="NOT OK" value="NOT OK" />
+                              </Picker>
+                            )}
+                          </View>
+                        </View>
+                        <View style={{ width: "20%" }}>
+                          {item.picture !== null ? (
+                            <View
+                              style={[styles.tableData, styles.centeredContent]}
+                            >
+                              <ReusableOfflineUploadImage
+                                onImageSelected={(uri) =>
+                                  handleImageSelected(uri, index)
+                                }
+                                uploadImage={uploadImageToServer} // Pass upload function here
+                              />
+                            </View>
+                          ) : (
+                            <Text style={styles.tableData}>N/A</Text>
+                          )}
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                </>
               )}
             </View>
           </>
@@ -708,7 +1032,11 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   // tableCSS
-  wrapper: {},
+  wrapper: {
+    justifyContent: "center",
+    alignItems: "center",
+    flex: 1,
+  },
   table: {
     width: "100%", // Make table take the full width
     margin: 15,
@@ -746,8 +1074,7 @@ const styles = StyleSheet.create({
   checkboxContainer: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 12,
-    marginBottom: 12,
+    marginBottom: 20,
   },
   checkboxLabel: {
     marginLeft: 8,
@@ -776,4 +1103,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default CILTinspection;
+export default CILTinspectionOld;

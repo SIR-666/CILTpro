@@ -1,21 +1,15 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import moment from "moment";
-import React, { useEffect, useState } from "react";
+import { useState } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { COLORS } from "../../constants/theme";
 
-const ReusableDatetime3 = ({ date, setDate, setShift, getShiftByHour }) => {
+const ReusableDatetime3 = ({ date, setDate }) => {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
 
   const currentDate = date || new Date();
-
-  useEffect(() => {
-    const hour = moment(currentDate).tz("Asia/Jakarta").format("HH");
-    setShift(getShiftByHour(hour));
-    console.log(getShiftByHour(hour));
-  }, [currentDate, setShift, getShiftByHour]);
 
   const onChangeDate = (event, selectedDate) => {
     setShowDatePicker(false);
@@ -48,7 +42,9 @@ const ReusableDatetime3 = ({ date, setDate, setShift, getShiftByHour }) => {
           size={20}
           color={COLORS.lightBlue}
         />
-        <Text style={styles.text}>{currentDate.toLocaleDateString()}</Text>
+        <Text style={styles.text}>
+          {moment(currentDate).format("DD/MM/YYYY")}
+        </Text>
       </TouchableOpacity>
 
       {/* Pilih Jam */}
@@ -65,6 +61,7 @@ const ReusableDatetime3 = ({ date, setDate, setShift, getShiftByHour }) => {
           {currentDate.toLocaleTimeString([], {
             hour: "2-digit",
             minute: "2-digit",
+            hour12: false,
           })}
         </Text>
       </TouchableOpacity>

@@ -1,6 +1,7 @@
 import moment from "moment";
-import React, { useState } from "react";
+import { useState } from "react";
 import {
+  Alert,
   Dimensions,
   Image,
   Modal,
@@ -12,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { COLORS } from "../../constants/theme";
+import { api } from "../../utils/axiosInstance";
 
 const DetailShiftlyDowntime = ({ route, navigation }) => {
   const { item } = route.params;
@@ -24,13 +26,36 @@ const DetailShiftlyDowntime = ({ route, navigation }) => {
   // Set inspection data
   const inspectionData = item.data;
 
-  const handlePress = (image) => {
-    setSelectedImage(image);
-    setModalVisible(true);
+  const deleteInspectionById = async (id) => {
+    const response = await api.delete(`/downtime/${id}`);
+    return response.data;
   };
 
-  const handleLanjutkanDraft = (item) => {
-    navigation.navigate("EditCilt", { item });
+  const handleDelete = (id) => {
+    Alert.alert(
+      "Confirm Deletion",
+      "Are you sure you want to delete this item?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteInspectionById(id);
+              Alert.alert("Success", "Item deleted successfully.");
+              navigation.navigate("ListDowntime");
+            } catch (error) {
+              console.error("Delete failed:", error);
+              Alert.alert("Error", "Failed to delete item.");
+            }
+          },
+        },
+      ]
+    );
   };
 
   //   const printToFile = async () => {
@@ -219,9 +244,7 @@ const DetailShiftlyDowntime = ({ route, navigation }) => {
           <Text style={styles.infoTextBold}>
             Date:{"    "}
             <Text style={styles.infoText}>
-              {moment(item.date, "YYYY-MM-DD HH:mm:ss.SSS").format(
-                "DD/MM/YY HH:mm:ss"
-              )}
+              {moment(item.date, "YYYY-MM-DD HH:mm:ss.SSS").format("DD/MM/YY")}
             </Text>
           </Text>
           <Text style={styles.infoTextBold}>
@@ -266,77 +289,108 @@ const DetailShiftlyDowntime = ({ route, navigation }) => {
           <View style={styles.table}>
             {/* Table Head */}
             <View style={styles.tableHead}>
-              {/* Header Caption */}
-              <View style={{ width: "5%" }}>
-                <Text style={styles.tableCaption}>No</Text>
+              <View style={[styles.cell, { width: "4%" }]}>
+                <Text style={styles.cellTextHeader}>No</Text>
               </View>
-              <View style={{ width: "15%" }}>
-                <Text style={styles.tableCaption}>Downtime Category</Text>
+              <View style={[styles.cell, { width: "12%" }]}>
+                <Text style={styles.cellTextHeader}>Downtime Category</Text>
               </View>
-              <View style={{ width: "15%" }}>
-                <Text style={styles.tableCaption}>Machine</Text>
+              <View style={[styles.cell, { width: "15%" }]}>
+                <Text style={styles.cellTextHeader}>Machine</Text>
               </View>
-              <View style={{ width: "15%" }}>
-                <Text style={styles.tableCaption}>Type</Text>
+              <View style={[styles.cell, { width: "14%" }]}>
+                <Text style={styles.cellTextHeader}>Type</Text>
               </View>
-              <View style={{ width: "15%" }}>
-                <Text style={styles.tableCaption}>Start Time</Text>
+              <View style={[styles.cell, { width: "10%" }]}>
+                <Text style={styles.cellTextHeader}>Start Time</Text>
               </View>
-              <View style={{ width: "10%" }}>
-                <Text style={styles.tableCaption}>Duration (minutes)</Text>
+              <View style={[styles.cell, { width: "10%" }]}>
+                <Text style={styles.cellTextHeader}>Duration (minutes)</Text>
               </View>
-              <View style={{ width: "15%" }}>
-                <Text style={styles.tableCaption}>Notes</Text>
+              <View style={[styles.cell, { width: "15%" }]}>
+                <Text style={styles.cellTextHeader}>Notes</Text>
               </View>
-              <View style={{ width: "10%" }}>
-                <Text style={styles.tableCaption}>Status</Text>
+              {/* <View style={[styles.cell, { width: "10%" }]}>
+                <Text style={styles.cellTextHeader}>Status</Text>
+              </View> */}
+              <View style={[styles.cell, { width: "20%" }]}>
+                <Text style={styles.cellTextHeader}>Action</Text>
               </View>
             </View>
 
             {/* Table Body */}
-            {inspectionData.map((item, index) => {
-              return (
-                <View key={index} style={styles.tableBody}>
-                  {/* Header Caption */}
-                  <View style={{ width: "5%" }}>
-                    {/* <Text style={styles.tableData}>Done</Text> */}
-                    <View style={[styles.tableData, styles.centeredContent]}>
-                      <Text style={styles.tableData}>{index + 1}</Text>
-                    </View>
+            <View style={{ borderWidth: 1, borderColor: "#000" }}>
+              {inspectionData.map((item, index) => (
+                <View key={index} style={{ flexDirection: "row" }}>
+                  <View style={[styles.cell, { width: "4%" }]}>
+                    <Text style={styles.cellText}>{index + 1}</Text>
                   </View>
-                  <View style={{ width: "15%" }}>
-                    <Text style={styles.tableData}>
+                  <View style={[styles.cell, { width: "12%" }]}>
+                    <Text style={styles.cellText}>
                       {item.downtime_category}
                     </Text>
                   </View>
-                  <View style={{ width: "15%" }}>
-                    <Text style={styles.tableData}>{item.mesin}</Text>
+                  <View style={[styles.cell, { width: "15%" }]}>
+                    <Text style={styles.cellText}>{item.mesin}</Text>
                   </View>
-                  <View style={{ width: "15%" }}>
-                    <Text style={styles.tableData}>{item.jenis}</Text>
+                  <View style={[styles.cell, { width: "14%" }]}>
+                    <Text style={styles.cellText}>{item.jenis}</Text>
                   </View>
-                  <View style={{ width: "15%" }}>
-                    <Text style={styles.tableData}>
+                  <View style={[styles.cell, { width: "10%" }]}>
+                    <Text style={styles.cellText}>
                       {moment(
                         item.start_time,
                         "YYYY-MM-DD HH:mm:ss.SSS"
                       ).format("HH:mm:ss")}
                     </Text>
                   </View>
-                  <View style={{ width: "10%" }}>
-                    <Text style={styles.tableData}>{item.minutes}</Text>
+                  <View style={[styles.cell, { width: "10%" }]}>
+                    <Text style={styles.cellText}>{item.minutes}</Text>
                   </View>
-                  <View style={{ width: "15%" }}>
-                    <Text style={styles.tableData}>{item.keterangan}</Text>
+                  <View style={[styles.cell, { width: "15%" }]}>
+                    <Text style={styles.cellText}>{item.keterangan}</Text>
                   </View>
-                  <View style={{ width: "10%" }}>
-                    <Text style={styles.tableData}>
-                      {item.completed === 1 ? "Done" : "Not yet"}
+                  {/* <View style={[styles.cell, { width: "10%" }]}>
+                    <Text style={styles.cellText}>
+                      {item.completed === 1 ? "Done" : "Pending"}
                     </Text>
+                  </View> */}
+                  <View
+                    style={[
+                      styles.cell,
+                      {
+                        width: "20%",
+                        flexDirection: "row",
+                        justifyContent: "center", // Horizontal center
+                        alignItems: "center", // Vertical center
+                        gap: 4,
+                      },
+                    ]}
+                  >
+                    {item.completed === 0 ? (
+                      <>
+                        <TouchableOpacity
+                          style={styles.updateButton}
+                          onPress={() =>
+                            navigation.navigate("EditDowntime", { item })
+                          }
+                        >
+                          <Text style={styles.buttonText}>Update</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.deleteButton}
+                          onPress={() => handleDelete(item.id)}
+                        >
+                          <Text style={styles.buttonText}>Delete</Text>
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <Text>No action</Text>
+                    )}
                   </View>
                 </View>
-              );
-            })}
+              ))}
+            </View>
           </View>
         </View>
 
@@ -377,6 +431,39 @@ const DetailShiftlyDowntime = ({ route, navigation }) => {
 };
 
 const styles = StyleSheet.create({
+  cell: {
+    borderWidth: 1,
+    borderColor: "#000",
+    padding: 4,
+    justifyContent: "center",
+  },
+  cellText: {
+    fontSize: 14,
+    textAlign: "center",
+  },
+  cellTextHeader: {
+    fontSize: 14,
+    textAlign: "center",
+    fontWeight: "bold",
+  },
+  updateButton: {
+    backgroundColor: "#4caf50",
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+    marginRight: 4,
+  },
+  deleteButton: {
+    backgroundColor: "#f44336",
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+  },
+  buttonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
   container: {
     flex: 1,
     backgroundColor: "#fff",
@@ -458,8 +545,10 @@ const styles = StyleSheet.create({
   tableHead: {
     flexDirection: "row",
     backgroundColor: "#3bcd6b",
-    padding: 20,
     width: "100%",
+    flexDirection: "row",
+    borderWidth: 1,
+    borderColor: "#000",
   },
   tableBody: {
     flexDirection: "row",

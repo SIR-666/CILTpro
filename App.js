@@ -7,11 +7,16 @@ import { useCallback, useEffect, useState } from "react";
 import {
   AddCilt,
   AddDowntime,
+  DetailLaporanChecklistCILT,
   DetailLaporanCILT,
   DetailLaporanCILTGIGR,
+  DetailLaporanH2O2Check,
+  DetailLaporanPaperUsage,
+  DetailLaporanScrewCap,
   DetailLaporanShiftlyCILT,
   DetailShiftlyDowntime,
   EditCilt,
+  EditDowntime,
   EditShiftHandOver,
   HomeCILT,
   HomeHO,
@@ -253,6 +258,11 @@ export default function App() {
           options={{ headerShown: false }}
         />
         <Stack.Screen
+          name="EditDowntime"
+          component={EditDowntime}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
           name="AddCilt"
           component={AddCilt}
           options={{ headerShown: false }}
@@ -295,6 +305,26 @@ export default function App() {
         <Stack.Screen
           name="DetailLaporanShiftlyCILT"
           component={DetailLaporanShiftlyCILT}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="DetailLaporanScrewCap"
+          component={DetailLaporanScrewCap}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="DetailLaporanPaperUsage"
+          component={DetailLaporanPaperUsage}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="DetailLaporanH2O2Check"
+          component={DetailLaporanH2O2Check}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="DetailLaporanChecklistCILT"
+          component={DetailLaporanChecklistCILT}
           options={{ headerShown: false }}
         />
         <Stack.Screen

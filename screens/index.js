@@ -1,8 +1,12 @@
 import Registration from "./authentication/Registration";
 import Signin from "./authentication/Signin";
 import AddCilt from "./cilt/AddCilt";
+import DetailLaporanChecklistCILT from "./cilt/DetailLaporanChecklistCILT";
 import DetailLaporanCILT from "./cilt/DetailLaporanCILT";
 import DetailLaporanCILTGIGR from "./cilt/DetailLaporanCILTGIGR";
+import DetailLaporanH2O2Check from "./cilt/DetailLaporanH2O2Check";
+import DetailLaporanPaperUsage from "./cilt/DetailLaporanPaperUsage";
+import DetailLaporanScrewCap from "./cilt/DetailLaporanScrewCap";
 import DetailLaporanShiftlyCILT from "./cilt/DetailLaporanShiftlyCILT";
 import EditCilt from "./cilt/EditCilt";
 import EditShiftHandOver from "./cilt/EditShiftHandOver";
@@ -12,6 +16,7 @@ import ListShiftHandOver from "./cilt/ListShiftHandOver";
 import ShiftHandOver from "./cilt/ShiftHandOver";
 import AddDowntime from "./downtime/AddDowntime";
 import DetailShiftlyDowntime from "./downtime/DetailShiftlyDowntime";
+import EditDowntime from "./downtime/EditDowntime";
 import ListDowntime from "./downtime/ListDowntime";
 import Home from "./home/Home";
 import HomeCILT from "./home/HomeCILT";
@@ -21,11 +26,16 @@ import Onboarding from "./onboarding/Onboarding";
 export {
   AddCilt,
   AddDowntime,
+  DetailLaporanChecklistCILT,
   DetailLaporanCILT,
   DetailLaporanCILTGIGR,
+  DetailLaporanH2O2Check,
+  DetailLaporanPaperUsage,
+  DetailLaporanScrewCap,
   DetailLaporanShiftlyCILT,
   DetailShiftlyDowntime,
   EditCilt,
+  EditDowntime,
   EditShiftHandOver,
   Home,
   HomeCILT,

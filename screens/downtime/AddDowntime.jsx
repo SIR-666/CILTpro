@@ -1,5 +1,6 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { Picker } from "@react-native-picker/picker";
 import * as ScreenOrientation from "expo-screen-orientation";
 import moment from "moment-timezone";
@@ -7,6 +8,7 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,8 +16,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { Checkbox, Switch } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
+import DowntimeCategoryModal from "../../components/Modal/DowntimeCategoryModal";
 import ReusableDatetime3 from "../../components/Reusable/ReusableDatetime3";
 import { COLORS } from "../../constants/theme";
 import { api } from "../../utils/axiosInstance";
@@ -32,7 +34,7 @@ const getShiftByHour = (hour) => {
   return "Unknown Shift";
 };
 
-const AddDowntimePage = ({ navigation }) => {
+const AddDowntimePage = () => {
   const [plant, setPlant] = useState("");
   const [line, setLine] = useState("");
   const [date, setDate] = useState(new Date());
@@ -41,18 +43,116 @@ const AddDowntimePage = ({ navigation }) => {
     getShiftByHour(moment(new Date()).tz("Asia/Jakarta").format("HH"))
   );
 
-  const [machine, setMachine] = useState("");
-  const [downtime, setDowntime] = useState("");
   const [remarks, setRemarks] = useState("");
   const [duration, setDuration] = useState("");
-  const [agreed, setAgreed] = useState(false);
   const [isLoading, setIsLoading] = useState(false); // State to manage loading animation
-  const [inspectionData, setInspectionData] = useState([]);
+  const [downtimeData, setDowntimeData] = useState([]);
   const [areas, setAreas] = useState([]);
   const [lineOptions, setLineOptions] = useState([]);
-  const [machineOptions, setMachineOptions] = useState([]);
-  const [category, setCategory] = useState("");
-  const [categoryOptions, setCategoryOptions] = useState([]);
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
+  const [showModal, setShowModal] = useState(false);
+  const [categoryData, setCategoryData] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedMachine, setSelectedMachine] = useState("");
+  const [selectedItemDowntime, setSelectedItemDowntime] = useState("");
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [startTime, setStartTime] = useState(new Date());
+  const [editingItem, setEditingItem] = useState(null);
+
+  const deleteInspectionById = async (id) => {
+    const response = await api.delete(`/downtime/${id}`);
+    return response.data;
+  };
+
+  const handleDelete = (id) => {
+    Alert.alert(
+      "Confirm Deletion",
+      "Are you sure you want to delete this item?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+        },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteInspectionById(id);
+              Alert.alert("Success", "Item deleted successfully.");
+              fetchData();
+            } catch (error) {
+              console.error("Delete failed:", error);
+              Alert.alert("Error", "Failed to delete item.");
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleSelect = (category, machine, itemDowntime) => {
+    setSelectedCategory(category);
+    setSelectedMachine(machine);
+    setSelectedItemDowntime(itemDowntime);
+    setShowModal(false);
+    setShowDetailModal(true); // tampilkan modal input detail
+  };
+
+  const fetchMasterDowntimeByLine = async (line) => {
+    try {
+      const response = await api.get(`/getDowntimeMasterByLine?line=${line}`);
+      const raw = response.data;
+
+      // Proses jadi format: [{ category: "...", items: [...] }]
+      const grouped = raw.reduce((acc, item) => {
+        const { downtime_category, mesin, downtime } = item;
+
+        // cari kategori
+        let cat = acc.find((c) => c.category === downtime_category);
+        if (!cat) {
+          cat = { category: downtime_category, mesin: [] };
+          acc.push(cat);
+        }
+
+        // cari mesin
+        let m = cat.mesin.find((m) => m.name === mesin);
+        if (!m) {
+          m = { name: mesin, downtime: [] };
+          cat.mesin.push(m);
+        }
+
+        // tambahkan downtime jika belum ada
+        if (!m.downtime.includes(downtime)) {
+          m.downtime.push(downtime);
+        }
+
+        return acc;
+      }, []);
+
+      setCategoryData(grouped);
+    } catch (error) {
+      console.error("Failed to fetch master downtime:", error);
+    }
+  };
+
+  useEffect(() => {
+    if (line) {
+      fetchMasterDowntimeByLine(line);
+    }
+  }, [line]);
+
+  useEffect(() => {
+    if (startTime && duration && !isNaN(duration)) {
+      const start = new Date(startTime);
+      const calculatedEnd = new Date(
+        start.getTime() + parseInt(duration) * 60000
+      ); // menit → ms
+      setEndTime(calculatedEnd);
+    }
+  }, [startTime, duration]);
 
   useEffect(() => {
     // Lock the screen orientation to portrait
@@ -81,23 +181,32 @@ const AddDowntimePage = ({ navigation }) => {
   };
 
   useEffect(() => {
+    const loadDate = async () => {
+      const savedDate = await AsyncStorage.getItem("date");
+      setPlant(await AsyncStorage.getItem("plant"));
+      setLine(await AsyncStorage.getItem("line"));
+      setShift(await AsyncStorage.getItem("shift"));
+      if (savedDate) {
+        setCurrentDate(new Date(savedDate)); // restore sebagai Date object
+      }
+    };
+    loadDate();
+  }, []);
+
+  useEffect(() => {
     fetchAreaData(); // Fetch area data on component mount
-    if (!machine == "") {
-      fetchInspectionData(line, category, machine); // Pass the updated packageType to fetchInspectionData
-    }
-  }, [machine]);
+  }, []);
 
-  useEffect(() => {
+  const fetchData = async () => {
     filterOptions();
-  }, [plant, line, category, date, shift, machine]);
+    const dateLocal = await AsyncStorage.getItem("date");
+    const shiftMapped = shiftMapCILT[shift] || shift;
+    await fetchDowntimeData(plant, dateLocal, line, shiftMapped);
+  };
 
   useEffect(() => {
-    if (date && duration && !isNaN(duration)) {
-      const start = new Date(date);
-      const newEndTime = new Date(start.getTime() + parseInt(duration) * 60000); // 60000ms = 1 menit
-      setEndTime(newEndTime);
-    }
-  }, [date, duration]);
+    fetchData();
+  }, [plant, line, currentDate, shift]);
 
   const fetchAreaData = async () => {
     try {
@@ -108,36 +217,14 @@ const AddDowntimePage = ({ navigation }) => {
     }
   };
 
-  const fetchInspectionData = async (line, category, machine) => {
-    setIsLoading(true); // Start loading animation
-    setInspectionData([]); // Reset inspection data before fetching new data
-
+  const fetchDowntimeData = async (plant, date, line, shift) => {
     try {
       const response = await api.get(
-        `/getDowntimeMaster/${line}/${category}/${machine}`
+        `/getDowntimeData?plant=${plant}&date=${date}&line=${line}&shift=${shift}`
       );
-
-      if (!response.data || !Array.isArray(response.data)) {
-        throw new Error("Invalid response format");
-      }
-
-      console.log("response.data:", response.data);
-
-      const formattedData = response.data.map((item) => ({
-        id: item.id,
-        line: item.line,
-        category: item.downtime_category,
-        mesin: item.mesin,
-        downtime: item.downtime,
-        done: false,
-      }));
-
-      setInspectionData(formattedData); // Set the new inspection data
-      console.log("Updated inspectionData:", formattedData); // Debugging log
+      setDowntimeData(response.data || []);
     } catch (error) {
-      console.error("Error fetching inspection data:", error);
-    } finally {
-      setIsLoading(false); // Stop loading animation
+      console.error("Error fetching data:", error);
     }
   };
 
@@ -148,77 +235,66 @@ const AddDowntimePage = ({ navigation }) => {
       .filter((value, index, self) => self.indexOf(value) === index);
 
     setLineOptions(filteredLines);
-
-    const filteredCategories = areas
-      .filter((area) => area.plant === plant && area.line === line)
-      .map((area) => area.downtime_category)
-      .filter((value, index, self) => self.indexOf(value) === index);
-
-    setCategoryOptions(filteredCategories);
-
-    const filteredMachines = areas
-      .filter(
-        (area) =>
-          area.plant === plant &&
-          area.line === line &&
-          area.downtime_category === category
-      )
-      .map((area) => area.mesin);
-
-    setMachineOptions(filteredMachines);
-  };
-
-  const toggleSwitch = (index) => {
-    const updatedData = inspectionData.map((item, i) => ({
-      ...item,
-      done: i === index ? !item.done : false, // hanya item yang di-tap yang bisa aktif
-    }));
-
-    setInspectionData(updatedData);
-
-    const selected = updatedData.find((item) => item.done);
-    if (selected) {
-      setDowntime(selected.downtime); // set downtime yang dipilih
-    } else {
-      setDowntime(""); // reset jika tidak ada yang aktif
-    }
   };
 
   // Submit form
   const handleSubmit = async () => {
-    const submitTime = moment().tz("Asia/Jakarta").format(); // Rekam waktu submit dalam zona waktu Jakarta
-    let order = {}; // Objek untuk menyimpan data order
+    let order = {};
+    if (!startTime || !duration || !remarks) {
+      Alert.alert("Attention!", "Please fill in all fields.");
+      return;
+    }
 
     try {
-      // Siapkan objek order
       order = {
         plant: plant,
-        date: moment(date).tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm"),
+        date: moment(startTime).tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm"),
         shift: shiftMapCILT[shift] || shift.replace(/\D/g, ""),
         line: line,
-        downtime_category: category == "Breakdown" ? "Minor Stop" : category,
-        mesin: machine,
-        jenis: downtime,
-        keterangan: remarks,
+        downtime_category:
+          selectedCategory == "Breakdown/Minor Stop"
+            ? "Minor Stop"
+            : selectedCategory,
+        mesin: selectedMachine,
+        jenis: selectedItemDowntime,
+        keterangan: remarks || "-",
         minutes: duration,
+        ...(editingItem && { id: editingItem.id }), // tambahkan id jika edit
       };
 
-      console.log("Simpan data order:", order);
+      const response = editingItem
+        ? await api.put("/downtime", order)
+        : await api.post("/downtime", order);
 
-      // Kirim data ke server
-      const response = await api.post("/downtime", order);
-
-      if (response.status === 201) {
-        Alert.alert("Success", "Data submitted successfully!");
-        await clearOfflineData(); // Hapus data offline setelah berhasil submit
-        setTimeout(() => {
-          navigation.goBack();
-        }, 500);
+      if (response.status === 201 || response.status === 200) {
+        Alert.alert(
+          "Success",
+          `Data ${editingItem ? "updated" : "submitted"} successfully!`
+        );
+        setShowDetailModal(false);
+        setStartTime(new Date());
+        setEndTime(new Date());
+        setDuration("");
+        setRemarks("");
+        setEditingItem(null);
+        fetchData();
+        await clearOfflineData();
       }
     } catch (error) {
-      await saveOfflineData(order); // Simpan data secara offline jika submit gagal
-      Alert.alert(error.response.data.message);
+      await saveOfflineData(order);
+      Alert.alert(error.response?.data?.message || "Submission failed.");
     }
+  };
+
+  const handleEdit = (item) => {
+    setSelectedCategory(item.Downtime_Category);
+    setSelectedMachine(item.Mesin);
+    setSelectedItemDowntime(item.Jenis);
+    setStartTime(moment(item.Date, "YYYY-MM-DD HH:mm:ss.SSS").toDate());
+    setDuration(String(item.Minutes));
+    setRemarks(item.Keterangan);
+    setEditingItem(item); // simpan item yang sedang diedit
+    setShowDetailModal(true);
   };
 
   // Save offline data when API submission fails
@@ -242,6 +318,17 @@ const AddDowntimePage = ({ navigation }) => {
     }
   };
 
+  const onDateChange = async (event, selectedDate) => {
+    setShowDatePicker(false);
+    if (selectedDate) {
+      setCurrentDate(selectedDate);
+
+      // Konversi tanggal ke string (format YYYY-MM-DD misalnya)
+      const dateString = selectedDate.toISOString().split("T")[0];
+      await AsyncStorage.setItem("date", dateString);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContainer}>
@@ -251,86 +338,6 @@ const AddDowntimePage = ({ navigation }) => {
           <ActivityIndicator size="large" color={COLORS.blue} />
         ) : (
           <>
-            <View style={styles.row}>
-              {/* Select Date and Select Time */}
-              <View style={styles.halfInputGroup}>
-                <Text style={styles.label}>Date & Start Time *</Text>
-                <View style={styles.dropdownContainer}>
-                  <ReusableDatetime3
-                    date={date}
-                    setDate={setDate}
-                    setShift={setShift}
-                    getShiftByHour={getShiftByHour}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.halfInputGroup}>
-                <Text style={styles.label}>Shift *</Text>
-                <View style={styles.dropdownContainer}>
-                  <MaterialCommunityIcons
-                    name="clock-outline"
-                    size={24}
-                    color={COLORS.lightBlue}
-                  />
-                  <Picker
-                    selectedValue={shift}
-                    style={styles.dropdown}
-                    onValueChange={(itemValue) => setShift(itemValue)}
-                  >
-                    <Picker.Item label="Select option" value="" />
-                    {shiftOptions.map((option) => (
-                      <Picker.Item
-                        key={option.value}
-                        label={option.label}
-                        value={option.value}
-                      />
-                    ))}
-                  </Picker>
-                </View>
-              </View>
-            </View>
-
-            <View style={styles.row}>
-              <View style={styles.halfInputGroup}>
-                <Text style={styles.label}>Duration (minutes) *</Text>
-                <View style={styles.inputContainer}>
-                  <MaterialCommunityIcons
-                    name="timer-outline"
-                    size={20}
-                    color={COLORS.lightBlue}
-                  />
-                  <TextInput
-                    placeholder="Duration"
-                    style={styles.input}
-                    value={duration}
-                    keyboardType="numeric"
-                    onChangeText={(text) => setDuration(text)}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.halfInputGroup}>
-                <Text style={styles.label}>End Time *</Text>
-                <View style={styles.inputContainer}>
-                  <MaterialCommunityIcons
-                    name="calendar-range"
-                    size={20}
-                    color={COLORS.lightBlue}
-                  />
-                  <Text style={styles.input}>
-                    {endTime.toLocaleString([], {
-                      year: "numeric",
-                      month: "2-digit",
-                      day: "2-digit",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </Text>
-                </View>
-              </View>
-            </View>
-
             <View style={styles.row}>
               <View style={styles.halfInputGroup}>
                 <Text style={styles.label}>Plant *</Text>
@@ -343,8 +350,9 @@ const AddDowntimePage = ({ navigation }) => {
                   <Picker
                     selectedValue={plant}
                     style={styles.dropdown}
-                    onValueChange={(itemValue) => {
+                    onValueChange={async (itemValue) => {
                       setPlant(itemValue);
+                      await AsyncStorage.setItem("plant", itemValue);
                       filterOptions();
                     }}
                   >
@@ -363,7 +371,7 @@ const AddDowntimePage = ({ navigation }) => {
               </View>
 
               <View style={styles.halfInputGroup}>
-                <Text style={styles.label}>Line *</Text>
+                <Text style={styles.label}>Production Line *</Text>
                 <View style={styles.dropdownContainer}>
                   <MaterialCommunityIcons
                     name="line-scan"
@@ -373,8 +381,9 @@ const AddDowntimePage = ({ navigation }) => {
                   <Picker
                     selectedValue={line}
                     style={styles.dropdown}
-                    onValueChange={(itemValue) => {
+                    onValueChange={async (itemValue) => {
                       setLine(itemValue);
+                      await AsyncStorage.setItem("line", itemValue);
                       filterOptions();
                     }}
                   >
@@ -389,69 +398,54 @@ const AddDowntimePage = ({ navigation }) => {
 
             <View style={styles.row}>
               <View style={styles.halfInputGroup}>
-                <Text style={styles.label}>Category *</Text>
+                <Text style={styles.label}>Date *</Text>
                 <View style={styles.dropdownContainer}>
                   <MaterialCommunityIcons
-                    name="puzzle"
+                    name="calendar-range"
                     size={24}
                     color={COLORS.lightBlue}
                   />
-                  <Picker
-                    selectedValue={category}
-                    style={styles.dropdown}
-                    onValueChange={(itemValue) => {
-                      setCategory(itemValue);
-                      filterOptions();
-                    }}
-                  >
-                    <Picker.Item label="Select option" value="" />
-                    {categoryOptions.map((option, index) => (
-                      <Picker.Item key={index} label={option} value={option} />
-                    ))}
-                  </Picker>
+                  <TouchableOpacity onPress={() => setShowDatePicker(true)}>
+                    <Text style={styles.dateText}>
+                      {currentDate.toLocaleDateString("id-ID", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                      })}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {showDatePicker && (
+                    <DateTimePicker
+                      testID="datePicker"
+                      value={currentDate}
+                      mode="date"
+                      is24Hour={true}
+                      display="default"
+                      onChange={onDateChange}
+                    />
+                  )}
                 </View>
               </View>
 
               <View style={styles.halfInputGroup}>
-                <Text style={styles.label}>Machine *</Text>
+                <Text style={styles.label}>Shift *</Text>
                 <View style={styles.dropdownContainer}>
                   <MaterialCommunityIcons
-                    name="robot-industrial"
+                    name="clock-outline"
                     size={24}
                     color={COLORS.lightBlue}
                   />
                   <Picker
-                    selectedValue={machine}
+                    selectedValue={shift}
                     style={styles.dropdown}
-                    onValueChange={(itemValue) => setMachine(itemValue)}
-                  >
-                    <Picker.Item label="Select option" value="" />
-                    {machineOptions.map((option, index) => (
-                      <Picker.Item key={index} label={option} value={option} />
-                    ))}
-                  </Picker>
-                </View>
-              </View>
-            </View>
-
-            {/* <View style={styles.row}>
-              <View style={styles.halfInputGroup}>
-                <Text style={styles.label}>Group *</Text>
-                <View style={styles.dropdownContainer}>
-                  <MaterialCommunityIcons
-                    name="account-group"
-                    size={24}
-                    color={COLORS.lightBlue}
-                  />
-                  <Picker
-                    selectedValue={product}
-                    style={styles.dropdown}
-                    onValueChange={(itemValue) => {
-                      setProduct(itemValue);
+                    onValueChange={async (itemValue) => {
+                      setShift(itemValue);
+                      await AsyncStorage.setItem("shift", itemValue);
                     }}
                   >
                     <Picker.Item label="Select option" value="" />
-                    {productOptions.map((option) => (
+                    {shiftOptions.map((option) => (
                       <Picker.Item
                         key={option.value}
                         label={option.label}
@@ -461,91 +455,297 @@ const AddDowntimePage = ({ navigation }) => {
                   </Picker>
                 </View>
               </View>
-            </View> */}
-
-            <View style={styles.inputGroupBawah}>
-              <Text style={styles.label}>Remarks *</Text>
-              <View style={styles.inputContainer}>
-                <MaterialCommunityIcons
-                  name="card-text"
-                  size={20}
-                  color={COLORS.lightBlue}
-                />
-                <TextInput
-                  placeholder="Catatan"
-                  style={styles.input}
-                  value={remarks}
-                  onChangeText={(text) => setRemarks(text)}
-                />
-              </View>
             </View>
+
+            <TouchableOpacity
+              style={styles.addDowntimeButton}
+              onPress={() => setShowModal(true)}
+            >
+              <Text style={styles.buttonTextBold}>Add Downtime</Text>
+            </TouchableOpacity>
+
+            <DowntimeCategoryModal
+              visible={showModal}
+              onClose={() => setShowModal(false)}
+              onSelect={handleSelect}
+              data={categoryData}
+            />
 
             <View style={styles.wrapper}>
               {/* Table Container */}
               <View style={styles.table}>
                 {/* Table Head */}
                 <View style={styles.tableHead}>
-                  {/* Header Caption */}
-                  <View style={{ width: "20%" }}>
-                    <Text style={styles.tableCaption}>Select</Text>
+                  <View style={[styles.cell, { width: "4%" }]}>
+                    <Text style={styles.cellTextHeader}>No</Text>
                   </View>
-                  <View style={{ width: "80%" }}>
-                    <Text style={styles.tableCaption}>Downtime</Text>
+                  <View style={[styles.cell, { width: "12%" }]}>
+                    <Text style={styles.cellTextHeader}>Downtime Category</Text>
+                  </View>
+                  <View style={[styles.cell, { width: "15%" }]}>
+                    <Text style={styles.cellTextHeader}>Machine</Text>
+                  </View>
+                  <View style={[styles.cell, { width: "14%" }]}>
+                    <Text style={styles.cellTextHeader}>Type</Text>
+                  </View>
+                  <View style={[styles.cell, { width: "10%" }]}>
+                    <Text style={styles.cellTextHeader}>Start Time</Text>
+                  </View>
+                  <View style={[styles.cell, { width: "10%" }]}>
+                    <Text style={styles.cellTextHeader}>
+                      Duration (minutes)
+                    </Text>
+                  </View>
+                  <View style={[styles.cell, { width: "15%" }]}>
+                    <Text style={styles.cellTextHeader}>Notes</Text>
+                  </View>
+                  <View style={[styles.cell, { width: "20%" }]}>
+                    <Text style={styles.cellTextHeader}>Action</Text>
                   </View>
                 </View>
 
                 {/* Table Body */}
-                {inspectionData.map((item, index) => (
-                  <View key={index} style={styles.tableBody}>
-                    {/* Header Caption */}
-                    <View style={{ width: "20%" }}>
-                      <View style={[styles.tableData, styles.centeredContent]}>
-                        <Switch
-                          style={styles.tableData}
-                          value={item.done}
-                          onValueChange={() => toggleSwitch(index)}
-                        />
+                <View style={{ borderWidth: 1, borderColor: "#000" }}>
+                  {downtimeData.map((item, index) => (
+                    <View key={index} style={{ flexDirection: "row" }}>
+                      <View style={[styles.cell, { width: "4%" }]}>
+                        <Text style={styles.cellText}>{index + 1}</Text>
+                      </View>
+                      <View style={[styles.cell, { width: "12%" }]}>
+                        <Text style={styles.cellText}>
+                          {item.Downtime_Category}
+                        </Text>
+                      </View>
+                      <View style={[styles.cell, { width: "15%" }]}>
+                        <Text style={styles.cellText}>{item.Mesin}</Text>
+                      </View>
+                      <View style={[styles.cell, { width: "14%" }]}>
+                        <Text style={styles.cellText}>{item.Jenis}</Text>
+                      </View>
+                      <View style={[styles.cell, { width: "10%" }]}>
+                        <Text style={styles.cellText}>
+                          {moment(item.Date, "YYYY-MM-DD HH:mm:ss.SSS").format(
+                            "HH:mm:ss"
+                          )}
+                        </Text>
+                      </View>
+                      <View style={[styles.cell, { width: "10%" }]}>
+                        <Text style={styles.cellText}>{item.Minutes}</Text>
+                      </View>
+                      <View style={[styles.cell, { width: "15%" }]}>
+                        <Text style={styles.cellText}>{item.Keterangan}</Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.cell,
+                          {
+                            width: "20%",
+                            flexDirection: "row",
+                            justifyContent: "center", // Horizontal center
+                            alignItems: "center", // Vertical center
+                            gap: 4,
+                          },
+                        ]}
+                      >
+                        {item.Completed === 0 ? (
+                          <>
+                            <TouchableOpacity
+                              style={styles.updateButton}
+                              onPress={() => handleEdit(item)}
+                            >
+                              <Text style={styles.buttonText}>Update</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.deleteButton}
+                              onPress={() => handleDelete(item.id)}
+                            >
+                              <Text style={styles.buttonText}>Delete</Text>
+                            </TouchableOpacity>
+                          </>
+                        ) : (
+                          <Text>Accepted</Text>
+                        )}
                       </View>
                     </View>
-                    <View style={{ width: "80%" }}>
-                      <Text style={styles.tableData}>{item.downtime}</Text>
-                    </View>
-                  </View>
-                ))}
+                  ))}
+                </View>
               </View>
             </View>
           </>
         )}
 
-        <View style={styles.checkboxContainer}>
-          <Checkbox
-            status={agreed ? "checked" : "unchecked"}
-            onPress={() => setAgreed(!agreed)}
-          />
-          <Text style={styles.checkboxLabel}>
-            Saya menyatakan telah memasukkan data dengan benar.
-          </Text>
-        </View>
-
-        <View>
-          <TouchableOpacity
-            style={
-              agreed && duration && downtime
-                ? styles.submitButton
-                : styles.submitButtonDisabled
-            }
-            onPress={() => handleSubmit()}
-            disabled={!(agreed && duration !== "")}
+        {showDetailModal && (
+          <Modal
+            visible={showDetailModal}
+            transparent
+            animationType="slide"
+            onRequestClose={() => setShowDetailModal(false)}
           >
-            <Text style={styles.submitButtonText}>SUBMIT</Text>
-          </TouchableOpacity>
-        </View>
+            <View style={styles.overlay}>
+              <View style={styles.modalBox}>
+                <Text style={styles.modalTitle}>Report Downtime</Text>
+
+                <Text style={styles.downtimeLabel}>
+                  Category: {selectedCategory}
+                </Text>
+                <Text style={styles.downtimeLabel}>
+                  Machine: {selectedMachine}
+                </Text>
+                <Text style={styles.downtimeLabel}>
+                  Downtime: {selectedItemDowntime}
+                </Text>
+
+                <Text style={styles.inputLabel}>Start Time:</Text>
+                <View style={styles.dropdownContainer}>
+                  <ReusableDatetime3 date={startTime} setDate={setStartTime} />
+                </View>
+                {showDatePicker && (
+                  <DateTimePicker
+                    value={date}
+                    mode="datetime"
+                    display="default"
+                    onChange={(e, selected) => {
+                      setShowDatePicker(false);
+                      if (selected) setDate(selected);
+                    }}
+                  />
+                )}
+
+                <Text style={styles.inputLabel}>Duration (minutes):</Text>
+                <TextInput
+                  style={styles.inputField}
+                  keyboardType="numeric"
+                  value={duration}
+                  onChangeText={setDuration}
+                />
+
+                <Text style={styles.inputLabel}>End Time:</Text>
+                <View style={styles.inputField}>
+                  <Text>{moment(endTime).format("DD/MM/YYYY HH:mm")}</Text>
+                </View>
+
+                <Text style={styles.inputLabel}>Comments:</Text>
+                <TextInput
+                  style={styles.inputField}
+                  value={remarks}
+                  onChangeText={setRemarks}
+                  placeholder="Comments"
+                />
+
+                <View style={styles.modalFooter}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowDetailModal(false);
+                      setEditingItem(null);
+                    }}
+                  >
+                    <Text style={{ color: "red" }}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      handleSubmit();
+                    }}
+                    style={{ marginLeft: 20 }}
+                  >
+                    <Text style={{ color: "green" }}>OK</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
 };
 
 const styles = StyleSheet.create({
+  cell: {
+    borderWidth: 1,
+    borderColor: "#000",
+    padding: 4,
+    justifyContent: "center",
+  },
+  cellText: {
+    fontSize: 14,
+    textAlign: "center",
+  },
+  cellTextHeader: {
+    fontSize: 14,
+    textAlign: "center",
+    fontWeight: "bold",
+  },
+  addDowntimeButton: {
+    marginTop: 12,
+    backgroundColor: "#4caf50",
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+    width: "15%",
+  },
+  updateButton: {
+    backgroundColor: "#4caf50",
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+    marginRight: 4,
+  },
+  deleteButton: {
+    backgroundColor: "#f44336",
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    borderRadius: 4,
+  },
+  buttonText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "bold",
+    textAlign: "center",
+  },
+  buttonTextBold: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "bold",
+    textAlign: "center",
+  },
+  modalBox: {
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    padding: 20,
+    marginHorizontal: 20,
+  },
+  overlay: {
+    flex: 1,
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.5)",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 10,
+  },
+  inputLabel: {
+    marginTop: 10,
+    marginBottom: 4,
+    fontWeight: "600",
+  },
+  downtimeLabel: {
+    marginBottom: 4,
+    fontWeight: "600",
+  },
+  inputField: {
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 10,
+    backgroundColor: "#f9f9f9",
+  },
+  modalFooter: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginTop: 10,
+  },
   container: {
     flex: 1,
     backgroundColor: "#fff",
@@ -576,7 +776,8 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 16,
-    marginBottom: 5,
+    marginTop: 4,
+    marginBottom: 4,
   },
   input: {
     borderColor: COLORS.lightBlue,
@@ -604,9 +805,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     backgroundColor: "#ffffff",
   },
+  dateText: {
+    marginLeft: 16,
+    fontSize: 16,
+  },
   dropdown: {
     flex: 1,
-    marginLeft: 10,
+    marginLeft: 4,
   },
   wrapper: {
     justifyContent: "center",
@@ -620,7 +825,6 @@ const styles = StyleSheet.create({
   tableHead: {
     flexDirection: "row",
     backgroundColor: "#3bcd6b",
-    padding: 20,
     width: "100%",
   },
   tableBody: {

@@ -1,4 +1,3 @@
-import { MaterialCommunityIcons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Picker } from "@react-native-picker/picker";
 import moment from "moment";
@@ -34,9 +33,11 @@ const ListCILT = ({ navigation }) => {
   });
   const [selectedPlant, setSelectedPlant] = useState(null);
   const [selectedLine, setSelectedLine] = useState(null);
+  const [selectedPackage, setSelectedPackage] = useState(null);
   const [selectedShift, setSelectedShift] = useState(null);
   const [plantOptions, setPlantOptions] = useState([]);
   const [lineOptions, setLineOptions] = useState([]);
+  const [packageOptions, setPackageOptions] = useState([]);
   const shiftOptions = ["Shift 1", "Shift 2", "Shift 3"];
 
   useEffect(() => {
@@ -50,6 +51,7 @@ const ListCILT = ({ navigation }) => {
   useEffect(() => {
     fetchDataFromAPI();
     fetchPlantOptions();
+    fetchPackageOptions();
   }, []);
 
   useEffect(() => {
@@ -73,6 +75,18 @@ const ListCILT = ({ navigation }) => {
     try {
       const response = await api.get(`/mastercilt/plant`);
       setPlantOptions(response.data);
+      setIsLoading(false);
+    } catch (error) {
+      console.error("Error fetching data:", error);
+      setIsLoading(false);
+    }
+  };
+
+  const fetchPackageOptions = async () => {
+    setIsLoading(true);
+    try {
+      const response = await api.get(`/package-master/package`);
+      setPackageOptions(response.data);
       setIsLoading(false);
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -116,6 +130,10 @@ const ListCILT = ({ navigation }) => {
         ? item.line === selectedLine.toString()
         : true;
 
+      const matchesPackage = selectedPackage
+        ? item.packageType === selectedPackage.toString()
+        : true;
+
       const matchesShift = selectedShift
         ? item.shift === selectedShift.toString()
         : true;
@@ -125,6 +143,7 @@ const ListCILT = ({ navigation }) => {
         matchesDate &&
         matchesPlant &&
         matchesLine &&
+        matchesPackage &&
         matchesShift
       );
     });
@@ -134,6 +153,7 @@ const ListCILT = ({ navigation }) => {
     selectedDate,
     selectedPlant,
     selectedLine,
+    selectedPackage,
     selectedShift,
   ]);
 
@@ -145,15 +165,16 @@ const ListCILT = ({ navigation }) => {
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
 
   const handleDetailPress = (item) => {
-    if (item.packageType === "CILT") {
-      navigation.navigate("DetailLaporanShiftlyCILT", { item }); // Pass the selected item to the new page
-    } else if (
-      item.packageType === "GI/GR" &&
-      item.machine === "Robot Palletizer"
-    ) {
-      navigation.navigate("DetailLaporanCILTGIGR", { item }); // Pass the selected item to the new page
+    if (item.packageType === "PERFORMA RED AND GREEN") {
+      navigation.navigate("DetailLaporanShiftlyCILT", { item });
+    } else if (item.packageType === "PEMAKAIAN SCREW CAP") {
+      navigation.navigate("DetailLaporanScrewCap", { item });
+    } else if (item.packageType === "PENGECEKAN H2O2 ( SPRAY )") {
+      navigation.navigate("DetailLaporanH2O2Check", { item });
+    } else if (item.packageType === "CHECKLIST CILT") {
+      navigation.navigate("DetailLaporanChecklistCILT", { item });
     } else {
-      navigation.navigate("DetailLaporanCILT", { item }); // Pass the selected item to the new page
+      navigation.navigate("DetailLaporanPaperUsage", { item });
     }
   };
 
@@ -248,7 +269,7 @@ const ListCILT = ({ navigation }) => {
   const renderItem = (item) => {
     const key = `${item.processOrder}-${item.packageType}-${item.product}`;
 
-    if (item.packageType === "CILT" && seenItems.has(key)) {
+    if (item.packageType === "PERFORMA RED AND GREEN" && seenItems.has(key)) {
       return null; // Jika sudah ada dalam Set, tidak ditampilkan lagi
     }
 
@@ -265,7 +286,9 @@ const ListCILT = ({ navigation }) => {
           <Text style={styles.tableCell}>{item.processOrder}</Text>
           <Text style={styles.tableCell}>
             {item.packageType}{" "}
-            {item.packageType === "CILT" ? `(${countOccurrences[key]})` : ""}
+            {item.packageType === "PERFORMA RED AND GREEN"
+              ? `(${countOccurrences[key]})`
+              : ""}
           </Text>
           <Text style={styles.tableCell}>{item.plant}</Text>
           <Text style={styles.tableCell}>{item.line}</Text>
@@ -330,11 +353,6 @@ const ListCILT = ({ navigation }) => {
             onPress={() => setShowDatePicker(true)}
             style={styles.dropdownContainer}
           >
-            <MaterialCommunityIcons
-              name="calendar"
-              size={24}
-              color={COLORS.lightBlue}
-            />
             <Text style={{ marginLeft: 5 }}>
               {selectedDate
                 ? moment(selectedDate).format("DD/MM/YYYY")
@@ -367,11 +385,6 @@ const ListCILT = ({ navigation }) => {
 
         <View style={styles.halfInputGroup}>
           <View style={styles.dropdownContainer}>
-            <MaterialCommunityIcons
-              name="clock-outline"
-              size={24}
-              color={COLORS.lightBlue}
-            />
             <Picker
               selectedValue={selectedPlant}
               style={styles.dropdown}
@@ -393,11 +406,6 @@ const ListCILT = ({ navigation }) => {
 
         <View style={styles.halfInputGroup}>
           <View style={styles.dropdownContainer}>
-            <MaterialCommunityIcons
-              name="line-scan"
-              size={24}
-              color={COLORS.lightBlue}
-            />
             <Picker
               selectedValue={selectedLine}
               style={styles.dropdown}
@@ -419,11 +427,27 @@ const ListCILT = ({ navigation }) => {
 
         <View style={styles.halfInputGroup}>
           <View style={styles.dropdownContainer}>
-            <MaterialCommunityIcons
-              name="clock-outline"
-              size={24}
-              color={COLORS.lightBlue}
-            />
+            <Picker
+              selectedValue={selectedLine}
+              style={styles.dropdown}
+              onValueChange={(itemValue) => {
+                setSelectedPackage(itemValue);
+              }}
+            >
+              <Picker.Item label="Package" value="" />
+              {packageOptions.map((option, index) => (
+                <Picker.Item
+                  key={index}
+                  label={option.package}
+                  value={option.package}
+                />
+              ))}
+            </Picker>
+          </View>
+        </View>
+
+        <View style={styles.halfInputGroup}>
+          <View style={styles.dropdownContainer}>
             <Picker
               selectedValue={selectedShift}
               style={styles.dropdown}
@@ -537,8 +561,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   halfInputGroup: {
-    width: "20%",
-    marginVertical: 5,
+    width: "19%",
+    marginVertical: 4,
   },
   label: {
     fontSize: 16,

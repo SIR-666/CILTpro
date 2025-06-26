@@ -41,7 +41,7 @@ const DetailLaporanShiftly = ({ route }) => {
       setIsLoading(true);
       const formattedDate = item.date.split("T")[0];
       const response = await api.get(
-        `/cilt/reportCILTAll/CILT/${encodeURIComponent(
+        `/cilt/reportCILTAll/PERFORMA RED AND GREEN/${encodeURIComponent(
           item.plant
         )}/${encodeURIComponent(item.line)}/${encodeURIComponent(
           item.shift
@@ -94,6 +94,9 @@ const DetailLaporanShiftly = ({ route }) => {
             uniqueActivities[key] = {
               activity: inspection.activity,
               standard: inspection.standard,
+              good: inspection.good ?? "-",
+              need: inspection.need ?? "-",
+              reject: inspection.reject ?? "-",
               results: {},
               picture: {},
             };
@@ -245,8 +248,8 @@ const DetailLaporanShiftly = ({ route }) => {
               const isMoreThanOneHour =
                 Math.abs(lastRecordHour - submitHour) >= 1;
 
-              return `<td style="background-color: ${
-                isMoreThanOneHour ? "red" : "green"
+              return `<td style="font-weight: bold; background-color: ${
+                isMoreThanOneHour ? "#f59f95" : "#b5e6c1"
               }">${submitHour}:${sumbitMinutes}</td>`;
             })
             .join("");
@@ -257,22 +260,52 @@ const DetailLaporanShiftly = ({ route }) => {
 
     // Mapping inspectionData ke dalam tabel
     const inspectionRows = uniqueData
-      .map(
-        (item, index) => `
-        <tr>
-          <td class="col-no">${index + 1}</td>
-          <td class="col-activity">${item.activity}</td>
-          <td class="col-good">${item.good ?? "-"}</td>
-          <td class="col-need">${item.need ?? "-"}</td>
-          <td class="col-red">${item.red ?? "-"}</td>
-          ${shiftHours
-            .map(
-              (hour) => `<td class="col-shift">${item.results[hour] || ""}</td>`
-            )
-            .join("")}
-        </tr>
-      `
-      )
+      .map((item, index) => {
+        return `
+      <tr>
+        <td class="col-no">${index + 1}</td>
+        <td class="col-activity">${item.activity}</td>
+        <td class="col-good">${item.good ?? "-"}</td>
+        <td class="col-need">${item.need ?? "-"}</td>
+        <td class="col-red">${item.reject ?? "-"}</td>
+        ${shiftHours
+          .map((hour) => {
+            const rawValue = item.results?.[hour];
+            const resultValue = parseFloat(rawValue);
+            const goodValue = parseFloat(item.good);
+            const needValue = parseFloat(item.need);
+            const rejectValue = parseFloat(item.reject);
+
+            let resultColor = "white"; // default
+            if (rawValue === "OK") {
+              resultColor = "#b5e6c1";
+            } else if (rawValue === "NOT OK") {
+              resultColor = "#f59f95";
+            } else if (!isNaN(resultValue)) {
+              if (!isNaN(goodValue) && !isNaN(rejectValue)) {
+                if (resultValue < goodValue || resultValue >= rejectValue) {
+                  resultColor = "#f59f95";
+                } else if (
+                  needValue !== null &&
+                  !isNaN(needValue) &&
+                  resultValue >= goodValue &&
+                  resultValue < needValue
+                ) {
+                  resultColor = "#b5e6c1";
+                } else {
+                  resultColor = "#f3f595";
+                }
+              }
+            }
+
+            return `<td class="col-shift" style="background-color: ${resultColor}; font-weight: bold;">${
+              rawValue || ""
+            }</td>`;
+          })
+          .join("")}
+      </tr>
+    `;
+      })
       .join("");
 
     // HTML untuk file yang akan dicetak
@@ -503,7 +536,9 @@ const DetailLaporanShiftly = ({ route }) => {
                         <Text style={styles.tableData}>{item.need ?? "-"}</Text>
                       </View>
                       <View style={{ width: 40 }}>
-                        <Text style={styles.tableData}>{item.red ?? "-"}</Text>
+                        <Text style={styles.tableData}>
+                          {item.reject ?? "-"}
+                        </Text>
                       </View>
                       {shiftHours.map((hour, idx) => (
                         <View key={idx} style={{ width: 60 }}>
@@ -520,15 +555,15 @@ const DetailLaporanShiftly = ({ route }) => {
                                 {
                                   backgroundColor: item.results[hour]
                                     ? isWithinRange(
-                                        item.standard,
+                                        `${item.reject} - ${item.good}`,
                                         parseFloat(item.results[hour])
                                       ) === true
-                                      ? "#d4edda" // Hijau jika dalam range
+                                      ? "#b5e6c1" // Hijau jika dalam range
                                       : isWithinRange(
-                                          item.standard,
+                                          `${item.reject} - ${item.good}`,
                                           parseFloat(item.results[hour])
                                         ) === false
-                                      ? "red" // Merah jika di luar range
+                                      ? "#f59f95" // Merah jika di luar range
                                       : "#f8f9fa" // Default jika bukan angka
                                     : "#f8f9fa",
                                 },
