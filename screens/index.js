@@ -7,6 +7,7 @@ import DetailLaporanCILTGIGR from "./cilt/DetailLaporanCILTGIGR";
 import DetailLaporanH2O2Check from "./cilt/DetailLaporanH2O2Check";
 import DetailLaporanPaperUsage from "./cilt/DetailLaporanPaperUsage";
 import DetailLaporanScrewCap from "./cilt/DetailLaporanScrewCap";
+import DetailLaporanSegregasi from "./cilt/DetailLaporanSegregasi";
 import DetailLaporanShiftlyCILT from "./cilt/DetailLaporanShiftlyCILT";
 import EditCilt from "./cilt/EditCilt";
 import EditShiftHandOver from "./cilt/EditShiftHandOver";
@@ -32,6 +33,7 @@ export {
   DetailLaporanH2O2Check,
   DetailLaporanPaperUsage,
   DetailLaporanScrewCap,
+  DetailLaporanSegregasi,
   DetailLaporanShiftlyCILT,
   DetailShiftlyDowntime,
   EditCilt,

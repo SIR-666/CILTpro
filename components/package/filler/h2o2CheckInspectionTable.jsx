@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { FlatList, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  FlatList,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  TouchableOpacity,
+} from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 
 const H2o2CheckInspectionTable = ({
   username,
@@ -19,6 +27,8 @@ const H2o2CheckInspectionTable = ({
         time: "",
       }))
   );
+
+  const [showTimePickerIndex, setShowTimePickerIndex] = useState(null);
 
   useEffect(() => {
     if (initialData.length > 0) {
@@ -72,12 +82,34 @@ const H2o2CheckInspectionTable = ({
         keyExtractor={(_, index) => index.toString()}
         renderItem={({ item, index }) => (
           <View style={styles.row}>
-            <TextInput
+            {/* JAM: Time Picker */}
+            <TouchableOpacity
               style={styles.cell}
-              value={item.jam}
-              placeholder="Jam"
-              onChangeText={(text) => handleInputChange(text, index, "jam")}
-            />
+              onPress={() => setShowTimePickerIndex(index)}
+            >
+              <Text>{item.jam ? item.jam : "Pilih Jam"}</Text>
+            </TouchableOpacity>
+            {showTimePickerIndex === index && (
+              <DateTimePicker
+                mode="time"
+                value={new Date()}
+                is24Hour={true}
+                display="default"
+                onChange={(event, selectedTime) => {
+                  setShowTimePickerIndex(null);
+                  if (selectedTime) {
+                    const formatted = `${String(
+                      selectedTime.getHours()
+                    ).padStart(2, "0")}:${String(
+                      selectedTime.getMinutes()
+                    ).padStart(2, "0")}`;
+                    handleInputChange(formatted, index, "jam");
+                  }
+                }}
+              />
+            )}
+
+            {/* KONSENTRASI */}
             <TextInput
               style={styles.cell}
               value={item.konsentrasi}
@@ -86,12 +118,16 @@ const H2o2CheckInspectionTable = ({
                 handleInputChange(text, index, "konsentrasi")
               }
             />
+
+            {/* VOLUME */}
             <TextInput
               style={styles.cell}
               value={item.volume}
               placeholder="Volume"
               onChangeText={(text) => handleInputChange(text, index, "volume")}
             />
+
+            {/* KODE */}
             <TextInput
               style={styles.cell}
               value={item.kode}
