@@ -173,6 +173,8 @@ const ListCILT = ({ navigation }) => {
       navigation.navigate("DetailLaporanH2O2Check", { item });
     } else if (item.packageType === "CHECKLIST CILT") {
       navigation.navigate("DetailLaporanChecklistCILT", { item });
+    } else if (item.packageType === "SEGREGASI") {
+      navigation.navigate("DetailLaporanSegregasi", { item })
     } else {
       navigation.navigate("DetailLaporanPaperUsage", { item });
     }

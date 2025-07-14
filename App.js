@@ -13,6 +13,7 @@ import {
   DetailLaporanH2O2Check,
   DetailLaporanPaperUsage,
   DetailLaporanScrewCap,
+  DetailLaporanSegregasi,
   DetailLaporanShiftlyCILT,
   DetailShiftlyDowntime,
   EditCilt,
@@ -320,6 +321,11 @@ export default function App() {
         <Stack.Screen
           name="DetailLaporanH2O2Check"
           component={DetailLaporanH2O2Check}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="DetailLaporanSegregasi"
+          component={DetailLaporanSegregasi}
           options={{ headerShown: false }}
         />
         <Stack.Screen

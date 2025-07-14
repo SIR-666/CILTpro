@@ -1,5 +1,13 @@
 import { useEffect, useState } from "react";
-import { FlatList, StyleSheet, Text, TextInput, View } from "react-native";
+import {
+  FlatList,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  TouchableOpacity,
+} from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 
 const PaperUsageInspectionTable = ({
   username,
@@ -19,6 +27,8 @@ const PaperUsageInspectionTable = ({
         time: "",
       }))
   );
+
+  const [showTimePickerIndex, setShowTimePickerIndex] = useState(null);
 
   useEffect(() => {
     if (initialData.length > 0) {
@@ -70,12 +80,34 @@ const PaperUsageInspectionTable = ({
         keyExtractor={(_, index) => index.toString()}
         renderItem={({ item, index }) => (
           <View style={styles.row}>
-            <TextInput
+            {/* JAM: Pakai Time Picker */}
+            <TouchableOpacity
               style={styles.cell}
-              value={item.jam}
-              placeholder="Jam"
-              onChangeText={(text) => handleInputChange(text, index, "jam")}
-            />
+              onPress={() => setShowTimePickerIndex(index)}
+            >
+              <Text>{item.jam ? item.jam : "Pilih Jam"}</Text>
+            </TouchableOpacity>
+            {showTimePickerIndex === index && (
+              <DateTimePicker
+                mode="time"
+                value={new Date()}
+                is24Hour={true}
+                display="default"
+                onChange={(event, selectedTime) => {
+                  setShowTimePickerIndex(null);
+                  if (selectedTime) {
+                    const formatted = `${String(
+                      selectedTime.getHours()
+                    ).padStart(2, "0")}:${String(
+                      selectedTime.getMinutes()
+                    ).padStart(2, "0")}`;
+                    handleInputChange(formatted, index, "jam");
+                  }
+                }}
+              />
+            )}
+
+            {/* Kolom lainnya tetap TextInput */}
             <TextInput
               style={styles.cell}
               value={item.boxNo}

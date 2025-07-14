@@ -21,6 +21,7 @@ import GnrPerformanceInspectionTable from "../../components/package/filler/GnrPe
 import H2o2CheckInspectionTable from "../../components/package/filler/h2o2CheckInspectionTable";
 import PaperUsageInspectionTable from "../../components/package/filler/PaperUsageInspectionTable";
 import ScrewCapInspectionTable from "../../components/package/filler/ScrewCapInspectionTable";
+import SegregasiInspectionTable from "../../components/package/filler/SegregasiInspectionTable";
 import ReusableDatetime2 from "../../components/Reusable/ReusableDatetime2";
 import { COLORS } from "../../constants/theme";
 import { api, uploadImageApi } from "../../utils/axiosInstance";
@@ -315,7 +316,8 @@ const CILTinspection = ({ route, navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
+      <ScrollView contentContainerStyle={styles.scrollContainer}
+        nestedScrollEnabled={true}>
         <Text style={styles.title}>New Inspection Schedule</Text>
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Process Order *</Text>
@@ -588,6 +590,13 @@ const CILTinspection = ({ route, navigation }) => {
                   line={line}
                   machine={machine}
                   type={packageType}
+                />
+              )}
+              {machine === "FILLER" && packageType === "SEGREGASI" && (
+                <SegregasiInspectionTable
+                  username={username}
+                  onDataChange={(data) => setInspectionData(data)}
+                  initialData={inspectionData}
                 />
               )}
             </View>
