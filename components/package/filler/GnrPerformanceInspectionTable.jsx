@@ -4,104 +4,392 @@ import { StyleSheet, Text, TextInput, View } from "react-native";
 
 import { api } from "../../../utils/axiosInstance";
 
-const GnrPerformanceInspectionTable = ({
-  username,
-  onDataChange,
-  plant,
-  line,
-  machine,
-  type,
-}) => {
+const defaultTemplate = [
+  // Cek parameter mesin per jam
+  {
+    activity: "H2O2 Spray (MCCP 03) Flowrate",
+    good: "22 - 26",
+    reject: "<22 / >26",
+    periode: "Tiap Jam",
+    status: 1,
+  },
+  {
+    activity: "Pressure H2O2 nozzle 1 (mb)",
+    good: "1050 - 1350",
+    reject: "<1050 / >1350",
+    periode: "Tiap Jam",
+    status: 1,
+  },
+  {
+    activity: "Pressure H2O2 nozzle 2 (mb)",
+    good: "1050 - 1350",
+    reject: "<1050 / >1350",
+    periode: "Tiap Jam",
+    status: 1,
+  },
+  {
+    activity: "Pressure H2O2 nozzle 3 (mb)",
+    good: "1050 - 1350",
+    reject: "<1050 / >1350",
+    periode: "Tiap Jam",
+    status: 1,
+  },
+  {
+    activity: "Pressure H2O2 nozzle 4 (mb)",
+    good: "1050 - 1350",
+    reject: "<1050 / >1350",
+    periode: "Tiap Jam",
+    status: 1,
+  },
+  {
+    activity: "Hepa pressure (1-4 mbar)",
+    good: "1 - 4",
+    reject: "<1 / >4",
+    periode: "Tiap Jam",
+    status: 1,
+  },
+  {
+    activity: "Level secondary water (di garis hitam)",
+    good: "di garis hitam",
+    reject: "> garis hitam",
+    periode: "Tiap Jam",
+    status: 0,
+  },
+  {
+    activity: "Temp. secondary water (<20C)",
+    good: "< 20",
+    reject: ">= 20",
+    periode: "Tiap Jam",
+    status: 1,
+  },
+  {
+    activity: "Temp. Cooling Water <4C",
+    good: "< 4",
+    reject: ">= 4",
+    periode: "Tiap Jam",
+    status: 1,
+  },
+  {
+    activity: "Pressure Cooling Water (3-4 Bar)",
+    good: "3 - 4",
+    reject: "<3 / >4",
+    periode: "Tiap Jam",
+    status: 1,
+  },
+  {
+    activity: "Temp. bottom seal (C)",
+    good: "380 - 390",
+    reject: "<380 / >390",
+    periode: "Tiap Jam",
+    status: 1,
+  },
+  {
+    activity: "Temp. top seal (C)",
+    good: "280 - 320",
+    reject: "<280 / >320",
+    periode: "Tiap Jam",
+    status: 1,
+  },
+  {
+    activity: "cap welding energy (J)",
+    good: "90 - 110",
+    reject: "<90 / >110",
+    periode: "Tiap Jam",
+    status: 1,
+  },
+  {
+    activity: "cap welding time (ms)",
+    good: "70 - 180",
+    reject: "<70 / >180",
+    periode: "Tiap Jam",
+    status: 1,
+  },
+  // Cek kondisi mesin per 30 menit
+  {
+    activity: "Filling nozzle",
+    good: "tidak dripping",
+    reject: "dripping",
+    periode: "30 menit",
+    status: 0,
+  },
+  {
+    activity: "Hose Cooling Mandrel",
+    good: "normal",
+    reject: "rembes",
+    periode: "30 menit",
+    status: 0,
+  },
+  {
+    activity: "Hose Cooling Bottom Pre Folder",
+    good: "normal",
+    reject: "bocor",
+    periode: "30 menit",
+    status: 0,
+  },
+  {
+    activity: "Hose Cooling Bottom Seal",
+    good: "normal",
+    reject: "peach",
+    periode: "30 menit",
+    status: 0,
+  },
+  {
+    activity: "Hose Cooling Top Pre Folder",
+    good: "normal",
+    reject: "lepas",
+    periode: "30 menit",
+    status: 0,
+  },
+  {
+    activity: "Hose Cooling Top Seal",
+    good: "normal",
+    reject: "napple",
+    periode: "30 menit",
+    status: 0,
+  },
+  // Packaging integrity
+  { activity: "Pack Integrity Top", periode: "30 menit", status: 0 },
+  { activity: "Pack Integrity Bottom", periode: "30 menit", status: 0 },
+  { activity: "Pack Integrity Design", periode: "30 menit", status: 0 },
+  { activity: "Pack Integrity Bentuk", periode: "30 menit", status: 0 },
+  { activity: "Pack Integrity Recap", periode: "30 menit", status: 0 },
+  { activity: "Berat ( Gram )", periode: "Tiap Jam", status: 1 },
+  { activity: "Speed < 7000", periode: "Tiap Jam", status: 1 },
+  { activity: "Start Stop ( Jam )", periode: "Tiap Jam", status: 1 },
+  { activity: "Jumlah Produksi (pack)", periode: "Tiap Jam", status: 1 },
+  { activity: "Reject (pack)", periode: "Tiap Jam", status: 1 },
+];
+
+const GnrPerformanceInspectionTable = ({ username, onDataChange, plant, line, machine, type }) => {
   const [inspectionData, setInspectionData] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const fetchInspection = async (plant, line, machine, type) => {
-    setIsLoading(true);
-    setInspectionData([]);
-
+  const fetchInspection = async () => {
+    setLoading(true);
     try {
       const response = await api.get(
-        `/gnr-master?plant=${plant}&line=${line}&machine=${machine}&type=${type}`
+        `/gnr-master?plant=${encodeURIComponent(plant)}&line=${encodeURIComponent(line)}&machine=${encodeURIComponent(machine)}&type=${encodeURIComponent(type)}`
       );
 
-      if (!response.data || !Array.isArray(response.data)) {
-        throw new Error("Invalid response format");
-      }
+      const fetched = Array.isArray(response.data) ? response.data : [];
+      console.log("Fetched data:", fetched); // Debug log
 
-      const formattedData = response.data.map((item) => ({
-        activity: item.activity,
-        good: item.good,
-        need: item.need,
-        reject: item.reject,
-        status: item.status,
-        periode: item.frekuensi,
+      const merged = defaultTemplate.map((templateItem) => {
+        const dbItem = fetched.find((item) => item.activity === templateItem.activity);
+        
+        return {
+          ...templateItem,
+          // Use database values if available, otherwise use template defaults
+          good: dbItem?.good || templateItem.good || "-",
+          reject: dbItem?.reject || templateItem.reject || "-",
+          need: dbItem?.need || "-",
+          periode: dbItem?.frekuensi || templateItem.periode,
+          status: dbItem?.status !== undefined ? dbItem.status : templateItem.status,
+          content: dbItem?.content || "",
+          // Initialize user input fields
+          results: "",
+          done: false,
+          user: "",
+          time: "",
+        };
+      });
+
+      setInspectionData(merged);
+      onDataChange(merged);
+    } catch (error) {
+      console.error("Error fetching inspection data:", error);
+      // Fallback to template data if API fails
+      const fallbackData = defaultTemplate.map(item => ({
+        ...item,
         results: "",
         done: false,
-        content: item.content,
         user: "",
         time: "",
+        content: "",
+        need: "-"
       }));
-
-      setInspectionData(formattedData);
-    } catch (error) {
-      console.error("Error fetching data:", error);
+      setInspectionData(fallbackData);
+      onDataChange(fallbackData);
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
     if (plant && line && machine && type) {
-      fetchInspection(plant, line, machine, type);
+      fetchInspection();
     }
   }, [plant, line, machine, type]);
+
+  const parseRange = (rangeStr) => {
+    if (!rangeStr || rangeStr === "-") return null;
+    
+    // Handle single comparison like "< 20", ">= 20", "< 4", ">= 4"
+    if (rangeStr.includes("< ") || rangeStr.includes(">= ")) {
+      const match = rangeStr.match(/([<>=]+)\s*(\d+)/);
+      if (match) {
+        const operator = match[1];
+        const value = parseFloat(match[2]);
+        return { type: "single", operator, value };
+      }
+    }
+    
+    // Handle range like "22 - 26", "1050 - 1350"
+    if (rangeStr.includes(" - ")) {
+      const parts = rangeStr.split(" - ");
+      if (parts.length === 2) {
+        const min = parseFloat(parts[0]);
+        const max = parseFloat(parts[1]);
+        if (!isNaN(min) && !isNaN(max)) {
+          return { type: "range", min, max };
+        }
+      }
+    }
+    
+    return null;
+  };
+
+  const parseReject = (rejectStr) => {
+    if (!rejectStr || rejectStr === "-") return null;
+    
+    // Handle reject conditions like "<22 / >26", "<1050 / >1350"
+    if (rejectStr.includes(" / ")) {
+      const parts = rejectStr.split(" / ");
+      const conditions = [];
+      
+      parts.forEach(part => {
+        const trimmed = part.trim();
+        if (trimmed.startsWith("<")) {
+          const value = parseFloat(trimmed.substring(1));
+          if (!isNaN(value)) {
+            conditions.push({ operator: "<", value });
+          }
+        } else if (trimmed.startsWith(">")) {
+          const value = parseFloat(trimmed.substring(1));
+          if (!isNaN(value)) {
+            conditions.push({ operator: ">", value });
+          }
+        } else if (trimmed.startsWith(">=")) {
+          const value = parseFloat(trimmed.substring(2));
+          if (!isNaN(value)) {
+            conditions.push({ operator: ">=", value });
+          }
+        }
+      });
+      
+      return conditions;
+    }
+    
+    return null;
+  };
+
+  const evaluateValue = (inputValue, goodCriteria, rejectCriteria) => {
+    const numValue = parseFloat(inputValue);
+    if (isNaN(numValue)) return "default";
+    
+    const goodRange = parseRange(goodCriteria);
+    const rejectConditions = parseReject(rejectCriteria);
+    
+    // Check reject conditions first
+    if (rejectConditions) {
+      for (const condition of rejectConditions) {
+        if (condition.operator === "<" && numValue < condition.value) return "reject";
+        if (condition.operator === ">" && numValue > condition.value) return "reject";
+        if (condition.operator === ">=" && numValue >= condition.value) return "reject";
+      }
+    }
+    
+    // Check good conditions
+    if (goodRange) {
+      if (goodRange.type === "range") {
+        if (numValue >= goodRange.min && numValue <= goodRange.max) return "good";
+      } else if (goodRange.type === "single") {
+        if (goodRange.operator === "< " && numValue < goodRange.value) return "good";
+        if (goodRange.operator === ">= " && numValue >= goodRange.value) return "good";
+      }
+    }
+    
+    // If not good and not reject, it's need
+    return "need";
+  };
+
+  const getBackgroundColor = (item) => {
+    if (item.results) {
+      if (item.status === 1) {
+        // For TextInput - evaluate based on numerical value
+        const evaluation = evaluateValue(item.results, item.good, item.reject);
+        switch (evaluation) {
+          case "good": return "#d4edda"; // Light green
+          case "need": return "#fff3cd"; // Light yellow
+          case "reject": return "#f8d7da"; // Light red
+          default: return "transparent";
+        }
+      } else {
+        // For Picker - evaluate based on selected value
+        switch (item.results) {
+          case "G": return "#d4edda"; // Light green
+          case "N": return "#fff3cd"; // Light yellow
+          case "R": return "#f8d7da"; // Light red
+          default: return "transparent";
+        }
+      }
+    }
+    return "transparent";
+  };
 
   const handleInputChange = (text, index) => {
     const updated = [...inspectionData];
     const now = new Date();
-    const hours = String(now.getHours()).padStart(2, "0");
-    const minutes = String(now.getMinutes()).padStart(2, "0");
-    const formattedTime = `${hours}:${minutes}`;
-
     updated[index].results = text;
     updated[index].user = username;
-    updated[index].time = formattedTime;
+    updated[index].time = now.toLocaleTimeString("id-ID", { 
+      hour: "2-digit", 
+      minute: "2-digit" 
+    });
     updated[index].done = !!text;
-
     setInspectionData(updated);
     onDataChange(updated);
   };
 
+  // Show loading state
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text>Loading inspection data...</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.table}>
       <View style={styles.tableHead}>
-        <Text style={[styles.tableCaption, { width: "20%" }]}>Activity</Text>
+        <Text style={[styles.tableCaption, { width: "30%" }]}>Activity</Text>
         <Text style={[styles.tableCaption, { width: "10%" }]}>G</Text>
         <Text style={[styles.tableCaption, { width: "10%" }]}>N</Text>
         <Text style={[styles.tableCaption, { width: "10%" }]}>R</Text>
-        <Text style={[styles.tableCaption, { width: "20%" }]}>Periode</Text>
-        <Text style={[styles.tableCaption, { width: "20%" }]}>Hasil</Text>
+        <Text style={[styles.tableCaption, { width: "15%" }]}>Periode</Text>
+        <Text style={[styles.tableCaption, { width: "25%" }]}>Hasil</Text>
       </View>
 
       {inspectionData.map((item, index) => (
-        <View key={index} style={styles.tableBody}>
-          <View style={{ width: "20%" }}>
+        <View key={`${item.activity}-${index}`} style={[styles.tableBody, { backgroundColor: getBackgroundColor(item) }]}>
+          <View style={{ width: "30%" }}>
             <Text style={styles.tableData}>{item.activity}</Text>
           </View>
           <View style={{ width: "10%" }}>
-            <Text style={styles.tableData}>{item.good ?? "-"}</Text>
+            <Text style={styles.tableData}>{item.good || "-"}</Text>
           </View>
           <View style={{ width: "10%" }}>
-            <Text style={styles.tableData}>{item.need ?? "-"}</Text>
+            <Text style={styles.tableData}>{item.need || "-"}</Text>
           </View>
           <View style={{ width: "10%" }}>
-            <Text style={styles.tableData}>{item.reject ?? "-"}</Text>
+            <Text style={styles.tableData}>{item.reject || "-"}</Text>
           </View>
-          <View style={{ width: "20%" }}>
+          <View style={{ width: "15%" }}>
             <Text style={styles.tableData}>{item.periode}</Text>
           </View>
-          <View style={{ width: "20%" }}>
-            <View style={[styles.tableData, styles.centeredContent]}>
+          <View style={{ width: "25%" }}>
+            <View style={styles.centeredContent}>
               {item.status === 1 ? (
                 <TextInput
                   placeholder="isi disini"
@@ -116,8 +404,9 @@ const GnrPerformanceInspectionTable = ({
                   style={styles.picker}
                 >
                   <Picker.Item label="Select" value="" />
-                  <Picker.Item label="OK" value="OK" />
-                  <Picker.Item label="NOT OK" value="NOT OK" />
+                  <Picker.Item label="Good" value="G" />
+                  <Picker.Item label="Need" value="N" />
+                  <Picker.Item label="Reject" value="R" />
                 </Picker>
               )}
             </View>
@@ -158,6 +447,12 @@ const styles = StyleSheet.create({
   picker: {
     width: "100%",
     height: 40,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
   },
 });
 
