@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "CILTpro",
-    "slug": "ciltpro",
+    "name": "Greenfields - CILT",
+    "slug": "cilt",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -53,9 +53,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "2fd04d08-786b-4fef-883b-ad00d09fe4b0"
+        "projectId": "64ebb452-fcae-4f70-9252-4d8c1e9ff65b"
       }
     },
-    "owner": "raffyjo"
+    "owner": "erszaoktavian"
   }
 }
