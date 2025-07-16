@@ -129,7 +129,7 @@ const defaultTemplate = [
   {
     activity: "Hose Cooling Bottom Seal",
     good: "normal",
-    reject: "peach",
+    reject: "pecah",
     periode: "30 menit",
     status: 0,
   },
@@ -147,12 +147,193 @@ const defaultTemplate = [
     periode: "30 menit",
     status: 0,
   },
-  // Packaging integrity
-  { activity: "Pack Integrity Top", periode: "30 menit", status: 0 },
-  { activity: "Pack Integrity Bottom", periode: "30 menit", status: 0 },
-  { activity: "Pack Integrity Design", periode: "30 menit", status: 0 },
-  { activity: "Pack Integrity Bentuk", periode: "30 menit", status: 0 },
-  { activity: "Pack Integrity Recap", periode: "30 menit", status: 0 },
+  // Packaging integrity - detailed breakdown with grouping
+  {
+    activity: "1. FORM",
+    good: "G",
+    need: "N",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isGroupHeader: true,
+    groupName: "TOTAL"
+  },
+  {
+    activity: "a. Bentuk pack",
+    good: "G",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isSubItem: true,
+    groupName: "TOTAL"
+  },
+  {
+    activity: "2. DESIGN",
+    good: "G",
+    need: "N",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isGroupHeader: true,
+    groupName: "DESIGN"
+  },
+  {
+    activity: "a. Desain gambar",
+    good: "G",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isSubItem: true,
+    groupName: "DESIGN"
+  },
+  {
+    activity: "b. Kualitas printing pack",
+    good: "G",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isSubItem: true,
+    groupName: "DESIGN"
+  },
+  {
+    activity: "3. TOP",
+    good: "G",
+    need: "N",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isGroupHeader: true,
+    groupName: "TOP"
+  },
+  {
+    activity: "a. Top sealing",
+    good: "G",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isSubItem: true,
+    groupName: "TOP"
+  },
+  {
+    activity: "b. Top Fin Gap",
+    good: "G",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isSubItem: true,
+    groupName: "TOP"
+  },
+  {
+    activity: "c. Miss Alignment",
+    good: "G",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isSubItem: true,
+    groupName: "TOP"
+  },
+  {
+    activity: "d. Top Fin",
+    good: "G",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isSubItem: true,
+    groupName: "TOP"
+  },
+  {
+    activity: "4. BOTTOM",
+    good: "G",
+    need: "N",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isGroupHeader: true,
+    groupName: "BOTTOM"
+  },
+  {
+    activity: "a. Bottom sealing",
+    good: "G",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isSubItem: true,
+    groupName: "BOTTOM"
+  },
+  {
+    activity: "b. Unfolded",
+    good: "G",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isSubItem: true,
+    groupName: "BOTTOM"
+  },
+  {
+    activity: "c. Bottom Closure",
+    good: "G",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isSubItem: true,
+    groupName: "BOTTOM"
+  },
+  {
+    activity: "d. Dented bottom/ corner",
+    good: "G",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isSubItem: true,
+    groupName: "BOTTOM"
+  },
+  {
+    activity: "e. Pin Bottom",
+    good: "R",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isSubItem: true,
+    groupName: "BOTTOM"
+  },
+  {
+    activity: "5. RECAP",
+    good: "G",
+    need: "N",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isGroupHeader: true,
+    groupName: "RECAP"
+  },
+  {
+    activity: "a. Cap sealing",
+    good: "G",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isSubItem: true,
+    groupName: "RECAP"
+  },
+  {
+    activity: "b. Ada cap/ tidak",
+    good: "G",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isSubItem: true,
+    groupName: "RECAP"
+  },
+  {
+    activity: "c. Posisi Cap",
+    good: "G",
+    reject: "R",
+    periode: "30 menit",
+    status: 0,
+    isSubItem: true,
+    groupName: "RECAP"
+  },
+  // Other parameters
   { activity: "Berat ( Gram )", periode: "Tiap Jam", status: 1 },
   { activity: "Speed < 7000", periode: "Tiap Jam", status: 1 },
   { activity: "Start Stop ( Jam )", periode: "Tiap Jam", status: 1 },
@@ -182,7 +363,7 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, plant, line, ma
           // Use database values if available, otherwise use template defaults
           good: dbItem?.good || templateItem.good || "-",
           reject: dbItem?.reject || templateItem.reject || "-",
-          need: dbItem?.need || "-",
+          need: dbItem?.need || templateItem.need || "-",
           periode: dbItem?.frekuensi || templateItem.periode,
           status: dbItem?.status !== undefined ? dbItem.status : templateItem.status,
           content: dbItem?.content || "",
@@ -206,7 +387,7 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, plant, line, ma
         user: "",
         time: "",
         content: "",
-        need: "-"
+        need: item.need || "-"
       }));
       setInspectionData(fallbackData);
       onDataChange(fallbackData);
@@ -372,25 +553,48 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, plant, line, ma
       </View>
 
       {inspectionData.map((item, index) => (
-        <View key={`${item.activity}-${index}`} style={[styles.tableBody, { backgroundColor: getBackgroundColor(item) }]}>
+        <View key={`${item.activity}-${index}`} style={[
+          styles.tableBody, 
+          { backgroundColor: getBackgroundColor(item) },
+          item.isGroupHeader && styles.groupHeader,
+          item.isSubItem && styles.subItem
+        ]}>
           <View style={{ width: "30%" }}>
-            <Text style={styles.tableData}>{item.activity}</Text>
+            <Text style={[
+              styles.tableData,
+              item.isGroupHeader && styles.groupHeaderText,
+              item.isSubItem && styles.subItemText
+            ]}>
+              {item.activity}
+            </Text>
           </View>
           <View style={{ width: "10%" }}>
-            <Text style={styles.tableData}>{item.good || "-"}</Text>
+            <Text style={styles.tableData}>
+              {item.isGroupHeader ? (item.good || "G") : (item.isSubItem ? "" : (item.good || "-"))}
+            </Text>
           </View>
           <View style={{ width: "10%" }}>
-            <Text style={styles.tableData}>{item.need || "-"}</Text>
+            <Text style={styles.tableData}>
+              {item.isGroupHeader ? (item.need || "N") : (item.isSubItem ? "" : (item.need || "-"))}
+            </Text>
           </View>
           <View style={{ width: "10%" }}>
-            <Text style={styles.tableData}>{item.reject || "-"}</Text>
+            <Text style={styles.tableData}>
+              {item.isGroupHeader ? (item.reject || "R") : (item.isSubItem ? "" : (item.reject || "-"))}
+            </Text>
           </View>
           <View style={{ width: "15%" }}>
-            <Text style={styles.tableData}>{item.periode}</Text>
+            <Text style={styles.tableData}>
+              {item.isGroupHeader ? "" : item.periode}
+            </Text>
           </View>
           <View style={{ width: "25%" }}>
             <View style={styles.centeredContent}>
-              {item.status === 1 ? (
+              {item.isGroupHeader ? (
+                <View style={styles.groupHeaderResultsContainer}>
+                  <Text style={styles.groupHeaderResults}></Text>
+                </View>
+              ) : item.status === 1 ? (
                 <TextInput
                   placeholder="isi disini"
                   style={styles.tableData}
@@ -431,6 +635,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     padding: 10,
   },
+  groupHeader: {
+    backgroundColor: "#e8f4f8",
+    borderLeftWidth: 4,
+    borderLeftColor: "#007bff",
+  },
+  subItem: {
+    backgroundColor: "#f8f9fa",
+    paddingLeft: 20,
+  },
   tableCaption: {
     color: "#fff",
     fontWeight: "bold",
@@ -439,6 +652,16 @@ const styles = StyleSheet.create({
   tableData: {
     fontSize: 14,
     textAlign: "center",
+  },
+  groupHeaderText: {
+    fontWeight: "bold",
+    color: "#007bff",
+    textAlign: "left",
+  },
+  subItemText: {
+    color: "#333",
+    textAlign: "left",
+    paddingLeft: 10,
   },
   centeredContent: {
     justifyContent: "center",
@@ -453,6 +676,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: 20,
+  },
+  groupHeaderResultsContainer: {
+    width: "100%",
+    height: 40,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  groupHeaderResults: {
+    fontSize: 14,
+    color: "#666",
+    textAlign: "center",
   },
 });
 
