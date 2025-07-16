@@ -112,29 +112,6 @@ const DetailLaporanShiftly = ({ route }) => {
     return Object.values(uniqueActivities);
   };
 
-  // const extractUniqueInspectionData = (records) => {
-  //   console.log("extractUniqueInspectionData", records);
-  //   const uniqueActivities = {};
-  //   records.forEach((record) => {
-  //     const inspections = JSON.parse(record.CombinedInspectionData);
-  //     console.log("inspections", inspections);
-  //     inspections.forEach((inspection) => {
-  //       const key = `${inspection.id}|${inspection.activity}`;
-  //       if (!uniqueActivities[key]) {
-  //         uniqueActivities[key] = {
-  //           activity: inspection.activity,
-  //           standard: inspection.standard,
-  //           results: {},
-  //           picture: {},
-  //         };
-  //       }
-  //       uniqueActivities[key].results[record.HourGroup] = inspection.results;
-  //       uniqueActivities[key].picture[record.HourGroup] = inspection.picture;
-  //     });
-  //   });
-  //   return Object.values(uniqueActivities);
-  // };
-
   const extractUniqueInspectionDataX = (records) => {
     const uniqueActivities = {};
     records.forEach((record) => {
@@ -168,27 +145,65 @@ const DetailLaporanShiftly = ({ route }) => {
     setModalVisible(true);
   };
 
-  const isWithinRangeX = (standard, result) => {
-    console.log("Standard:", standard);
-    console.log("Result:", result);
-    if (!standard || !result) return false;
-    if (standard == "- - -") return false;
-    const rangeMatch = standard.match(/(\d+)\s*-\s*(\d+)/); // Regex untuk menemukan range angka seperti "17 - 20"
-    if (rangeMatch) {
-      const [_, min, max] = rangeMatch.map(Number);
-      return result >= min && result <= max;
+  const evaluateValue = (inputValue, goodCriteria, rejectCriteria) => {
+    const numValue = parseFloat(inputValue);
+    if (isNaN(numValue)) return "default";
+
+    const parseRange = (rangeStr) => {
+      if (!rangeStr || rangeStr === "-") return null;
+      if (rangeStr.includes(" - ")) {
+        const [min, max] = rangeStr.split(" - ").map(parseFloat);
+        if (!isNaN(min) && !isNaN(max)) return { type: "range", min, max };
+      }
+      return null;
+    };
+
+    const parseReject = (rejectStr) => {
+      if (!rejectStr || rejectStr === "-") return null;
+      if (rejectStr.includes(" / ")) {
+        const parts = rejectStr.split(" / ");
+        return parts.map(part => {
+          const trimmed = part.trim();
+          if (trimmed.startsWith("<")) return { operator: "<", value: parseFloat(trimmed.slice(1)) };
+          if (trimmed.startsWith(">")) return { operator: ">", value: parseFloat(trimmed.slice(1)) };
+          if (trimmed.startsWith(">=")) return { operator: ">=", value: parseFloat(trimmed.slice(2)) };
+          return null;
+        }).filter(Boolean);
+      }
+      return null;
+    };
+
+    const goodRange = parseRange(goodCriteria);
+    const rejectConditions = parseReject(rejectCriteria);
+
+    if (rejectConditions) {
+      for (const cond of rejectConditions) {
+        if (cond.operator === "<" && numValue < cond.value) return "reject";
+        if (cond.operator === ">" && numValue > cond.value) return "reject";
+        if (cond.operator === ">=" && numValue >= cond.value) return "reject";
+      }
     }
-    return false;
+
+    if (goodRange) {
+      if (numValue >= goodRange.min && numValue <= goodRange.max) return "good";
+    }
+
+    return "need";
   };
 
-  const isWithinRange = (standard, result) => {
-    if (!standard || !result || isNaN(result)) return null;
-    const rangeMatch = standard.match(/(\d+)\s*-\s*(\d+)/); // Regex untuk range angka
-    if (rangeMatch) {
-      const [_, min, max] = rangeMatch.map(Number);
-      return result >= min && result <= max;
+  const getResultColor = (result, good, reject) => {
+    if (["G", "N", "R"].includes(result)) {
+      if (result === "G") return "#d4edda";     // Good - green
+      if (result === "N") return "#fff3cd";     // Need - yellow
+      if (result === "R") return "#f8d7da";     // Reject - red
     }
-    return null;
+
+    const evalResult = evaluateValue(result, good, reject);
+    if (evalResult === "good") return "#d4edda";
+    if (evalResult === "need") return "#fff3cd";
+    if (evalResult === "reject") return "#f8d7da";
+
+    return "#f8f9fa"; // default gray
   };
 
   const printToFile = async () => {
@@ -198,9 +213,9 @@ const DetailLaporanShiftly = ({ route }) => {
         <table class="general-info-table">
           <tr>
             <td><strong>Date:</strong> ${moment(
-              item.date,
-              "YYYY-MM-DD HH:mm:ss.SSS"
-            ).format("DD/MM/YY HH:mm:ss")}</td>
+      item.date,
+      "YYYY-MM-DD HH:mm:ss.SSS"
+    ).format("DD/MM/YY HH:mm:ss")}</td>
             <td><strong>Product:</strong> ${item.product}</td>
           </tr>
           <tr>
@@ -248,9 +263,8 @@ const DetailLaporanShiftly = ({ route }) => {
               const isMoreThanOneHour =
                 Math.abs(lastRecordHour - submitHour) >= 1;
 
-              return `<td style="font-weight: bold; background-color: ${
-                isMoreThanOneHour ? "#f59f95" : "#b5e6c1"
-              }">${submitHour}:${sumbitMinutes}</td>`;
+              return `<td style="font-weight: bold; background-color: ${isMoreThanOneHour ? "#f59f95" : "#b5e6c1"
+                }">${submitHour}:${sumbitMinutes}</td>`;
             })
             .join("");
         })
@@ -269,40 +283,23 @@ const DetailLaporanShiftly = ({ route }) => {
         <td class="col-need">${item.need ?? "-"}</td>
         <td class="col-red">${item.reject ?? "-"}</td>
         ${shiftHours
-          .map((hour) => {
-            const rawValue = item.results?.[hour];
-            const resultValue = parseFloat(rawValue);
-            const goodValue = parseFloat(item.good);
-            const needValue = parseFloat(item.need);
-            const rejectValue = parseFloat(item.reject);
+            .map((hour) => {
+              const rawValue = item.results?.[hour];
+              const resultValue = parseFloat(rawValue);
+              const goodValue = parseFloat(item.good);
+              const needValue = parseFloat(item.need);
+              const rejectValue = parseFloat(item.reject);
 
-            let resultColor = "white"; // default
-            if (rawValue === "OK") {
-              resultColor = "#b5e6c1";
-            } else if (rawValue === "NOT OK") {
-              resultColor = "#f59f95";
-            } else if (!isNaN(resultValue)) {
-              if (!isNaN(goodValue) && !isNaN(rejectValue)) {
-                if (resultValue < goodValue || resultValue >= rejectValue) {
-                  resultColor = "#f59f95";
-                } else if (
-                  needValue !== null &&
-                  !isNaN(needValue) &&
-                  resultValue >= goodValue &&
-                  resultValue < needValue
-                ) {
-                  resultColor = "#b5e6c1";
-                } else {
-                  resultColor = "#f3f595";
-                }
-              }
-            }
+              let resultColor = "#ffffff"; // default
+              const evalResult = evaluateValue(rawValue, item.good, item.reject);
+              if (evalResult === "good") resultColor = "#d4edda";
+              else if (evalResult === "need") resultColor = "#fff3cd";
+              else if (evalResult === "reject") resultColor = "#f8d7da";
 
-            return `<td class="col-shift" style="background-color: ${resultColor}; font-weight: bold;">${
-              rawValue || ""
-            }</td>`;
-          })
-          .join("")}
+              return `<td class="col-shift" style="background-color: ${resultColor}; font-weight: bold;">${rawValue || ""
+                }</td>`;
+            })
+            .join("")}
       </tr>
     `;
       })
@@ -334,9 +331,8 @@ const DetailLaporanShiftly = ({ route }) => {
               th.col-need, td.col-need { width: 7%; }  /* N */
               th.col-red, td.col-red { width: 7%; }    /* R */
 
-              th.col-shift, td.col-shift { width: ${
-                (100 - (5 + 20 + 7 + 7 + 7)) / shiftHours.length
-              }%; }
+              th.col-shift, td.col-shift { width: ${(100 - (5 + 20 + 7 + 7 + 7)) / shiftHours.length
+      }%; }
             </style>
           </head>
           <body>
@@ -354,8 +350,8 @@ const DetailLaporanShiftly = ({ route }) => {
                     <th class="col-need">N</th>
                     <th class="col-red">R</th>
                     ${shiftHours
-                      .map((hour) => `<th class="col-shift">${hour}</th>`)
-                      .join("")}
+        .map((hour) => `<th class="col-shift">${hour}</th>`)
+        .join("")}
                   </tr>
                 </thead>
                 <tbody>
@@ -439,7 +435,7 @@ const DetailLaporanShiftly = ({ route }) => {
                       <Text style={styles.timeCaption}>Actual{"\n"}Time</Text>
                     </View>
                     {shiftHours.map((hour, index) => (
-                      <View key={index} style={{ width: 60 }}>
+                      <View key={`hour-${hour}-${index}`} style={{ width: 60 }}>
                         {data
                           .filter(
                             (item) =>
@@ -459,9 +455,8 @@ const DetailLaporanShiftly = ({ route }) => {
                               Math.abs(lastRecordHour - submitHour) >= 1;
 
                             return (
-                              <>
+                              <View key={`time-${hour}-${idx}-${filteredItem.id || idx}`}>
                                 <Text
-                                  key={idx}
                                   style={{
                                     fontWeight: "bold",
                                     textAlign: "center",
@@ -471,7 +466,6 @@ const DetailLaporanShiftly = ({ route }) => {
                                   {submitHour}
                                 </Text>
                                 <Text
-                                  key={idx}
                                   style={{
                                     fontWeight: "bold",
                                     textAlign: "center",
@@ -480,7 +474,7 @@ const DetailLaporanShiftly = ({ route }) => {
                                 >
                                   {moment(filteredItem.submitTime).format("mm")}
                                 </Text>
-                              </>
+                              </View>
                             );
                           })}
                       </View>
@@ -504,25 +498,14 @@ const DetailLaporanShiftly = ({ route }) => {
                       <Text style={styles.tableCaption}>R</Text>
                     </View>
                     {shiftHours.map((hour, index) => (
-                      <View key={index} style={{ width: 60 }}>
+                      <View key={`header-${hour}-${index}`} style={{ width: 60 }}>
                         <Text style={styles.tableCaption}>{hour}</Text>
-                        {/* {data
-                          .filter(
-                            (item) =>
-                              hour ==
-                              moment.utc(item.LastRecordTime).format("HH")
-                          )
-                          .map((filteredItem, idx) => (
-                            <Text key={idx} style={styles.tableCaption}>
-                              {moment(filteredItem.LastRecordTime).format("mm")}
-                            </Text>
-                          ))} */}
                       </View>
                     ))}
                   </View>
 
                   {uniqueData.map((item, index) => (
-                    <View key={index} style={styles.tableBody}>
+                    <View key={`row-${index}-${item.activity}`} style={styles.tableBody}>
                       <View style={{ width: 60 }}>
                         <Text style={styles.tableData}>{index + 1}</Text>
                       </View>
@@ -541,11 +524,10 @@ const DetailLaporanShiftly = ({ route }) => {
                         </Text>
                       </View>
                       {shiftHours.map((hour, idx) => (
-                        <View key={idx} style={{ width: 60 }}>
+                        <View key={`cell-${index}-${hour}-${idx}`} style={{ width: 60 }}>
                           <TouchableOpacity
                             onPress={() =>
-                              item.picture[hour] &&
-                              handlePress(item.picture[hour])
+                              item.picture[hour] && handlePress(item.picture[hour])
                             }
                             disabled={!item.picture[hour]}
                           >
@@ -553,19 +535,7 @@ const DetailLaporanShiftly = ({ route }) => {
                               style={[
                                 styles.tableData,
                                 {
-                                  backgroundColor: item.results[hour]
-                                    ? isWithinRange(
-                                        `${item.reject} - ${item.good}`,
-                                        parseFloat(item.results[hour])
-                                      ) === true
-                                      ? "#b5e6c1" // Hijau jika dalam range
-                                      : isWithinRange(
-                                          `${item.reject} - ${item.good}`,
-                                          parseFloat(item.results[hour])
-                                        ) === false
-                                      ? "#f59f95" // Merah jika di luar range
-                                      : "#f8f9fa" // Default jika bukan angka
-                                    : "#f8f9fa",
+                                  backgroundColor: getResultColor(item.results[hour], item.good, item.reject),
                                 },
                               ]}
                             >
@@ -672,6 +642,26 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontWeight: "bold",
+  },
+  modalContainerAdaTemuan: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+  },
+  modalView: {
+    backgroundColor: "white",
+    borderRadius: 10,
+    padding: 20,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
   },
 });
 
