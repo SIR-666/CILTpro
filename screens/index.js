@@ -9,9 +9,13 @@ import DetailLaporanPaperUsage from "./cilt/DetailLaporanPaperUsage";
 import DetailLaporanScrewCap from "./cilt/DetailLaporanScrewCap";
 import DetailLaporanSegregasi from "./cilt/DetailLaporanSegregasi";
 import DetailLaporanShiftlyCILT from "./cilt/DetailLaporanShiftlyCILT";
+import DetailReportCIP from "./cilt/DetailReportCIP";
 import EditCilt from "./cilt/EditCilt";
 import EditShiftHandOver from "./cilt/EditShiftHandOver";
+import CreateCIP from "./cilt/CreateCIP";
+import EditCIP from "./cilt/EditCIP";
 import ListCILT from "./cilt/ListCILT";
+import ReportCIP from "./cilt/ReportCIP";
 import ListCILTDraft from "./cilt/ListCILTDraft";
 import ListShiftHandOver from "./cilt/ListShiftHandOver";
 import ShiftHandOver from "./cilt/ShiftHandOver";
@@ -36,7 +40,11 @@ export {
   DetailLaporanSegregasi,
   DetailLaporanShiftlyCILT,
   DetailShiftlyDowntime,
+  DetailReportCIP,
   EditCilt,
+  EditCIP,
+  CreateCIP,
+  ReportCIP,
   EditDowntime,
   EditShiftHandOver,
   Home,

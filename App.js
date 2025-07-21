@@ -16,12 +16,16 @@ import {
   DetailLaporanSegregasi,
   DetailLaporanShiftlyCILT,
   DetailShiftlyDowntime,
+  DetailReportCIP,
   EditCilt,
+  EditCIP,
+  CreateCIP,
   EditDowntime,
   EditShiftHandOver,
   HomeCILT,
   HomeHO,
   ListCILT,
+  ReportCIP,
   ListCILTDraft,
   ListDowntime,
   ListShiftHandOver,
@@ -274,6 +278,16 @@ export default function App() {
           options={{ headerShown: false }}
         />
         <Stack.Screen
+          name="EditCIP"
+          component={EditCIP}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="CreateCIP"
+          component={CreateCIP}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
           name="ShiftHandOver"
           component={ShiftHandOver}
           options={{ headerShown: false }}
@@ -291,6 +305,11 @@ export default function App() {
         <Stack.Screen
           name="ListCILT"
           component={ListCILT}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="ReportCIP"
+          component={ReportCIP}
           options={{ headerShown: false }}
         />
         <Stack.Screen
@@ -341,6 +360,11 @@ export default function App() {
         <Stack.Screen
           name="DetailLaporanCILTGIGR"
           component={DetailLaporanCILTGIGR}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="DetailReportCIP"
+          component={DetailReportCIP}
           options={{ headerShown: false }}
         />
         <Stack.Screen
