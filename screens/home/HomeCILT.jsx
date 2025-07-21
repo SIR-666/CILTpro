@@ -73,6 +73,12 @@ const Home = ({ navigation }) => {
       image: require("../../assets/listHO.png"),
       link: "ListCILTDraft",
     },
+    {
+      id: 7,  
+      title: "REPORT CIP",
+      image: require("../../assets/cip22.png"),  
+      link: "ReportCIP",  
+    },
     // {
     //   id: 5,
     //   title: "PENGATURAN",
