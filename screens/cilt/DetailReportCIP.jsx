@@ -48,7 +48,25 @@ const DetailReportCIP = ({ navigation, route }) => {
   };
 
   const handleEdit = () => {
-    navigation.navigate("EditCIP", { cipData });
+    // Pass complete cipData including all fields needed for editing
+    navigation.navigate("EditCIP", { 
+      cipData: {
+        ...cipData,
+        // Ensure all necessary fields are included
+        id: cipData.id,
+        line: cipData.line,
+        posisi: cipData.posisi,
+        valvePositions: cipData.valvePositions,
+        flowRate: cipData.flowRate,
+        flowRateBC: cipData.flowRateBC,
+        flowRateD: cipData.flowRateD,
+        kodeOperator: cipData.kodeOperator,
+        kodeTeknisi: cipData.kodeTeknisi,
+        steps: cipData.steps,
+        copRecords: cipData.copRecords,
+        specialRecords: cipData.specialRecords,
+      }
+    });
   };
 
   const handleDelete = () => {
@@ -88,26 +106,25 @@ const DetailReportCIP = ({ navigation, route }) => {
           <View style={styles.stepItem}>
             <Text style={styles.stepLabel}>Temp:</Text>
             <Text style={styles.stepValue}>
-              {step.temperatureActualMin || '-'}/{step.temperatureSetpointMin || '-'}°C
-              {step.temperatureActualMax || '-'}/{step.temperatureSetpointMax || '-'}°C
+              {step.temperatureSetpointMin || '-'}-{step.temperatureSetpointMax || '-'}°C / {step.temperatureActual || '-'}°C
             </Text>
           </View>
           <View style={styles.stepItem}>
             <Text style={styles.stepLabel}>Time:</Text>
             <Text style={styles.stepValue}>
-              {step.timeActual || '-'}/{step.timeSetpoint || '-'} min
+              {step.timeSetpoint || '-'} min
             </Text>
           </View>
-          {step.concentration && (
+          {(step.concentration || step.concentrationActual) && (
             <View style={styles.stepItem}>
               <Text style={styles.stepLabel}>Conc:</Text>
-              <Text style={styles.stepValue}>{step.concentration}%</Text>
+              <Text style={styles.stepValue}>{step.concentrationActual || '-'}%</Text>
             </View>
           )}
           <View style={styles.stepItem}>
             <Text style={styles.stepLabel}>Duration:</Text>
             <Text style={styles.stepValue}>
-              {step.startTime} - {step.endTime}
+              {step.startTime || '-'} - {step.endTime || '-'}
             </Text>
           </View>
         </View>
@@ -120,14 +137,14 @@ const DetailReportCIP = ({ navigation, route }) => {
       <View style={styles.copHeader}>
         <Text style={styles.copType}>{cop.stepType}</Text>
         <Text style={styles.copTime}>
-          {cop.startTime} - {cop.endTime}
+          {cop.startTime || '-'} - {cop.endTime || '-'}
         </Text>
       </View>
       <View style={styles.copDetails}>
         <View style={styles.copItem}>
           <Text style={styles.copLabel}>Temp:</Text>
           <Text style={styles.copValue}>
-            {cop.tempActual}°C ({cop.tempMin}-{cop.tempMax}°C)
+            {cop.tempActual || '-'}°C ({cop.tempMin || '-'}-{cop.tempMax || '-'}°C)
           </Text>
         </View>
         {cop.time67Min && (
@@ -150,9 +167,77 @@ const DetailReportCIP = ({ navigation, route }) => {
         )}
       </View>
       <View style={styles.copFooter}>
-        <Text style={styles.copFooterText}>Kode: {cop.kode}</Text>
-        <Text style={styles.copFooterText}>Teknisi: {cop.teknisi}</Text>
-        <Text style={styles.copFooterText}>Operator: {cop.operator}</Text>
+        <Text style={styles.copFooterText}>Kode: {cop.kode || '-'}</Text>
+      </View>
+    </View>
+  );
+
+  const renderSpecialRow = (record) => (
+    <View key={record.id} style={styles.specialRow}>
+      <View style={styles.specialHeader}>
+        <Text style={styles.specialType}>{record.stepType}</Text>
+        <Text style={styles.specialTime}>
+          {record.startTime || '-'} - {record.endTime || '-'}
+        </Text>
+      </View>
+      <View style={styles.specialDetails}>
+        {/* DRYING */}
+        {record.stepType === "DRYING" && (
+          <>
+            <View style={styles.specialItem}>
+              <Text style={styles.specialLabel}>Temp:</Text>
+              <Text style={styles.specialValue}>
+                {record.tempActual || '-'}°C ({record.tempMin || '-'}-{record.tempMax || '-'}°C)
+              </Text>
+            </View>
+            <View style={styles.specialItem}>
+              <Text style={styles.specialLabel}>Time:</Text>
+              <Text style={styles.specialValue}>{record.time || '-'} min</Text>
+            </View>
+          </>
+        )}
+
+        {/* FOAMING */}
+        {record.stepType === "FOAMING" && (
+          <>
+            <View style={styles.specialItem}>
+              <Text style={styles.specialLabel}>Time:</Text>
+              <Text style={styles.specialValue}>{record.time || '-'} min</Text>
+            </View>
+            <View style={styles.specialItem}>
+              <Text style={styles.specialNote}>(No Temperature)</Text>
+            </View>
+          </>
+        )}
+
+        {/* DISINFECT/SANITASI */}
+        {record.stepType === "DISINFECT/SANITASI" && (
+          <>
+            <View style={styles.specialItem}>
+              <Text style={styles.specialLabel}>Conc:</Text>
+              <Text style={styles.specialValue}>
+                {record.concActual || '-'}% ({record.concMin || '-'}-{record.concMax || '-'}%)
+              </Text>
+            </View>
+            <View style={styles.specialItem}>
+              <Text style={styles.specialLabel}>Time:</Text>
+              <Text style={styles.specialValue}>{record.time || '-'} min</Text>
+            </View>
+            <View style={styles.specialItem}>
+              <Text style={styles.specialLabel}>Temp:</Text>
+              <Text style={styles.specialValue}>
+                {record.tempActual || '-'}°C 
+                {cipData.line === 'LINE D' ? 
+                  ` (${record.tempDMin || '-'}-${record.tempDMax || '-'}°C)` : 
+                  ` (${record.tempBC || '-'}°C)`
+                }
+              </Text>
+            </View>
+          </>
+        )}
+      </View>
+      <View style={styles.specialFooter}>
+        <Text style={styles.specialFooterText}>Kode: {record.kode || '-'}</Text>
       </View>
     </View>
   );
@@ -233,9 +318,61 @@ const DetailReportCIP = ({ navigation, route }) => {
             <Text style={styles.value}>{cipData.operator || '-'}</Text>
           </View>
           <View style={styles.infoRow}>
-            <Text style={styles.label}>Flow Rate:</Text>
-            <Text style={styles.value}>{cipData.flowRate || '-'} L/hr</Text>
+            <Text style={styles.label}>Posisi:</Text>
+            <Text style={styles.value}>{cipData.posisi || '-'}</Text>
           </View>
+          
+          {/* Flow Rate for LINE A */}
+          {cipData.line === 'LINE A' && (
+            <View style={styles.infoRow}>
+              <Text style={styles.label}>Flow Rate:</Text>
+              <Text style={styles.value}>{cipData.flowRate || '-'} L/hr</Text>
+            </View>
+          )}
+          
+          {/* Flow Rates for LINE B/C/D */}
+          {(cipData.line === 'LINE B' || cipData.line === 'LINE C') && cipData.flowRateBC && (
+            <View style={styles.infoRow}>
+              <Text style={styles.label}>Flow B,C:</Text>
+              <Text style={styles.value}>{cipData.flowRateBC} L/H</Text>
+            </View>
+          )}
+          
+          {cipData.line === 'LINE D' && cipData.flowRateD && (
+            <View style={styles.infoRow}>
+              <Text style={styles.label}>Flow D:</Text>
+              <Text style={styles.value}>{cipData.flowRateD} L/H</Text>
+            </View>
+          )}
+
+          {/* Valve Positions for LINE B/C/D */}
+          {(cipData.line === 'LINE B' || cipData.line === 'LINE C' || cipData.line === 'LINE D') && cipData.valvePositions && (
+            <View style={styles.valveSection}>
+              <Text style={styles.label}>Valve Positions:</Text>
+              <View style={styles.valveContainer}>
+                <Text style={styles.valveText}>
+                  A: {cipData.valvePositions.A ? 'Open' : 'Close'} | 
+                  B: {cipData.valvePositions.B ? 'Open' : 'Close'} | 
+                  C: {cipData.valvePositions.C ? 'Open' : 'Close'}
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {/* Kode Operator & Teknisi */}
+          {(cipData.kodeOperator || cipData.kodeTeknisi) && (
+            <View style={styles.kodeContainer}>
+              <View style={styles.infoRow}>
+                <Text style={styles.label}>Kode Operator:</Text>
+                <Text style={styles.value}>{cipData.kodeOperator || '-'}</Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Text style={styles.label}>Kode Teknisi:</Text>
+                <Text style={styles.value}>{cipData.kodeTeknisi || '-'}</Text>
+              </View>
+            </View>
+          )}
+
           {cipData.notes && (
             <View style={styles.notesContainer}>
               <Text style={styles.label}>Notes:</Text>
@@ -252,11 +389,20 @@ const DetailReportCIP = ({ navigation, route }) => {
           </View>
         )}
 
-        {/* COP/SOP/SIP Records */}
-        {cipData.copRecords && cipData.copRecords.length > 0 && (
+        {/* COP/SOP/SIP Records for LINE A */}
+        {cipData.line === 'LINE A' && cipData.copRecords && cipData.copRecords.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>COP/SOP/SIP Records</Text>
             {cipData.copRecords.map(renderCOPRow)}
+          </View>
+        )}
+
+        {/* Special Records for LINE B/C/D */}
+        {(cipData.line === 'LINE B' || cipData.line === 'LINE C' || cipData.line === 'LINE D') && 
+         cipData.specialRecords && cipData.specialRecords.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>DRYING, FOAMING, DISINFECT/SANITASI Records</Text>
+            {cipData.specialRecords.map(renderSpecialRow)}
           </View>
         )}
       </ScrollView>
@@ -338,6 +484,25 @@ const styles = StyleSheet.create({
   value: {
     fontSize: 14,
     color: COLORS.black,
+  },
+  valveSection: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#e0e0e0",
+  },
+  valveContainer: {
+    marginTop: 4,
+  },
+  valveText: {
+    fontSize: 14,
+    color: COLORS.black,
+  },
+  kodeContainer: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#e0e0e0",
   },
   notesContainer: {
     marginTop: 8,
@@ -452,6 +617,63 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   copFooterText: {
+    fontSize: 12,
+    color: COLORS.darkGray,
+    marginBottom: 2,
+  },
+  specialRow: {
+    backgroundColor: "#f9f9f9",
+    padding: 12,
+    marginBottom: 8,
+    borderRadius: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: COLORS.orange,
+  },
+  specialHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  specialType: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: COLORS.orange,
+  },
+  specialTime: {
+    fontSize: 14,
+    color: COLORS.darkGray,
+  },
+  specialDetails: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginBottom: 8,
+  },
+  specialItem: {
+    flexDirection: "row",
+    marginRight: 16,
+    marginBottom: 4,
+  },
+  specialLabel: {
+    fontSize: 12,
+    color: COLORS.darkGray,
+    marginRight: 4,
+  },
+  specialValue: {
+    fontSize: 12,
+    color: COLORS.black,
+    fontWeight: "500",
+  },
+  specialNote: {
+    fontSize: 12,
+    color: COLORS.gray,
+    fontStyle: "italic",
+  },
+  specialFooter: {
+    borderTopWidth: 1,
+    borderTopColor: "#e0e0e0",
+    paddingTop: 8,
+  },
+  specialFooterText: {
     fontSize: 12,
     color: COLORS.darkGray,
     marginBottom: 2,

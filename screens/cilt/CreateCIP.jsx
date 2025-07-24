@@ -17,6 +17,7 @@ import moment from "moment";
 import { COLORS } from "../../constants/theme";
 import { api } from "../../utils/axiosInstance";
 import ReportCIPInspectionTable from "../../components/package/filler/ReportCIPInspectionTable";
+import ReportCIPInspectionTableBCD from "../../components/package/filler/ReportCIPInspectionTableBCD";
 
 const CreateCIP = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
@@ -33,6 +34,8 @@ const CreateCIP = ({ navigation }) => {
     posisi: "",
     flowRate: "",
     notes: "",
+    kodeOperator: "", 
+    kodeTeknisi: "",
   });
 
   // Options
@@ -48,10 +51,6 @@ const CreateCIP = ({ navigation }) => {
 
   const fetchInitialData = async () => {
     try {
-      // Fetch line options for Milk Filling Packing
-      const lineResponse = await api.get(`/mastercilt/line?plant=Milk Filling Packing`);
-      setLineOptions(lineResponse.data);
-
       // Generate process order
       generateProcessOrder();
     } catch (error) {
@@ -87,10 +86,13 @@ const CreateCIP = ({ navigation }) => {
       Alert.alert("Validation Error", "Please select a posisi");
       return false;
     }
-    if (!formData.flowRate) {
+    
+    // For LINE A, validate single flow rate
+    if (formData.line === "LINE A" && !formData.flowRate) {
       Alert.alert("Validation Error", "Flow rate is required");
       return false;
     }
+    
     return true;
   };
 
@@ -101,13 +103,147 @@ const CreateCIP = ({ navigation }) => {
 
     setLoading(true);
     try {
-      const dataToSubmit = {
-        ...formData,
+      let dataToSubmit = {
+        // Basic info
         date: moment(formData.date).format("YYYY-MM-DD"),
-        flowRate: parseFloat(formData.flowRate) || 0,
-        steps: cipTableData.steps,
-        copRecords: cipTableData.copRecords,
+        processOrder: formData.processOrder,
+        plant: formData.plant,
+        line: formData.line,
+        cipType: formData.cipType,
+        status: "In Progress",
+        operator: formData.operator,
+        posisi: formData.posisi,
+        notes: formData.notes || "",
       };
+
+      // Handle LINE A data
+      if (formData.line === "LINE A") {
+        dataToSubmit = {
+          ...dataToSubmit,
+          flowRate: parseFloat(formData.flowRate) || 0,
+          kodeOperator: cipTableData.kodeOperator || formData.kodeOperator || "",
+          kodeTeknisi: cipTableData.kodeTeknisi || formData.kodeTeknisi || "",
+          
+          // Steps data
+          steps: cipTableData.steps.map(step => ({
+            stepNumber: parseInt(step.stepNumber),
+            stepName: step.stepName,
+            temperatureSetpointMin: parseFloat(step.temperatureSetpointMin) || null,
+            temperatureSetpointMax: parseFloat(step.temperatureSetpointMax) || null,
+            temperatureActual: parseFloat(step.temperatureActual) || null,
+            timeSetpoint: parseInt(step.timeSetpoint) || null,
+            timeActual: parseInt(step.timeActual) || null,
+            concentration: step.concentration ? parseFloat(step.concentration) : null,
+            concentrationActual: step.concentrationActual ? parseFloat(step.concentrationActual) : null,
+            startTime: step.startTime || null,
+            endTime: step.endTime || null,
+          })),
+          
+          // COP records
+          copRecords: cipTableData.copRecords.map(cop => ({
+            stepType: cop.stepType,
+            time67Min: cop.time67Min ? parseInt(cop.time67Min) : null,
+            time45Min: cop.time45Min ? parseInt(cop.time45Min) : null,
+            time60Min: cop.time60Min ? parseInt(cop.time60Min) : null,
+            startTime: cop.startTime || null,
+            endTime: cop.endTime || null,
+            tempMin: parseFloat(cop.tempMin) || null,
+            tempMax: parseFloat(cop.tempMax) || null,
+            tempActual: parseFloat(cop.tempActual) || null,
+            kode: cop.kode || "",
+          })),
+        };
+      } 
+      // Handle LINE B/C data
+      else if (formData.line === "LINE B" || formData.line === "LINE C") {
+        dataToSubmit = {
+          ...dataToSubmit,
+          // Only send flowRateBC for LINE B/C
+          flowRateBC: cipTableData.flowRates?.flowBC || 0,
+          valvePositions: cipTableData.valvePositions || { A: false, B: false, C: false },
+          kodeOperator: cipTableData.kodeOperator || formData.kodeOperator || "",
+          kodeTeknisi: cipTableData.kodeTeknisi || formData.kodeTeknisi || "",
+          
+          // Steps data (same structure as LINE A)
+          steps: cipTableData.steps.map(step => ({
+            stepNumber: parseInt(step.stepNumber),
+            stepName: step.stepName,
+            temperatureSetpointMin: parseFloat(step.temperatureSetpointMin) || null,
+            temperatureSetpointMax: parseFloat(step.temperatureSetpointMax) || null,
+            temperatureActual: parseFloat(step.temperatureActual) || null,
+            timeSetpoint: parseInt(step.timeSetpoint) || null,
+            timeActual: parseInt(step.timeActual) || null,
+            concentration: step.concentration ? parseFloat(step.concentration) : null,
+            concentrationActual: step.concentrationActual ? parseFloat(step.concentrationActual) : null,
+            startTime: step.startTime || null,
+            endTime: step.endTime || null,
+          })),
+          
+          // Special records for BCD (DRYING, FOAMING, DISINFECT)
+          specialRecords: cipTableData.specialRecords.map(record => ({
+            stepType: record.stepType,
+            tempMin: record.tempMin ? parseFloat(record.tempMin) : null,
+            tempMax: record.tempMax ? parseFloat(record.tempMax) : null,
+            tempActual: record.tempActual ? parseFloat(record.tempActual) : null,
+            tempBC: record.tempBC ? parseFloat(record.tempBC) : null,
+            tempDMin: record.tempDMin ? parseFloat(record.tempDMin) : null,
+            tempDMax: record.tempDMax ? parseFloat(record.tempDMax) : null,
+            concMin: record.concMin ? parseFloat(record.concMin) : null,
+            concMax: record.concMax ? parseFloat(record.concMax) : null,
+            concActual: record.concActual ? parseFloat(record.concActual) : null,
+            time: record.time ? parseInt(record.time) : null,
+            startTime: record.startTime || null,
+            endTime: record.endTime || null,
+            kode: record.kode || "",
+          })),
+        };
+      }
+      // Handle LINE D data
+      else if (formData.line === "LINE D") {
+        dataToSubmit = {
+          ...dataToSubmit,
+          // Only send flowRateD for LINE D
+          flowRateD: cipTableData.flowRates?.flowD || 0,
+          valvePositions: cipTableData.valvePositions || { A: false, B: false, C: false },
+          kodeOperator: cipTableData.kodeOperator || formData.kodeOperator || "",
+          kodeTeknisi: cipTableData.kodeTeknisi || formData.kodeTeknisi || "",
+          
+          // Steps data (same structure as LINE A)
+          steps: cipTableData.steps.map(step => ({
+            stepNumber: parseInt(step.stepNumber),
+            stepName: step.stepName,
+            temperatureSetpointMin: parseFloat(step.temperatureSetpointMin) || null,
+            temperatureSetpointMax: parseFloat(step.temperatureSetpointMax) || null,
+            temperatureActual: parseFloat(step.temperatureActual) || null,
+            timeSetpoint: parseInt(step.timeSetpoint) || null,
+            timeActual: parseInt(step.timeActual) || null,
+            concentration: step.concentration ? parseFloat(step.concentration) : null,
+            concentrationActual: step.concentrationActual ? parseFloat(step.concentrationActual) : null,
+            startTime: step.startTime || null,
+            endTime: step.endTime || null,
+          })),
+          
+          // Special records for BCD (DRYING, FOAMING, DISINFECT)
+          specialRecords: cipTableData.specialRecords.map(record => ({
+            stepType: record.stepType,
+            tempMin: record.tempMin ? parseFloat(record.tempMin) : null,
+            tempMax: record.tempMax ? parseFloat(record.tempMax) : null,
+            tempActual: record.tempActual ? parseFloat(record.tempActual) : null,
+            tempBC: record.tempBC ? parseFloat(record.tempBC) : null,
+            tempDMin: record.tempDMin ? parseFloat(record.tempDMin) : null,
+            tempDMax: record.tempDMax ? parseFloat(record.tempDMax) : null,
+            concMin: record.concMin ? parseFloat(record.concMin) : null,
+            concMax: record.concMax ? parseFloat(record.concMax) : null,
+            concActual: record.concActual ? parseFloat(record.concActual) : null,
+            time: record.time ? parseInt(record.time) : null,
+            startTime: record.startTime || null,
+            endTime: record.endTime || null,
+            kode: record.kode || "",
+          })),
+        };
+      }
+
+      console.log("Submitting CIP data:", JSON.stringify(dataToSubmit, null, 2));
 
       const response = await api.post("/cip-report", dataToSubmit);
 
@@ -125,10 +261,14 @@ const CreateCIP = ({ navigation }) => {
       }
     } catch (error) {
       console.error("Error creating CIP report:", error);
-      Alert.alert(
-        "Error",
-        error.response?.data?.message || "Failed to create CIP report"
-      );
+      console.error("Error response:", error.response?.data);
+      
+      // More detailed error message
+      const errorMessage = error.response?.data?.message || 
+                          error.response?.data?.errors?.[0]?.message ||
+                          "Failed to create CIP report";
+      
+      Alert.alert("Error", errorMessage);
     } finally {
       setLoading(false);
     }
@@ -234,7 +374,7 @@ const CreateCIP = ({ navigation }) => {
             </View>
           </View>
 
-          {/* CIP Type (Fixed to CIP KITCHEN) */}
+          {/* CIP Type (CIP KITCHEN) */}
           <View style={styles.formGroup}>
             <Text style={styles.label}>CIP Type</Text>
             <View style={[styles.input, styles.readOnlyInput]}>
@@ -250,7 +390,7 @@ const CreateCIP = ({ navigation }) => {
               style={styles.input}
               value={formData.operator}
               onChangeText={(value) => handleInputChange("operator", value)}
-              placeholder="Enter operator code"
+              placeholder="Enter operator name"
             />
           </View>
 
@@ -275,17 +415,55 @@ const CreateCIP = ({ navigation }) => {
             </View>
           </View>
 
-          {/* Flow Rate */}
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Flow Rate (L/hr)</Text>
-            <TextInput
-              style={styles.input}
-              value={formData.flowRate}
-              onChangeText={(value) => handleInputChange("flowRate", value)}
-              keyboardType="numeric"
-              placeholder="e.g. 1500"
-            />
-          </View>
+          {/* Flow Rate - Only for LINE A */}
+          {formData.line === "LINE A" && (
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Flow Rate (L/hr)</Text>
+              <TextInput
+                style={styles.input}
+                value={formData.flowRate}
+                onChangeText={(value) => handleInputChange("flowRate", value)}
+                keyboardType="numeric"
+                placeholder="e.g. 1500"
+              />
+            </View>
+          )}
+
+          {/* Info for LINE B/C/D */}
+          {(formData.line === "LINE B" || formData.line === "LINE C" || formData.line === "LINE D") && (
+            <View style={styles.infoBox}>
+              <Icon name="info" size={20} color={COLORS.blue} />
+              <Text style={styles.infoText}>
+                Flow rates for {formData.line} will be configured in the inspection table below.
+              </Text>
+            </View>
+          )}
+
+          {/* Kode Operator - Only for LINE A */}
+          {formData.line === "LINE A" && (
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Kode Operator</Text>
+              <TextInput
+                style={styles.input}
+                value={formData.kodeOperator}
+                onChangeText={(value) => handleInputChange("kodeOperator", value)}
+                placeholder="e.g. OP-001"
+              />
+            </View>
+          )}
+
+          {/* Kode Teknisi - Only for LINE A */}
+          {formData.line === "LINE A" && (
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Kode Teknisi</Text>
+              <TextInput
+                style={styles.input}
+                value={formData.kodeTeknisi}
+                onChangeText={(value) => handleInputChange("kodeTeknisi", value)}
+                placeholder="e.g. TK-001"
+              />
+            </View>
+          )}
 
           {/* Notes */}
           <View style={styles.formGroup}>
@@ -301,12 +479,35 @@ const CreateCIP = ({ navigation }) => {
           </View>
         </View>
 
-        {/* CIP Inspection Table */}
-        <ReportCIPInspectionTable
-          cipData={null}
-          onSave={handleSaveCIP}
-          isEditable={true}
-        />
+        {/* CIP Inspection Table - Conditional based on Line */}
+        {formData.line && (
+          <>
+            {formData.line === "LINE A" ? (
+              <ReportCIPInspectionTable
+                cipData={{ ...formData }}
+                onSave={handleSaveCIP}
+                isEditable={true}
+              />
+            ) : (
+              <ReportCIPInspectionTableBCD
+                cipData={{ ...formData }}
+                onSave={handleSaveCIP}
+                isEditable={true}
+                selectedLine={formData.line}
+              />
+            )}
+          </>
+        )}
+
+        {/* Instruction if no line selected */}
+        {!formData.line && (
+          <View style={styles.instructionBox}>
+            <Icon name="info-outline" size={24} color={COLORS.orange} />
+            <Text style={styles.instructionText}>
+              Please select a line to see the inspection table
+            </Text>
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -429,6 +630,37 @@ const styles = StyleSheet.create({
   },
   picker: {
     height: 50,
+  },
+  infoBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.lightBlue,
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 16,
+  },
+  infoText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: COLORS.blue,
+    flex: 1,
+  },
+  instructionBox: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 32,
+    margin: 16,
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.orange,
+    borderStyle: "dashed",
+  },
+  instructionText: {
+    marginTop: 8,
+    fontSize: 16,
+    color: COLORS.darkGray,
+    textAlign: "center",
   },
 });
 

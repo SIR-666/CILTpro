@@ -27,13 +27,12 @@ const COLORS = {
     gray: "#9E9E9E",
 };
 
-// Custom Time Picker Component for consistent cross-platform experience
+// Custom Time Picker Component (same as original)
 const TimePickerInput = ({ value, onChange, placeholder, editable = true }) => {
     const [showPicker, setShowPicker] = useState(false);
     const [tempTime, setTempTime] = useState(new Date());
 
     useEffect(() => {
-        // Parse existing time value if available
         if (value && value.includes(':')) {
             const [hours, minutes] = value.split(':');
             const date = new Date();
@@ -123,7 +122,24 @@ const TimePickerInput = ({ value, onChange, placeholder, editable = true }) => {
     );
 };
 
-const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
+// Custom Checkbox Component
+const Checkbox = ({ value, onValueChange, label, disabled = false }) => {
+    return (
+        <TouchableOpacity
+            style={styles.checkboxContainer}
+            onPress={() => !disabled && onValueChange(!value)}
+            disabled={disabled}
+        >
+            <View style={[styles.checkbox, value && styles.checkboxChecked, disabled && styles.checkboxDisabled]}>
+                {value && <Icon name="check" size={16} color="#fff" />}
+            </View>
+            <Text style={[styles.checkboxLabel, disabled && styles.checkboxLabelDisabled]}>{label}</Text>
+        </TouchableOpacity>
+    );
+};
+
+const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selectedLine }) => {
+    // CIP Steps (same as LINE A)
     const [cipSteps, setCipSteps] = useState([
         {
             stepNumber: 1,
@@ -218,53 +234,66 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
         },
     ]);
 
-    const [copRecords, setCopRecords] = useState([
+    // Special records for BCD (replacing COP/SOP/SIP)
+    const [specialRecords, setSpecialRecords] = useState([
         {
-            stepType: "COP",
-            time67Min: "67",
-            time45Min: "",
-            time60Min: "",
+            stepType: "DRYING",
+            tempMin: "118",
+            tempMax: "125",
+            tempActual: "",
+            time: "57",
             startTime: "",
             endTime: "",
-            tempMin: "105",
-            tempMax: "128",
-            tempActual: "",
-            kode: "COP-001",
+            kode: "DRY-001",
         },
         {
-            stepType: "SOP",
-            time67Min: "",
-            time45Min: "45",
-            time60Min: "",
+            stepType: "FOAMING",
+            time: "41",
             startTime: "",
             endTime: "",
-            tempMin: "105",
-            tempMax: "128",
-            tempActual: "",
-            kode: "SOP-001",
+            kode: "FOAM-001",
         },
         {
-            stepType: "SIP",
-            time67Min: "",
-            time45Min: "",
-            time60Min: "60",
+            stepType: "DISINFECT/SANITASI",
+            concMin: "0.3",
+            concMax: "0.5",
+            concActual: "",
+            time: "30",
+            tempBC: "40",
+            tempDMin: "20",
+            tempDMax: "35",
+            tempActual: "",
             startTime: "",
             endTime: "",
-            tempMin: "105",
-            tempMax: "128",
-            tempActual: "",
-            kode: "SIP-001",
+            kode: "DIS-001",
         },
     ]);
+
+    // Valve positions based on posisi selection
+    const [valvePositions, setValvePositions] = useState({
+        A: false,
+        B: false,
+        C: false,
+    });
+
+    // Flow rates for BCD
+    const [flowRates, setFlowRates] = useState({
+        flowD: "",
+        flowBC: "",
+    });
 
     const [kodeOperator, setKodeOperator] = useState("");
     const [kodeTeknisi, setKodeTeknisi] = useState("");
     const [temperatureErrors, setTemperatureErrors] = useState({});
-    const [copTemperatureErrors, setCopTemperatureErrors] = useState({});
+    const [specialTemperatureErrors, setSpecialTemperatureErrors] = useState({});
+    const [flowRateErrors, setFlowRateErrors] = useState({});
+
+    // Get posisi from parent component (passed from CreateCIP)
+    const [parentPosisi, setParentPosisi] = useState("");
 
     useEffect(() => {
         if (cipData) {
-            // Load existing CIP data
+            // Load existing data for editing
             if (cipData.steps && cipData.steps.length > 0) {
                 setCipSteps(cipData.steps.map(step => ({
                     ...step,
@@ -280,28 +309,55 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
                 })));
             }
 
-            if (cipData.copRecords && cipData.copRecords.length > 0) {
-                setCopRecords(cipData.copRecords.map(cop => ({
-                    ...cop,
-                    time67Min: cop.time67Min?.toString() || "",
-                    time45Min: cop.time45Min?.toString() || "",
-                    time60Min: cop.time60Min?.toString() || "",
-                    tempMin: cop.tempMin?.toString() || "105",
-                    tempMax: cop.tempMax?.toString() || "128",
-                    tempActual: cop.tempActual?.toString() || "",
-                    startTime: cop.startTime || "",
-                    endTime: cop.endTime || "",
-                    kode: cop.kode || `${cop.stepType}-001`,
+            if (cipData.specialRecords && cipData.specialRecords.length > 0) {
+                setSpecialRecords(cipData.specialRecords.map(record => ({
+                    ...record,
+                    tempMin: record.tempMin?.toString() || "",
+                    tempMax: record.tempMax?.toString() || "",
+                    tempActual: record.tempActual?.toString() || "",
+                    time: record.time?.toString() || "",
+                    concMin: record.concMin?.toString() || "",
+                    concMax: record.concMax?.toString() || "",
+                    concActual: record.concActual?.toString() || "",
+                    tempBC: record.tempBC?.toString() || "",
+                    tempDMin: record.tempDMin?.toString() || "",
+                    tempDMax: record.tempDMax?.toString() || "",
+                    startTime: record.startTime || "",
+                    endTime: record.endTime || "",
                 })));
             }
 
-            // Load kode operator dan teknisi
+            // Load valve positions
+            if (cipData.valvePositions) {
+                setValvePositions(cipData.valvePositions);
+            }
+
+            // Load flow rates
+            if (cipData.flowRates) {
+                setFlowRates({
+                    flowD: cipData.flowRates.flowD?.toString() || "",
+                    flowBC: cipData.flowRates.flowBC?.toString() || "",
+                });
+            }
+
             setKodeOperator(cipData.kodeOperator || "");
             setKodeTeknisi(cipData.kodeTeknisi || "");
+            setParentPosisi(cipData.posisi || "");
         }
     }, [cipData]);
 
-    // Validate temperature against min/max bounds
+    // Update valve positions based on posisi selection
+    useEffect(() => {
+        if (cipData?.posisi) {
+            if (cipData.posisi === "Final") {
+                setValvePositions({ A: false, B: true, C: true }); // A Close, B Open, C Open
+            } else if (cipData.posisi === "Intermediate") {
+                setValvePositions({ A: false, B: true, C: false }); // A Close, B Open, C Close
+            }
+        }
+    }, [cipData?.posisi]);
+
+    // Validate temperature
     const validateTemperature = (value, min, max, stepIndex) => {
         const numValue = parseFloat(value);
         const numMin = parseFloat(min);
@@ -324,23 +380,45 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
         return true;
     };
 
-    // Validate COP temperature against min/max bounds
-    const validateCopTemperature = (value, min, max, copIndex) => {
+    // Validate special record temperature
+    const validateSpecialTemperature = (value, min, max, recordIndex, fieldName) => {
         const numValue = parseFloat(value);
         const numMin = parseFloat(min);
         const numMax = parseFloat(max);
 
         if (!isNaN(numValue) && !isNaN(numMin) && !isNaN(numMax)) {
             if (numValue < numMin || numValue > numMax) {
-                setCopTemperatureErrors({
-                    ...copTemperatureErrors,
-                    [copIndex]: `Temperature must be between ${min}°C and ${max}°C`
+                setSpecialTemperatureErrors({
+                    ...specialTemperatureErrors,
+                    [`${recordIndex}-${fieldName}`]: `Temperature must be between ${min}°C and ${max}°C`
                 });
                 return false;
             } else {
-                const newErrors = { ...copTemperatureErrors };
-                delete newErrors[copIndex];
-                setCopTemperatureErrors(newErrors);
+                const newErrors = { ...specialTemperatureErrors };
+                delete newErrors[`${recordIndex}-${fieldName}`];
+                setSpecialTemperatureErrors(newErrors);
+                return true;
+            }
+        }
+        return true;
+    };
+
+    // Validate flow rates
+    const validateFlowRate = (field, value) => {
+        const numValue = parseFloat(value);
+        const minValue = field === 'flowD' ? 6000 : 9000;
+
+        if (!isNaN(numValue)) {
+            if (numValue < minValue) {
+                setFlowRateErrors({
+                    ...flowRateErrors,
+                    [field]: `${field === 'flowD' ? 'Flow D' : 'Flow B,C'} must be minimum ${minValue} L/H`
+                });
+                return false;
+            } else {
+                const newErrors = { ...flowRateErrors };
+                delete newErrors[field];
+                setFlowRateErrors(newErrors);
                 return true;
             }
         }
@@ -354,13 +432,11 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
             [field]: value,
         };
 
-        // Validate temperature when it changes
         if (field === 'temperatureActual') {
             const step = updatedSteps[index];
             validateTemperature(value, step.temperatureSetpointMin, step.temperatureSetpointMax, index);
         }
 
-        // Auto-recalculate end time when start time or actual time changes
         if (field === 'startTime' || field === 'timeActual') {
             const step = updatedSteps[index];
             if (step.startTime && step.timeActual) {
@@ -374,60 +450,59 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
         setCipSteps(updatedSteps);
     };
 
-
-    const updateCopField = (index, field, value) => {
-        const updatedCop = [...copRecords];
-        updatedCop[index] = {
-            ...updatedCop[index],
+    const updateSpecialField = (index, field, value) => {
+        const updatedRecords = [...specialRecords];
+        updatedRecords[index] = {
+            ...updatedRecords[index],
             [field]: value,
         };
 
-        // Validate COP temperature when it changes
+        // Validate temperatures
+        const record = updatedRecords[index];
         if (field === 'tempActual') {
-            const cop = updatedCop[index];
-            validateCopTemperature(value, cop.tempMin, cop.tempMax, index);
+            if (record.stepType === 'DRYING') {
+                validateSpecialTemperature(value, record.tempMin, record.tempMax, index, 'drying');
+            } else if (record.stepType === 'DISINFECT/SANITASI') {
+                // Validate based on selected line
+                if (selectedLine === 'LINE D') {
+                    validateSpecialTemperature(value, record.tempDMin, record.tempDMax, index, 'disinfect');
+                } else {
+                    validateSpecialTemperature(value, record.tempBC, record.tempBC, index, 'disinfect');
+                }
+            }
         }
 
-        // Auto-calculate endTime if startTime or duration (timeXXMin) changes
-        const cop = updatedCop[index];
-        const timeDuration =
-            cop.stepType === "COP"
-                ? parseInt(cop.time67Min)
-                : cop.stepType === "SOP"
-                    ? parseInt(cop.time45Min)
-                    : cop.stepType === "SIP"
-                        ? parseInt(cop.time60Min)
-                        : 0;
-
-        if ((field === "startTime" || field === "time67Min" || field === "time45Min" || field === "time60Min") &&
-            cop.startTime && !isNaN(timeDuration)) {
-            const startMoment = moment(cop.startTime, "HH:mm");
-            const endMoment = startMoment.clone().add(timeDuration, "minutes");
-            updatedCop[index].endTime = endMoment.format("HH:mm");
+        // Auto-calculate end time
+        if (field === 'startTime' || field === 'time') {
+            if (record.startTime && record.time) {
+                const startMoment = moment(record.startTime, "HH:mm");
+                const duration = parseInt(record.time) || 0;
+                const endMoment = startMoment.add(duration, 'minutes');
+                updatedRecords[index].endTime = endMoment.format("HH:mm");
+            }
         }
 
-        setCopRecords(updatedCop);
+        setSpecialRecords(updatedRecords);
     };
 
-    // const updateCopField = (index, field, value) => {
-    //     const updatedCop = [...copRecords];
-    //     updatedCop[index] = {
-    //         ...updatedCop[index],
-    //         [field]: value,
-    //     };
+    const updateFlowRate = (field, value) => {
+        setFlowRates({
+            ...flowRates,
+            [field]: value,
+        });
+        validateFlowRate(field, value);
+    };
 
-    //     // Validate COP temperature when it changes
-    //     if (field === 'tempActual') {
-    //         const cop = updatedCop[index];
-    //         validateCopTemperature(value, cop.tempMin, cop.tempMax, index);
-    //     }
-
-    //     setCopRecords(updatedCop);
-    // };
+    const updateValvePosition = (valve) => {
+        setValvePositions({
+            ...valvePositions,
+            [valve]: !valvePositions[valve],
+        });
+    };
 
     const validateAndSave = () => {
-        // Check for temperature validation errors
-        if (Object.keys(temperatureErrors).length > 0) {
+        // Validate temperature errors
+        if (Object.keys(temperatureErrors).length > 0 || Object.keys(specialTemperatureErrors).length > 0) {
             Alert.alert(
                 "Temperature Validation Error",
                 "Please fix temperature values that are outside the allowed range"
@@ -435,15 +510,35 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
             return;
         }
 
-        if (Object.keys(copTemperatureErrors).length > 0) {
+        // Validate flow rate errors
+        if (Object.keys(flowRateErrors).length > 0) {
             Alert.alert(
-                "COP Temperature Validation Error",
-                "Please fix COP/SOP/SIP temperature values that are outside the allowed range"
+                "Flow Rate Validation Error",
+                "Please ensure flow rates meet minimum requirements"
             );
             return;
         }
 
-        // Validate required fields
+        // Validate flow rates based on selected line
+        if (selectedLine === 'LINE D') {
+            if (!flowRates.flowD) {
+                Alert.alert(
+                    "Validation Error",
+                    "Please fill in Flow D rate"
+                );
+                return;
+            }
+        } else if (selectedLine === 'LINE B' || selectedLine === 'LINE C') {
+            if (!flowRates.flowBC) {
+                Alert.alert(
+                    "Validation Error",
+                    "Please fill in Flow B,C rate"
+                );
+                return;
+            }
+        }
+
+        // Validate required fields for steps
         const invalidSteps = cipSteps.filter(step =>
             !step.temperatureActual || !step.timeActual || !step.startTime || !step.endTime
         );
@@ -456,84 +551,45 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
             return;
         }
 
-        // Validate time format
-        const invalidTimeSteps = cipSteps.filter(step => {
-            const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-            return (step.startTime && !timeRegex.test(step.startTime)) ||
-                (step.endTime && !timeRegex.test(step.endTime));
+        // Validate special records
+        const invalidSpecial = specialRecords.filter(record => {
+            if (record.stepType === 'DRYING') {
+                return !record.tempActual || !record.startTime || !record.endTime;
+            } else if (record.stepType === 'FOAMING') {
+                return !record.startTime || !record.endTime;
+            } else if (record.stepType === 'DISINFECT/SANITASI') {
+                return !record.concActual || !record.tempActual || !record.startTime || !record.endTime;
+            }
+            return false;
         });
 
-        if (invalidTimeSteps.length > 0) {
-            Alert.alert(
-                "Time Format Error",
-                `Invalid time format in steps: ${invalidTimeSteps.map(s => s.stepNumber).join(", ")}. Use HH:mm format.`
-            );
-            return;
-        }
-
-        // Validate concentration for ALKALI and ACID
-        const alkaliStep = cipSteps.find(s => s.stepName === "ALKALI");
-        const acidStep = cipSteps.find(s => s.stepName === "ACID");
-
-        if (alkaliStep && !alkaliStep.concentrationActual) {
-            Alert.alert("Validation Error", "Please enter concentration for ALKALI step");
-            return;
-        }
-
-        if (acidStep && !acidStep.concentrationActual) {
-            Alert.alert("Validation Error", "Please enter concentration for ACID step");
-            return;
-        }
-
-        // Validate concentration ranges
-        if (alkaliStep && alkaliStep.concentrationActual) {
-            const alkaliConc = parseFloat(alkaliStep.concentrationActual);
-            if (alkaliConc < 1.5 || alkaliConc > 2) {
-                Alert.alert("Validation Error", "ALKALI concentration must be between 1.5% and 2%");
-                return;
-            }
-        }
-
-        if (acidStep && acidStep.concentrationActual) {
-            const acidConc = parseFloat(acidStep.concentrationActual);
-            if (acidConc < 0.5 || acidConc > 1) {
-                Alert.alert("Validation Error", "ACID concentration must be between 0.5% and 1%");
-                return;
-            }
-        }
-
-        // Validate COP records
-        const invalidCop = copRecords.filter(cop =>
-            !cop.tempActual || !cop.startTime || !cop.endTime
-        );
-
-        if (invalidCop.length > 0) {
+        if (invalidSpecial.length > 0) {
             Alert.alert(
                 "Validation Error",
-                `Please fill all required fields for: ${invalidCop.map(c => c.stepType).join(", ")}`
+                `Please fill all required fields for: ${invalidSpecial.map(r => r.stepType).join(", ")}`
             );
             return;
         }
 
-        // Validate COP time format
-        const invalidCopTimes = copRecords.filter(cop => {
-            const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/;
-            return (cop.startTime && !timeRegex.test(cop.startTime)) ||
-                (cop.endTime && !timeRegex.test(cop.endTime));
-        });
-
-        if (invalidCopTimes.length > 0) {
-            Alert.alert(
-                "Time Format Error",
-                `Invalid time format in COP records: ${invalidCopTimes.map(c => c.stepType).join(", ")}. Use HH:mm format.`
-            );
-            return;
+        // Validate DISINFECT concentration
+        const disinfectRecord = specialRecords.find(r => r.stepType === 'DISINFECT/SANITASI');
+        if (disinfectRecord && disinfectRecord.concActual) {
+            const conc = parseFloat(disinfectRecord.concActual);
+            if (conc < 0.3 || conc > 0.5) {
+                Alert.alert("Validation Error", "DISINFECT/SANITASI concentration must be between 0.3% and 0.5%");
+                return;
+            }
         }
 
         // Prepare data for save
         const dataToSave = {
             steps: cipSteps,
-            copRecords: copRecords,
+            specialRecords: specialRecords,
+            valvePositions: valvePositions,
+            flowRates: {
+                flowD: selectedLine === 'LINE D' ? parseFloat(flowRates.flowD) : undefined,
+                flowBC: (selectedLine === 'LINE B' || selectedLine === 'LINE C') ? parseFloat(flowRates.flowBC) : undefined,
+            },
             kodeOperator: kodeOperator,
             kodeTeknisi: kodeTeknisi,
         };
@@ -551,11 +607,11 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
         ];
     };
 
-    const getCopTemperatureInputStyle = (index) => {
+    const getSpecialTemperatureInputStyle = (index, field) => {
         return [
             styles.input,
-            styles.copTempInput,
-            copTemperatureErrors[index] ? styles.inputError : null
+            styles.specialTempInput,
+            specialTemperatureErrors[`${index}-${field}`] ? styles.inputError : null
         ];
     };
 
@@ -648,93 +704,189 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
         </View>
     );
 
-    const renderCopRow = (cop, index) => (
-        <View key={cop.stepType} style={styles.copRow}>
-            <View style={styles.copTypeCell}>
-                <Text style={styles.copType}>{cop.stepType}</Text>
+    const renderSpecialRow = (record, index) => (
+        <View key={record.stepType} style={styles.specialRow}>
+            <View style={styles.specialTypeCell}>
+                <Text style={styles.specialType}>{record.stepType}</Text>
             </View>
 
-            <View style={styles.copTimeSection}>
-                {cop.stepType === "COP" && (
-                    <View style={styles.copTimeItem}>
-                        <Text style={styles.copTimeLabel}>67 Menit</Text>
-                        <TextInput
-                            style={[styles.input, styles.copTimeInput]}
-                            value={cop.time67Min}
-                            onChangeText={(value) => updateCopField(index, "time67Min", value)}
-                            keyboardType="numeric"
-                            placeholder="67"
+            <View style={styles.specialContent}>
+                {/* DRYING */}
+                {record.stepType === "DRYING" && (
+                    <View style={styles.specialDetails}>
+                        <View style={styles.specialItem}>
+                            <Text style={styles.specialLabel}>Temp ({record.tempMin}-{record.tempMax}°C):</Text>
+                            <TextInput
+                                style={getSpecialTemperatureInputStyle(index, 'drying')}
+                                value={record.tempActual}
+                                onChangeText={(value) => updateSpecialField(index, "tempActual", value)}
+                                keyboardType="numeric"
+                                placeholder="Actual"
+                                editable={isEditable}
+                            />
+                        </View>
+                        <View style={styles.specialItem}>
+                            <Text style={styles.specialLabel}>Time: {record.time} min</Text>
+                        </View>
+                    </View>
+                )}
+
+                {/* FOAMING */}
+                {record.stepType === "FOAMING" && (
+                    <View style={styles.specialDetails}>
+                        <View style={styles.specialItem}>
+                            <Text style={styles.specialLabel}>Time: {record.time} min</Text>
+                        </View>
+                        <View style={styles.specialItem}>
+                            <Text style={styles.specialNote}>(No Temperature)</Text>
+                        </View>
+                    </View>
+                )}
+
+                {/* DISINFECT/SANITASI */}
+                {record.stepType === "DISINFECT/SANITASI" && (
+                    <View style={styles.specialDetails}>
+                        <View style={styles.specialItem}>
+                            <Text style={styles.specialLabel}>Conc ({record.concMin}-{record.concMax}%):</Text>
+                            <TextInput
+                                style={[styles.input, styles.concInput]}
+                                value={record.concActual}
+                                onChangeText={(value) => updateSpecialField(index, "concActual", value)}
+                                keyboardType="numeric"
+                                placeholder="Actual"
+                                editable={isEditable}
+                            />
+                        </View>
+                        <View style={styles.specialItem}>
+                            <Text style={styles.specialLabel}>Time: {record.time} min</Text>
+                        </View>
+                        <View style={styles.specialItem}>
+                            <Text style={styles.specialLabel}>
+                                Temp {selectedLine === 'LINE D' ? `(${record.tempDMin}-${record.tempDMax}°C)` : `(${record.tempBC}°C)`}:
+                            </Text>
+                            <TextInput
+                                style={getSpecialTemperatureInputStyle(index, 'disinfect')}
+                                value={record.tempActual}
+                                onChangeText={(value) => updateSpecialField(index, "tempActual", value)}
+                                keyboardType="numeric"
+                                placeholder="Actual"
+                                editable={isEditable}
+                            />
+                        </View>
+                    </View>
+                )}
+
+                {/* Time Range */}
+                <View style={styles.specialTimeRange}>
+                    <Text style={styles.cellLabel}>Time</Text>
+                    <View style={styles.timeInputRow}>
+                        <TimePickerInput
+                            value={record.startTime}
+                            onChange={(value) => updateSpecialField(index, "startTime", value)}
+                            placeholder="Start"
+                            editable={isEditable}
+                        />
+                        <Text style={styles.timeSeparator}>-</Text>
+                        <TimePickerInput
+                            value={record.endTime}
+                            onChange={(value) => updateSpecialField(index, "endTime", value)}
+                            placeholder="End"
                             editable={isEditable}
                         />
                     </View>
-                )}
-                {cop.stepType === "SOP" && (
-                    <View style={styles.copTimeItem}>
-                        <Text style={styles.copTimeLabel}>45 Menit</Text>
-                        <TextInput
-                            style={[styles.input, styles.copTimeInput]}
-                            value={cop.time45Min}
-                            onChangeText={(value) => updateCopField(index, "time45Min", value)}
-                            keyboardType="numeric"
-                            placeholder="45"
-                            editable={isEditable}
-                        />
-                    </View>
-                )}
-                {cop.stepType === "SIP" && (
-                    <View style={styles.copTimeItem}>
-                        <Text style={styles.copTimeLabel}>60 Menit</Text>
-                        <TextInput
-                            style={[styles.input, styles.copTimeInput]}
-                            value={cop.time60Min}
-                            onChangeText={(value) => updateCopField(index, "time60Min", value)}
-                            keyboardType="numeric"
-                            placeholder="60"
-                            editable={isEditable}
-                        />
-                    </View>
-                )}
-            </View>
-
-            <View style={styles.copTempSection}>
-                <Text style={styles.copTempLabel}>Temp ({cop.tempMin}-{cop.tempMax}°C)</Text>
-                <TextInput
-                    style={getCopTemperatureInputStyle(index)}
-                    value={cop.tempActual}
-                    onChangeText={(value) => updateCopField(index, "tempActual", value)}
-                    keyboardType="numeric"
-                    placeholder="Actual"
-                    editable={isEditable}
-                />
-                {copTemperatureErrors[index] && (
-                    <Text style={styles.errorText}>{copTemperatureErrors[index]}</Text>
-                )}
-            </View>
-
-            <View style={styles.copTimeRangeSection}>
-                <Text style={styles.cellLabel}>Time</Text>
-                <View style={styles.timeInputRow}>
-                    <TimePickerInput
-                        value={cop.startTime}
-                        onChange={(value) => updateCopField(index, "startTime", value)}
-                        placeholder="Start"
-                        editable={isEditable}
-                    />
-                    <Text style={styles.timeSeparator}>-</Text>
-                    <TimePickerInput
-                        value={cop.endTime}
-                        onChange={(value) => updateCopField(index, "endTime", value)}
-                        placeholder="End"
-                        editable={isEditable}
-                    />
                 </View>
+
+                {/* Error messages */}
+                {specialTemperatureErrors[`${index}-drying`] && record.stepType === "DRYING" && (
+                    <Text style={styles.errorText}>{specialTemperatureErrors[`${index}-drying`]}</Text>
+                )}
+                {specialTemperatureErrors[`${index}-disinfect`] && record.stepType === "DISINFECT/SANITASI" && (
+                    <Text style={styles.errorText}>{specialTemperatureErrors[`${index}-disinfect`]}</Text>
+                )}
             </View>
         </View>
     );
 
     return (
         <ScrollView style={styles.container}>
-            {/* CIP Steps Section */}
+            {/* Valve Position Section */}
+            <View style={styles.section}>
+                <Text style={styles.sectionTitle}>POSISI VALVE A, B, C</Text>
+                
+                <View style={styles.valveInfo}>
+                    <Text style={styles.valveInfoText}>
+                        {cipData?.posisi === "Final" ? "Final: A (Close), B (Open), C (Open)" : 
+                         cipData?.posisi === "Intermediate" ? "Inter: A (Close), B (Open), C (Close)" : 
+                         "Select Posisi first"}
+                    </Text>
+                </View>
+
+                <View style={styles.valveContainer}>
+                    <Checkbox
+                        value={valvePositions.A}
+                        onValueChange={() => updateValvePosition('A')}
+                        label="Valve A (Close)"
+                        disabled={!isEditable}
+                    />
+                    <Checkbox
+                        value={valvePositions.B}
+                        onValueChange={() => updateValvePosition('B')}
+                        label="Valve B (Open)"
+                        disabled={!isEditable}
+                    />
+                    <Checkbox
+                        value={valvePositions.C}
+                        onValueChange={() => updateValvePosition('C')}
+                        label={`Valve C (${cipData?.posisi === "Final" ? "Open" : "Close"})`}
+                        disabled={!isEditable}
+                    />
+                </View>
+            </View>
+
+            {/* Flow Rate Section */}
+            <View style={styles.section}>
+                <Text style={styles.sectionTitle}>FLOW RATE</Text>
+                
+                <View style={styles.flowContainer}>
+                    {/* Show Flow D only for LINE D */}
+                    {selectedLine === 'LINE D' && (
+                        <View style={styles.flowItem}>
+                            <Text style={styles.flowLabel}>Flow D (Min 6000 L/H):</Text>
+                            <TextInput
+                                style={[styles.input, styles.flowInput, flowRateErrors.flowD ? styles.inputError : null]}
+                                value={flowRates.flowD}
+                                onChangeText={(value) => updateFlowRate('flowD', value)}
+                                keyboardType="numeric"
+                                placeholder="e.g. 6500"
+                                editable={isEditable}
+                            />
+                            {flowRateErrors.flowD && (
+                                <Text style={styles.errorText}>{flowRateErrors.flowD}</Text>
+                            )}
+                        </View>
+                    )}
+
+                    {/* Show Flow B,C only for LINE B or C */}
+                    {(selectedLine === 'LINE B' || selectedLine === 'LINE C') && (
+                        <View style={styles.flowItem}>
+                            <Text style={styles.flowLabel}>Flow B,C (Min 9000 L/H):</Text>
+                            <TextInput
+                                style={[styles.input, styles.flowInput, flowRateErrors.flowBC ? styles.inputError : null]}
+                                value={flowRates.flowBC}
+                                onChangeText={(value) => updateFlowRate('flowBC', value)}
+                                keyboardType="numeric"
+                                placeholder="e.g. 9500"
+                                editable={isEditable}
+                            />
+                            {flowRateErrors.flowBC && (
+                                <Text style={styles.errorText}>{flowRateErrors.flowBC}</Text>
+                            )}
+                        </View>
+                    )}
+                </View>
+            </View>
+
+            {/* CIP Steps Section (same as LINE A) */}
             <View style={styles.section}>
                 <Text style={styles.sectionTitle}>LAPORAN CIP MESIN GALDI RG 280 UC5</Text>
 
@@ -759,11 +911,11 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
                 {cipSteps.map((step, index) => renderStepRow(step, index))}
             </View>
 
-            {/* COP/SOP/SIP Section */}
+            {/* Special Records Section (DRYING, FOAMING, DISINFECT) */}
             <View style={styles.section}>
-                <Text style={styles.sectionTitle}>LAPORAN COP, SOP DAN SIP MESIN GALDI RG 280 UC5</Text>
+                <Text style={styles.sectionTitle}>LAPORAN DRYING, FOAMING, DISINFECT/SANITASI</Text>
 
-                {copRecords.map((cop, index) => renderCopRow(cop, index))}
+                {specialRecords.map((record, index) => renderSpecialRow(record, index))}
             </View>
 
             {/* Kode Operator dan Teknisi Section */}
@@ -801,7 +953,7 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
     );
 };
 
-export default ReportCIPInspectionTable;
+export default ReportCIPInspectionTableBCD;
 
 const styles = StyleSheet.create({
     container: {
@@ -826,6 +978,79 @@ const styles = StyleSheet.create({
         marginBottom: 16,
         textAlign: "center",
     },
+    
+    // Valve Position Styles
+    valveInfo: {
+        backgroundColor: COLORS.lightBlue,
+        padding: 12,
+        borderRadius: 8,
+        marginBottom: 16,
+    },
+    valveInfoText: {
+        fontSize: 14,
+        color: COLORS.blue,
+        fontWeight: "600",
+        textAlign: "center",
+    },
+    valveContainer: {
+        flexDirection: "row",
+        justifyContent: "space-around",
+        flexWrap: "wrap",
+    },
+    checkboxContainer: {
+        flexDirection: "row",
+        alignItems: "center",
+        marginBottom: 8,
+        marginHorizontal: 8,
+    },
+    checkbox: {
+        width: 24,
+        height: 24,
+        borderWidth: 2,
+        borderColor: COLORS.blue,
+        borderRadius: 4,
+        marginRight: 8,
+        justifyContent: "center",
+        alignItems: "center",
+    },
+    checkboxChecked: {
+        backgroundColor: COLORS.blue,
+    },
+    checkboxDisabled: {
+        borderColor: COLORS.gray,
+        backgroundColor: "#f0f0f0",
+    },
+    checkboxLabel: {
+        fontSize: 14,
+        color: COLORS.black,
+    },
+    checkboxLabelDisabled: {
+        color: COLORS.gray,
+    },
+
+    // Flow Rate Styles
+    flowContainer: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        flexWrap: "wrap",
+    },
+    flowItem: {
+        flex: 1,
+        minWidth: 150,
+        marginHorizontal: 4,
+    },
+    flowLabel: {
+        fontSize: 14,
+        fontWeight: "600",
+        color: COLORS.darkGray,
+        marginBottom: 8,
+    },
+    flowInput: {
+        fontSize: 14,
+        textAlign: "center",
+    },
+
+    // Table styles (same as original)
     tableHeader: {
         flexDirection: "row",
         backgroundColor: COLORS.lightBlue,
@@ -998,7 +1223,9 @@ const styles = StyleSheet.create({
         marginTop: 2,
         textAlign: "center",
     },
-    copRow: {
+
+    // Special Records Styles
+    specialRow: {
         borderWidth: 1,
         borderColor: "#ddd",
         borderRadius: 8,
@@ -1006,69 +1233,53 @@ const styles = StyleSheet.create({
         marginBottom: 12,
         backgroundColor: "#f9f9f9",
     },
-    copTypeCell: {
+    specialTypeCell: {
         marginBottom: 8,
     },
-    copType: {
+    specialType: {
         fontSize: 16,
         fontWeight: "bold",
-        color: COLORS.blue,
+        color: COLORS.orange,
     },
-    copTimeSection: {
+    specialContent: {
+        flex: 1,
+    },
+    specialDetails: {
         flexDirection: "row",
         flexWrap: "wrap",
         marginBottom: 8,
     },
-    copTimeItem: {
+    specialItem: {
         marginRight: 16,
         marginBottom: 8,
+        flexDirection: "row",
+        alignItems: "center",
     },
-    copTimeLabel: {
+    specialLabel: {
         fontSize: 12,
         color: COLORS.darkGray,
-        marginBottom: 4,
+        marginRight: 8,
     },
-    copTimeInput: {
+    specialNote: {
+        fontSize: 12,
+        color: COLORS.gray,
+        fontStyle: "italic",
+    },
+    specialTempInput: {
         width: 60,
         textAlign: "center",
     },
-    copTempSection: {
-        marginBottom: 8,
-    },
-    copTempLabel: {
-        fontSize: 12,
-        color: COLORS.darkGray,
-        marginBottom: 4,
-    },
-    copTempInput: {
-        width: 80,
+    concInput: {
+        width: 60,
         textAlign: "center",
     },
-    copTimeRangeSection: {
-        marginBottom: 8,
-    },
-    copDetailsSection: {
+    specialTimeRange: {
         borderTopWidth: 1,
         borderTopColor: "#e0e0e0",
         paddingTop: 8,
     },
-    copDetailItem: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginBottom: 8,
-    },
-    copDetailLabel: {
-        fontSize: 12,
-        fontWeight: "bold",
-        color: COLORS.darkGray,
-        marginRight: 8,
-        minWidth: 60,
-    },
-    copDetailInput: {
-        flex: 1,
-        marginHorizontal: 4,
-        textAlign: "left",
-    },
+
+    // Kode Section
     kodeSection: {
         flexDirection: "row",
         margin: 16,
@@ -1095,6 +1306,8 @@ const styles = StyleSheet.create({
         flex: 1,
         fontSize: 14,
     },
+
+    // Save Button
     saveButton: {
         flexDirection: "row",
         backgroundColor: COLORS.green,
@@ -1110,7 +1323,8 @@ const styles = StyleSheet.create({
         fontWeight: "bold",
         marginLeft: 8,
     },
-    // Modal styles for iOS
+
+    // Modal styles
     modalContainer: {
         flex: 1,
         justifyContent: "flex-end",
