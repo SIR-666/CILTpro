@@ -18,6 +18,8 @@ import { Checkbox } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 import ChecklistCILTInspectionTable from "../../components/package/filler/ChecklistCILTInspectionTable";
 import GnrPerformanceInspectionTable from "../../components/package/filler/GnrPerformanceInspectionTable";
+import GnrPerformanceInspectionTableBC from "../../components/package/filler/GnrPerformanceInspectionTableBC";
+import GnrPerformanceInspectionTableD from "../../components/package/filler/GnrPerformanceInspectionTableD";
 import H2o2CheckInspectionTable from "../../components/package/filler/h2o2CheckInspectionTable";
 import PaperUsageInspectionTable from "../../components/package/filler/PaperUsageInspectionTable";
 import ScrewCapInspectionTable from "../../components/package/filler/ScrewCapInspectionTable";
@@ -225,72 +227,112 @@ const CILTinspection = ({ route, navigation }) => {
     setInspectionData(data);
   };
 
-  // Submit form and handle image upload
+  // Updated handleSubmit function for CILTinspection.js
   const handleSubmit = async (status) => {
-    const submitTime = moment().tz("Asia/Jakarta").format(); // Rekam waktu submit dalam zona waktu Jakarta
-    let order = {}; // Objek untuk menyimpan data order
+    // Tambahkan alert konfirmasi
+    Alert.alert(
+      "Konfirmasi Submit",
+      "Apakah anda yakin dengan data yang anda inputkan?",
+      [
+        {
+          text: "Batal",
+          style: "cancel"
+        },
+        {
+          text: "Ya, Submit",
+          onPress: async () => {
+            const submitTime = moment().tz("Asia/Jakarta").format();
+            let order = {};
 
-    try {
-      let updatedInspectionData;
+            try {
+              // Call GNR save function before submit if it's GNR form
+              if (packageType === "PERFORMA RED AND GREEN") {
+                // Determine which save function to call based on LINE
+                if (line === "LINE A" && window.gnrBeforeSubmit) {
+                  console.log("Calling GNR save for LINE A before submit...");
+                  window.gnrBeforeSubmit();
+                  // Wait a bit for save to complete
+                  await new Promise(resolve => setTimeout(resolve, 500));
+                } else if ((line === "LINE B" || line === "LINE C") && window.gnrBCBeforeSubmit) {
+                  console.log("Calling GNR save for LINE B/C before submit...");
+                  window.gnrBCBeforeSubmit();
+                  // Wait a bit for save to complete
+                  await new Promise(resolve => setTimeout(resolve, 500));
+                } else if (line === "LINE D" && window.gnrDBeforeSubmit) {
+                  console.log("Calling GNR save for LINE D before submit...");
+                  window.gnrDBeforeSubmit();
+                  // Wait a bit for save to complete
+                  await new Promise(resolve => setTimeout(resolve, 500));
+                }
+              }
 
-      // Cek kondisi untuk penggunaan inspectionData
-      updatedInspectionData = await Promise.all(
-        inspectionData.map(async (item, index) => {
-          let updatedItem = { ...item, id: index + 1 };
+              let updatedInspectionData;
 
-          if (item.picture && item.picture.startsWith("file://")) {
-            const serverImageUrl = await uploadImageToServer(item.picture);
-            updatedItem.picture = serverImageUrl;
+              // Process inspection data
+              updatedInspectionData = await Promise.all(
+                inspectionData.map(async (item, index) => {
+                  let updatedItem = { ...item, id: index + 1 };
+
+                  if (item.picture && item.picture.startsWith("file://")) {
+                    const serverImageUrl = await uploadImageToServer(item.picture);
+                    updatedItem.picture = serverImageUrl;
+                  }
+
+                  return updatedItem;
+                })
+              );
+
+              // Prepare order object
+              order = {
+                processOrder,
+                packageType,
+                plant,
+                line,
+                date: hideDateInput
+                  ? undefined
+                  : moment(date).tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss.SSS"),
+                shift,
+                product,
+                machine,
+                batch,
+                remarks,
+                inspectionData: updatedInspectionData,
+                status: status,
+                formOpenTime: moment(formOpenTime)
+                  .tz("Asia/Jakarta")
+                  .format("YYYY-MM-DD HH:mm:ss.SSS"),
+                submitTime: moment(submitTime)
+                  .tz("Asia/Jakarta")
+                  .format("YYYY-MM-DD HH:mm:ss.SSS"),
+              };
+
+              console.log("Submitting order:", order);
+
+              // Send to server
+              const response = await api.post("/cilt", order);
+
+              if (response.status === 201) {
+                Alert.alert("Success", "Data submitted successfully!");
+                await clearOfflineData();
+
+                // DO NOT clear inspection data - let it persist
+                // Only navigate back after a delay
+                setTimeout(() => {
+                  navigation.goBack();
+                }, 500);
+              }
+            } catch (error) {
+              console.error("Submit failed, saving offline data:", error);
+              await saveOfflineData(order);
+              Alert.alert(
+                "Offline",
+                "No network connection. Data has been saved locally and will be submitted when you are back online."
+              );
+            }
           }
-
-          return updatedItem;
-        })
-      );
-
-      // Siapkan objek order
-      order = {
-        processOrder,
-        packageType,
-        plant,
-        line,
-        date: hideDateInput
-          ? undefined
-          : moment(date).tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss.SSS"),
-        shift,
-        product,
-        machine,
-        batch,
-        remarks,
-        inspectionData: updatedInspectionData, // Data sesuai kondisi
-        status: status, // 1 untuk draft, 0 untuk submit
-        formOpenTime: moment(formOpenTime)
-          .tz("Asia/Jakarta")
-          .format("YYYY-MM-DD HH:mm:ss.SSS"),
-        submitTime: moment(submitTime)
-          .tz("Asia/Jakarta")
-          .format("YYYY-MM-DD HH:mm:ss.SSS"),
-      };
-
-      console.log("Simpan data order:", order);
-
-      // Kirim data ke server
-      const response = await api.post("/cilt", order);
-
-      if (response.status === 201) {
-        Alert.alert("Success", "Data submitted successfully!");
-        await clearOfflineData(); // Hapus data offline setelah berhasil submit
-        setTimeout(() => {
-          navigation.goBack();
-        }, 500);
-      }
-    } catch (error) {
-      console.error("Submit failed, saving offline data:", error);
-      await saveOfflineData(order); // Simpan data secara offline jika submit gagal
-      Alert.alert(
-        "Offline",
-        "No network connection. Data has been saved locally and will be submitted when you are back online."
-      );
-    }
+        }
+      ]
+    );
   };
 
   // Save offline data when API submission fails
@@ -569,15 +611,48 @@ const CILTinspection = ({ route, navigation }) => {
                   />
                 )}
               {machine === "FILLER" &&
-                packageType === "PERFORMA RED AND GREEN" && (
+                packageType === "PERFORMA RED AND GREEN" && 
+                line === "LINE A" && (
                   <GnrPerformanceInspectionTable
-                    key="gnr-performance"
+                    key="gnr-performance-line-a"
                     username={username}
                     onDataChange={(data) => setInspectionData(data)}
+                    initialData={inspectionData}
                     plant={plant}
                     line={line}
                     machine={machine}
                     type={packageType}
+                    shift={shift}
+                  />
+                )}
+              {machine === "FILLER" &&
+                packageType === "PERFORMA RED AND GREEN" && 
+                (line === "LINE B" || line === "LINE C") && (
+                  <GnrPerformanceInspectionTableBC
+                    key="gnr-performance-line-bc"
+                    username={username}
+                    onDataChange={(data) => setInspectionData(data)}
+                    initialData={inspectionData}
+                    plant={plant}
+                    line={line}
+                    machine={machine}
+                    type={packageType}
+                    shift={shift}
+                  />
+                )}
+              {machine === "FILLER" &&
+                packageType === "PERFORMA RED AND GREEN" && 
+                line === "LINE D" && (
+                  <GnrPerformanceInspectionTableD
+                    key="gnr-performance-line-d"
+                    username={username}
+                    onDataChange={(data) => setInspectionData(data)}
+                    initialData={inspectionData}
+                    plant={plant}
+                    line={line}
+                    machine={machine}
+                    type={packageType}
+                    shift={shift}
                   />
                 )}
               {machine === "FILLER" && packageType === "CHECKLIST CILT" && (

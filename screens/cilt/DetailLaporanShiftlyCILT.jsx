@@ -112,30 +112,6 @@ const DetailLaporanShiftly = ({ route }) => {
     return Object.values(uniqueActivities);
   };
 
-  const extractUniqueInspectionDataX = (records) => {
-    const uniqueActivities = {};
-    records.forEach((record) => {
-      const inspections = JSON.parse(record.CombinedInspectionData);
-      inspections.forEach((inspection) => {
-        const key = `${inspection.id}|${inspection.standard}`;
-        if (!uniqueActivities[key]) {
-          uniqueActivities[key] = {
-            activity: inspection.activity,
-            standard: inspection.standard,
-            results: {},
-            picture: {},
-          };
-        }
-        uniqueActivities[key].results[record.HourGroup] = inspection.results;
-        uniqueActivities[key].picture[record.HourGroup] = inspection.picture;
-      });
-    });
-
-    const uniqueData = Object.values(uniqueActivities);
-    console.log("Extracted Unique Inspection Data: ", uniqueData);
-    return uniqueData;
-  };
-
   useEffect(() => {
     fetchData();
   }, [item]);
@@ -204,6 +180,12 @@ const DetailLaporanShiftly = ({ route }) => {
     if (evalResult === "reject") return "#f8d7da";
 
     return "#f8f9fa"; // default gray
+  };
+
+  // Helper function to check if row should have separator
+  const shouldShowSeparator = (index, data) => {
+    const separatorIndices = [13, 20, 39]; // After indices 13, 20, and 39
+    return separatorIndices.includes(index);
   };
 
   const printToFile = async () => {
@@ -374,194 +356,207 @@ const DetailLaporanShiftly = ({ route }) => {
     }
   };
 
+  // Fixed cell widths for consistent alignment
+  const CELL_WIDTHS = {
+    no: 40,
+    activity: 200,
+    status: 50,    // Increased from 40 to 50 for G, N, R columns
+    hour: 60,
+    total: 380      // Sum of no + activity + 3 status cells (40 + 200 + 50*3 = 390)
+  };
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView horizontal>
-        <ScrollView>
-          <View style={styles.header}>
-            <Text style={styles.title}>Detail Data Shiftly</Text>
-            <Text style={styles.infoTextBold}>
-              Date:{"                         "}
-              <Text style={styles.infoText}>
-                {moment(item.date, "YYYY-MM-DD HH:mm:ss.SSS").format(
-                  "DD/MM/YY HH:mm:ss"
-                )}
+      <ScrollView showsVerticalScrollIndicator={false}>
+        <View style={styles.header}>
+          <Text style={styles.title}>Detail Data Shiftly</Text>
+          
+          {/* Info Section with better layout */}
+          <View style={styles.infoSection}>
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Date:</Text>
+              <Text style={styles.infoValue}>
+                {moment(item.date, "YYYY-MM-DD HH:mm:ss.SSS").format("DD/MM/YY HH:mm:ss")}
               </Text>
-            </Text>
-            <Text style={styles.infoTextBold}>
-              Process Order:{"       "}
-              <Text style={styles.infoText}>{item.processOrder}</Text>
-            </Text>
-            <Text style={styles.infoTextBold}>
-              Package: {"                 "}{" "}
-              <Text style={styles.infoText}>{item.packageType}</Text>
-            </Text>
-            <Text style={styles.infoTextBold}>
-              Plant: {"                       "}{" "}
-              <Text style={styles.infoText}>{item.plant}</Text>
-            </Text>
-            <Text style={styles.infoTextBold}>
-              Line: {"                          "}
-              <Text style={styles.infoText}>{item.line}</Text>
-            </Text>
-            <Text style={styles.infoTextBold}>
-              Shift: {"                         "}
-              <Text style={styles.infoText}>{item.shift}</Text>
-            </Text>
-            <Text style={styles.infoTextBold}>
-              Machine: {"                 "}{" "}
-              <Text style={styles.infoText}>{item.machine}</Text>
-            </Text>
+            </View>
+            
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Process Order:</Text>
+              <Text style={styles.infoValue}>{item.processOrder}</Text>
+            </View>
+            
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Package:</Text>
+              <Text style={styles.infoValue}>{item.packageType}</Text>
+            </View>
+            
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Plant:</Text>
+              <Text style={styles.infoValue}>{item.plant}</Text>
+            </View>
+            
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Line:</Text>
+              <Text style={styles.infoValue}>{item.line}</Text>
+            </View>
+            
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Shift:</Text>
+              <Text style={styles.infoValue}>{item.shift}</Text>
+            </View>
+            
+            <View style={styles.infoRow}>
+              <Text style={styles.infoLabel}>Machine:</Text>
+              <Text style={styles.infoValue}>{item.machine}</Text>
+            </View>
           </View>
 
-          <View>
-            <TouchableOpacity
-              style={[styles.submitButton]}
-              onPress={printToFile}
-            >
-              <Text style={styles.submitButtonText}>DOWNLOAD REPORT</Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={styles.submitButton}
+            onPress={printToFile}
+          >
+            <Text style={styles.submitButtonText}>DOWNLOAD REPORT</Text>
+          </TouchableOpacity>
+        </View>
 
-          {isLoading ? (
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#3bcd6b" />
-          ) : (
-            <View style={styles.wrapper}>
-              <ScrollView horizontal>
-                <View style={styles.table}>
-                  <View style={styles.tableHeadTime}>
-                    <View style={{ width: 260 }}></View>
-                    <View style={{ width: 120 }}>
-                      <Text style={styles.timeCaption}>Actual{"\n"}Time</Text>
-                    </View>
-                    {shiftHours.map((hour, index) => (
-                      <View key={`hour-${hour}-${index}`} style={{ width: 60 }}>
-                        {data
-                          .filter(
-                            (item) =>
-                              hour ==
-                              moment.utc(item.LastRecordTime).format("HH")
-                          )
-                          .map((filteredItem, idx) => {
-                            const lastRecordHour = moment
-                              .utc(filteredItem.LastRecordTime)
-                              .format("HH");
-                            const submitHour = moment
-                              .utc(filteredItem.submitTime)
-                              .format("HH");
+          </View>
+        ) : (
+          <ScrollView horizontal showsHorizontalScrollIndicator={true}>
+            <View style={styles.tableContainer}>
+              {/* Actual Time Header */}
+              <View style={styles.actualTimeRow}>
+                <View style={[styles.actualTimeLabel, { width: CELL_WIDTHS.total }]}>
+                  <Text style={styles.actualTimeText}>Actual Time</Text>
+                </View>
+                {shiftHours.map((hour, index) => {
+                  const relatedItems = data.filter(
+                    (item) => hour == moment.utc(item.LastRecordTime).format("HH")
+                  );
 
-                            // Hitung selisih jam
-                            const isMoreThanOneHour =
-                              Math.abs(lastRecordHour - submitHour) >= 1;
+                  return (
+                    <View key={`time-column-${hour}-${index}`} style={[styles.actualTimeCell, { width: CELL_WIDTHS.hour }]}>
+                      {relatedItems.length === 0 ? (
+                        <Text style={styles.actualTimeEmpty}>-</Text>
+                      ) : (
+                        relatedItems.map((filteredItem, idx) => {
+                          const lastRecordHour = moment.utc(filteredItem.LastRecordTime).format("HH");
+                          const submitHour = moment.utc(filteredItem.submitTime).format("HH");
+                          const submitMinutes = moment.utc(filteredItem.submitTime).format("mm");
+                          const isMoreThanOneHour = Math.abs(parseInt(lastRecordHour) - parseInt(submitHour)) >= 1;
 
-                            return (
-                              <View key={`time-${hour}-${idx}-${filteredItem.id || idx}`}>
-                                <Text
-                                  style={{
-                                    fontWeight: "bold",
-                                    textAlign: "center",
-                                    color: isMoreThanOneHour ? "red" : "green",
-                                  }}
-                                >
-                                  {submitHour}
-                                </Text>
-                                <Text
-                                  style={{
-                                    fontWeight: "bold",
-                                    textAlign: "center",
-                                    color: isMoreThanOneHour ? "red" : "green",
-                                  }}
-                                >
-                                  {moment(filteredItem.submitTime).format("mm")}
-                                </Text>
-                              </View>
-                            );
-                          })}
-                      </View>
-                    ))}
-                  </View>
-
-                  <View style={styles.tableHead}>
-                    <View style={{ width: 60 }}>
-                      <Text style={styles.tableCaption}>No</Text>
-                    </View>
-                    <View style={{ width: 200 }}>
-                      <Text style={styles.tableCaption}>Activity</Text>
-                    </View>
-                    <View style={{ width: 40 }}>
-                      <Text style={styles.tableCaption}>G</Text>
-                    </View>
-                    <View style={{ width: 40 }}>
-                      <Text style={styles.tableCaption}>N</Text>
-                    </View>
-                    <View style={{ width: 40 }}>
-                      <Text style={styles.tableCaption}>R</Text>
-                    </View>
-                    {shiftHours.map((hour, index) => (
-                      <View key={`header-${hour}-${index}`} style={{ width: 60 }}>
-                        <Text style={styles.tableCaption}>{hour}</Text>
-                      </View>
-                    ))}
-                  </View>
-
-                  {uniqueData.map((item, index) => (
-                    <View key={`row-${index}-${item.activity}`} style={styles.tableBody}>
-                      <View style={{ width: 60 }}>
-                        <Text style={styles.tableData}>{index + 1}</Text>
-                      </View>
-                      <View style={{ width: 200 }}>
-                        <Text style={styles.tableData}>{item.activity}</Text>
-                      </View>
-                      <View style={{ width: 40 }}>
-                        <Text style={styles.tableData}>{item.good ?? "-"}</Text>
-                      </View>
-                      <View style={{ width: 40 }}>
-                        <Text style={styles.tableData}>{item.need ?? "-"}</Text>
-                      </View>
-                      <View style={{ width: 40 }}>
-                        <Text style={styles.tableData}>
-                          {item.reject ?? "-"}
-                        </Text>
-                      </View>
-                      {shiftHours.map((hour, idx) => (
-                        <View key={`cell-${index}-${hour}-${idx}`} style={{ width: 60 }}>
-                          <TouchableOpacity
-                            onPress={() =>
-                              item.picture[hour] && handlePress(item.picture[hour])
-                            }
-                            disabled={!item.picture[hour]}
-                          >
-                            <Text
+                          return (
+                            <View 
+                              key={`time-${hour}-${idx}-${filteredItem.id || idx}`}
                               style={[
-                                styles.tableData,
-                                {
-                                  backgroundColor: getResultColor(item.results[hour], item.good, item.reject),
-                                },
+                                styles.actualTimeBox,
+                                { backgroundColor: isMoreThanOneHour ? "#ffebee" : "#e8f5e9" }
                               ]}
                             >
-                              {item.results[hour] || ""}
-                            </Text>
-                          </TouchableOpacity>
-                        </View>
-                      ))}
+                              <Text style={[
+                                styles.actualTimeValue,
+                                { color: isMoreThanOneHour ? "#d32f2f" : "#2e7d32" }
+                              ]}>
+                                {submitHour}:{submitMinutes}
+                              </Text>
+                            </View>
+                          );
+                        })
+                      )}
                     </View>
-                  ))}
+                  );
+                })}
+              </View>
+
+              {/* Main Table Header */}
+              <View style={styles.tableHeader}>
+                <View style={[styles.noCell, { width: CELL_WIDTHS.no }]}>
+                  <Text style={styles.headerText}>No</Text>
                 </View>
-              </ScrollView>
+                <View style={[styles.activityCell, { width: CELL_WIDTHS.activity }]}>
+                  <Text style={styles.headerText}>Activity</Text>
+                </View>
+                <View style={[styles.statusCell, { width: CELL_WIDTHS.status }]}>
+                  <Text style={styles.headerText}>G</Text>
+                </View>
+                <View style={[styles.statusCell, { width: CELL_WIDTHS.status }]}>
+                  <Text style={styles.headerText}>N</Text>
+                </View>
+                <View style={[styles.statusCell, { width: CELL_WIDTHS.status }]}>
+                  <Text style={styles.headerText}>R</Text>
+                </View>
+                {shiftHours.map((hour, index) => (
+                  <View key={`header-${hour}-${index}`} style={[styles.hourCell, { width: CELL_WIDTHS.hour }]}>
+                    <Text style={styles.headerText}>{hour}:00</Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Table Body */}
+              {uniqueData.map((item, index) => (
+                <View key={`row-${index}-${item.activity}`}>
+                  <View style={[
+                    styles.tableRow,
+                    index % 2 === 1 && styles.tableRowAlt
+                  ]}>
+                    <View style={[styles.noCell, { width: CELL_WIDTHS.no }]}>
+                      <Text style={styles.cellText}>{index + 1}</Text>
+                    </View>
+                    <View style={[styles.activityCell, { width: CELL_WIDTHS.activity }]}>
+                      <Text style={styles.activityText}>{item.activity}</Text>
+                    </View>
+                    <View style={[styles.statusCell, { width: CELL_WIDTHS.status }]}>
+                      <Text style={styles.cellText}>{item.good ?? "-"}</Text>
+                    </View>
+                    <View style={[styles.statusCell, { width: CELL_WIDTHS.status }]}>
+                      <Text style={styles.cellText}>{item.need ?? "-"}</Text>
+                    </View>
+                    <View style={[styles.statusCell, { width: CELL_WIDTHS.status }]}>
+                      <Text style={styles.cellText}>{item.reject ?? "-"}</Text>
+                    </View>
+                    {shiftHours.map((hour, idx) => (
+                      <TouchableOpacity
+                        key={`cell-${index}-${hour}-${idx}`}
+                        style={[
+                          styles.hourCell,
+                          { 
+                            width: CELL_WIDTHS.hour,
+                            backgroundColor: getResultColor(item.results[hour], item.good, item.reject) 
+                          }
+                        ]}
+                        onPress={() => item.picture[hour] && handlePress(item.picture[hour])}
+                        disabled={!item.picture[hour]}
+                      >
+                        <Text style={[
+                          styles.cellText,
+                          { fontWeight: item.results[hour] ? 'bold' : 'normal' }
+                        ]}>
+                          {item.results[hour] || ""}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  {shouldShowSeparator(index, uniqueData) && (
+                    <View style={styles.sectionSeparator} />
+                  )}
+                </View>
+              ))}
             </View>
-          )}
-        </ScrollView>
+          </ScrollView>
+        )}
       </ScrollView>
+
+      {/* Image Modal */}
       <Modal
         visible={modalVisible}
         transparent={true}
         animationType="fade"
-        onRequestClose={() => {
-          setModalVisible(false);
-        }}
+        onRequestClose={() => setModalVisible(false)}
       >
         <TouchableOpacity
-          style={styles.modalContainerAdaTemuan}
+          style={styles.modalContainer}
           activeOpacity={1}
           onPressOut={() => setModalVisible(false)}
         >
@@ -572,9 +567,9 @@ const DetailLaporanShiftly = ({ route }) => {
                 style={{
                   width: modalImageSize,
                   height: modalImageSize,
-                  marginVertical: 10,
-                  borderRadius: 5,
+                  borderRadius: 10,
                 }}
+                resizeMode="contain"
               />
             )}
           </View>
@@ -587,78 +582,184 @@ const DetailLaporanShiftly = ({ route }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: "#f5f5f5",
+  },
+  header: {
     backgroundColor: "#fff",
     padding: 20,
+    marginBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e0e0e0",
   },
   title: {
     fontSize: 24,
     fontWeight: "bold",
     marginBottom: 20,
     textAlign: "center",
+    color: "#333",
   },
-  wrapper: {
-    paddingTop: 8,
+  infoSection: {
+    marginBottom: 20,
   },
-  table: {
-    flexDirection: "column",
-    width: "100%",
+  infoRow: {
+    flexDirection: "row",
+    marginBottom: 8,
+    alignItems: "center",
   },
-  tableHead: {
+  infoLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#666",
+    width: 120,
+  },
+  infoValue: {
+    fontSize: 14,
+    color: "#333",
+    flex: 1,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 50,
+  },
+  tableContainer: {
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    margin: 10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  actualTimeRow: {
+    flexDirection: "row",
+    backgroundColor: "#f8f9fa",
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    borderBottomWidth: 2,
+    borderBottomColor: "#e0e0e0",
+    minHeight: 50,
+  },
+  actualTimeLabel: {
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 10,
+    borderRightWidth: 1,
+    borderRightColor: "#e0e0e0",
+  },
+  actualTimeText: {
+    fontSize: 14,
+    fontWeight: "bold",
+    color: "#333",
+  },
+  actualTimeCell: {
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 4,
+    borderRightWidth: 1,
+    borderRightColor: "#e0e0e0",
+  },
+  actualTimeBox: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    marginVertical: 2,
+  },
+  actualTimeValue: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  actualTimeEmpty: {
+    fontSize: 12,
+    color: "#999",
+  },
+  tableHeader: {
     flexDirection: "row",
     backgroundColor: "#3bcd6b",
-    paddingVertical: 10,
+    paddingVertical: 12,
   },
-  tableHeadTime: {
+  tableRow: {
     flexDirection: "row",
-    backgroundColor: "#f8f8f8",
-    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e0e0e0",
+    minHeight: 45,
   },
-  tableBody: {
-    flexDirection: "row",
-    paddingVertical: 10,
+  tableRowAlt: {
+    backgroundColor: "#f8f9fa",
   },
-  tableCaption: {
+  noCell: {
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 5,
+    borderRightWidth: 1,
+    borderRightColor: "#e0e0e0",
+  },
+  activityCell: {
+    justifyContent: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRightWidth: 1,
+    borderRightColor: "#e0e0e0",
+  },
+  statusCell: {
+    justifyContent: "center",
+    alignItems: "center",
+    borderRightWidth: 1,
+    borderRightColor: "#e0e0e0",
+  },
+  hourCell: {
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 8,
+    borderRightWidth: 1,
+    borderRightColor: "#e0e0e0",
+  },
+  headerText: {
     color: "#fff",
     fontWeight: "bold",
+    fontSize: 13,
     textAlign: "center",
   },
-  timeCaption: {
-    color: "#000",
-    fontWeight: "bold",
+  cellText: {
+    fontSize: 13,
     textAlign: "center",
+    color: "#333",
   },
-  tableData: {
-    textAlign: "center",
-    fontSize: 14,
+  activityText: {
+    fontSize: 13,
+    color: "#333",
+  },
+  sectionSeparator: {
+    height: 3,
+    backgroundColor: "#2196F3",
   },
   submitButton: {
     backgroundColor: COLORS.blue,
     padding: 15,
-    borderRadius: 5,
+    borderRadius: 8,
     alignItems: "center",
-    marginTop: 8,
+    marginTop: 10,
   },
   submitButtonText: {
     color: "#fff",
     fontSize: 16,
     fontWeight: "bold",
   },
-  modalContainerAdaTemuan: {
+  modalContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(0, 0, 0, 0.8)",
   },
   modalView: {
     backgroundColor: "white",
-    borderRadius: 10,
-    padding: 20,
+    borderRadius: 15,
+    padding: 10,
     alignItems: "center",
     shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
     elevation: 5,
