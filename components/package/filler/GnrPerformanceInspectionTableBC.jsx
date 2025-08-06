@@ -5,47 +5,69 @@ import { api } from "../../../utils/axiosInstance";
 import moment from "moment-timezone";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const defaultTemplate = [
+// Template khusus untuk LINE B dan LINE C
+const defaultTemplateBC = [
   // Cek parameter mesin per jam
   {
-    activity: "H2O2 Spray (MCCP 03) Flowrate",
-    good: "22 - 26",
-    reject: "<22 / >26",
+    activity: "H2O2 Spray (MCCP 03) nozzle 1 (ml/min)",
+    good: "2.8 - 5",
+    reject: "<2.8 / >5",
     periode: "Tiap Jam",
     status: 1,
   },
   {
-    activity: "Pressure H2O2 nozzle 1 (mb)",
-    good: "1050 - 1350",
-    reject: "<1050 / >1350",
+    activity: "H2O2 Spray (MCCP 03) nozzle 2 (ml/min)",
+    good: "2.8 - 5",
+    reject: "<2.8 / >5",
     periode: "Tiap Jam",
     status: 1,
   },
   {
-    activity: "Pressure H2O2 nozzle 2 (mb)",
-    good: "1050 - 1350",
-    reject: "<1050 / >1350",
+    activity: "H2O2 Spray (MCCP 03) nozzle 3 (ml/min)",
+    good: "2.8 - 5",
+    reject: "<2.8 / >5",
     periode: "Tiap Jam",
     status: 1,
   },
   {
-    activity: "Pressure H2O2 nozzle 3 (mb)",
-    good: "1050 - 1350",
-    reject: "<1050 / >1350",
+    activity: "H2O2 Spray (MCCP 03) nozzle 4 (ml/min)",
+    good: "2.8 - 5",
+    reject: "<2.8 / >5",
     periode: "Tiap Jam",
     status: 1,
   },
   {
-    activity: "Pressure H2O2 nozzle 4 (mb)",
-    good: "1050 - 1350",
-    reject: "<1050 / >1350",
+    activity: "Flowrate nozzle 1 (ml/min)",
+    good: "2.8 - 5",
+    reject: "<2.8 / >5",
     periode: "Tiap Jam",
     status: 1,
   },
   {
-    activity: "Hepa pressure (1-4 mbar)",
-    good: "1 - 4",
-    reject: "<1 / >4",
+    activity: "Flowrate nozzle 2 (ml/min)",
+    good: "2.8 - 5",
+    reject: "<2.8 / >5",
+    periode: "Tiap Jam",
+    status: 1,
+  },
+  {
+    activity: "Flowrate nozzle 3 (ml/min)",
+    good: "2.8 - 5",
+    reject: "<2.8 / >5",
+    periode: "Tiap Jam",
+    status: 1,
+  },
+  {
+    activity: "Flowrate nozzle 4 (ml/min)",
+    good: "2.8 - 5",
+    reject: "<2.8 / >5",
+    periode: "Tiap Jam",
+    status: 1,
+  },
+  {
+    activity: "Hepa pressure (mbar)",
+    good: "1.4 - 5",
+    reject: "<1.4 / >5",
     periode: "Tiap Jam",
     status: 1,
   },
@@ -57,55 +79,55 @@ const defaultTemplate = [
     status: 0,
   },
   {
-    activity: "Temp. secondary water (<20C)",
-    good: "< 20",
-    reject: ">= 20",
+    activity: "Temp. secondary water (<C)",
+    good: "≤ 4",
+    reject: "> 4",
     periode: "Tiap Jam",
     status: 1,
   },
   {
-    activity: "Temp. Cooling Water <4C",
-    good: "< 4",
-    reject: ">= 4",
+    activity: "Temp. Cooling Water (<C)",
+    good: "≤ 4",
+    reject: "> 4",
     periode: "Tiap Jam",
     status: 1,
   },
   {
-    activity: "Pressure Cooling Water (3-4 Bar)",
+    activity: "Press. Cooling Water (Bar)",
     good: "3 - 4",
     reject: "<3 / >4",
     periode: "Tiap Jam",
     status: 1,
   },
   {
-    activity: "Temp. bottom seal (C)",
-    good: "380 - 390",
-    reject: "<380 / >390",
+    activity: "Temp. bottom seal (<C)",
+    good: "380 - 440",
+    reject: "<380 / >440",
     periode: "Tiap Jam",
     status: 1,
   },
   {
-    activity: "Temp. top seal (C)",
-    good: "280 - 320",
-    reject: "<280 / >320",
+    activity: "Temp. top seal (<C)",
+    good: "380 - 440",
+    reject: "<380 / >440",
     periode: "Tiap Jam",
     status: 1,
   },
   {
     activity: "cap welding energy (J)",
-    good: "90 - 110",
-    reject: "<90 / >110",
+    good: "100 - 120",
+    reject: "<100 / >120",
     periode: "Tiap Jam",
     status: 1,
   },
   {
     activity: "cap welding time (ms)",
-    good: "70 - 180",
-    reject: "<70 / >180",
+    good: "100 - 150",
+    reject: "<100 / >150",
     periode: "Tiap Jam",
     status: 1,
   },
-  // Cek kondisi mesin per 30 menit
+  // Cek kondisi mesin per 30 menit (sama dengan LINE A)
   {
     activity: "Filling nozzle",
     good: "tidak dripping",
@@ -342,7 +364,7 @@ const defaultTemplate = [
   { activity: "Reject (pack)", periode: "Tiap Jam", status: 1 },
 ];
 
-const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, plant, line, machine, type, shift: parentShift }) => {
+const GnrPerformanceInspectionTableBC = ({ username, onDataChange, initialData, plant, line, machine, type, shift: parentShift }) => {
   const [inspectionData, setInspectionData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedHourlySlot, setSelectedHourlySlot] = useState("");
@@ -849,8 +871,8 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
 
       const fetched = Array.isArray(response.data) ? response.data : [];
 
-      // First, create base template
-      const baseTemplate = defaultTemplate.map((templateItem) => {
+      // First, create base template using BC template
+      const baseTemplate = defaultTemplateBC.map((templateItem) => {
         const dbItem = fetched.find((item) => item.activity === templateItem.activity);
 
         return {
@@ -903,7 +925,7 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
       previousTypeRef.current = type;
     } catch (error) {
       console.error("Error fetching inspection data:", error);
-      const fallbackData = defaultTemplate.map(item => ({
+      const fallbackData = defaultTemplateBC.map(item => ({
         ...item,
         results: "",
         done: false,
@@ -955,6 +977,14 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
 
   const parseRange = (rangeStr) => {
     if (!rangeStr || rangeStr === "-") return null;
+
+    // Handle special case for "≤ 4" format
+    if (rangeStr.includes("≤ ")) {
+      const value = parseFloat(rangeStr.replace("≤ ", ""));
+      if (!isNaN(value)) {
+        return { type: "single", operator: "<=", value };
+      }
+    }
 
     if (rangeStr.includes("< ") || rangeStr.includes(">= ")) {
       const match = rangeStr.match(/([<>=]+)\s*(\d+)/);
@@ -1038,6 +1068,7 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
       } else if (goodRange.type === "single") {
         if (goodRange.operator === "< " && numValue < goodRange.value) return "good";
         if (goodRange.operator === ">= " && numValue >= goodRange.value) return "good";
+        if (goodRange.operator === "<=" && numValue <= goodRange.value) return "good";
       }
     }
 
@@ -1192,8 +1223,8 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
   // Hook to handle data persistence after parent submit - FIXED VERSION
   useEffect(() => {
     // Expose save function to parent
-    if (window.gnrBeforeSubmit !== saveDataBeforeSubmit) {
-      window.gnrBeforeSubmit = saveDataBeforeSubmit;
+    if (window.gnrBCBeforeSubmit !== saveDataBeforeSubmit) {
+      window.gnrBCBeforeSubmit = saveDataBeforeSubmit;
     }
 
     // Auto-save every 30 seconds
@@ -1286,7 +1317,7 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
       {showHourlyTable && (
         <>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>PEMERIKSAAN PER JAM</Text>
+            <Text style={styles.sectionTitle}>PEMERIKSAAN PER JAM (LINE B & C)</Text>
             {/* Hourly Time Slot Selector */}
             <View style={styles.timeSlotContainer}>
               <Text style={styles.timeSlotLabel}>Jam:</Text>
@@ -1394,7 +1425,7 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
       {/* Section Header - Pemeriksaan Per 30 Menit */}
       {show30MinTable && (
         <View style={[styles.sectionHeader, { marginTop: 30 }]}>
-          <Text style={styles.sectionTitle}>PEMERIKSAAN PER 30 MENIT</Text>
+          <Text style={styles.sectionTitle}>PEMERIKSAAN PER 30 MENIT (LINE B & C)</Text>
           {/* 30-Min Time Slot Selector */}
           <View style={styles.timeSlotContainer}>
             <Text style={styles.timeSlotLabel}>Pilih Slot 30 Menit {selectedHourlySlot && `(untuk jam ${selectedHourlySlot.split(' - ')[0]})`}:</Text>
@@ -1774,4 +1805,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default GnrPerformanceInspectionTable;
+export default GnrPerformanceInspectionTableBC;
