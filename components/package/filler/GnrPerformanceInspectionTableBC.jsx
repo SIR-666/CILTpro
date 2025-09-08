@@ -5,37 +5,8 @@ import { api } from "../../../utils/axiosInstance";
 import moment from "moment-timezone";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// Template khusus untuk LINE B dan LINE C
+// Template khusus untuk LINE B dan LINE C - TANPA H2O2 SPRAY
 const defaultTemplateBC = [
-  // Cek parameter mesin per jam
-  {
-    activity: "H2O2 Spray (MCCP 03) nozzle 1 (ml/min)",
-    good: "2.8 - 5",
-    reject: "<2.8 / >5",
-    periode: "Tiap Jam",
-    status: 1,
-  },
-  {
-    activity: "H2O2 Spray (MCCP 03) nozzle 2 (ml/min)",
-    good: "2.8 - 5",
-    reject: "<2.8 / >5",
-    periode: "Tiap Jam",
-    status: 1,
-  },
-  {
-    activity: "H2O2 Spray (MCCP 03) nozzle 3 (ml/min)",
-    good: "2.8 - 5",
-    reject: "<2.8 / >5",
-    periode: "Tiap Jam",
-    status: 1,
-  },
-  {
-    activity: "H2O2 Spray (MCCP 03) nozzle 4 (ml/min)",
-    good: "2.8 - 5",
-    reject: "<2.8 / >5",
-    periode: "Tiap Jam",
-    status: 1,
-  },
   {
     activity: "Flowrate nozzle 1 (ml/min)",
     good: "2.8 - 5",
@@ -77,6 +48,7 @@ const defaultTemplateBC = [
     reject: "> garis hitam",
     periode: "Tiap Jam",
     status: 0,
+    useButtons: true, // Flag untuk menggunakan button OK/NOT OK
   },
   {
     activity: "Temp. secondary water (<C)",
@@ -764,6 +736,27 @@ const GnrPerformanceInspectionTableBC = ({ username, onDataChange, initialData, 
     }
   };
 
+  // Check if slot is accessible (current or past in same shift)
+  const isSlotAccessible = (slot) => {
+    const currentHour = moment().tz("Asia/Jakarta").hour();
+    const slotHour = parseInt(slot.split(':')[0]);
+    const currentShift = shift || getCurrentShift();
+
+    if (currentShift === "Shift 1") {
+      return slotHour >= 6 && slotHour <= currentHour && currentHour <= 14;
+    } else if (currentShift === "Shift 2") {
+      return slotHour >= 14 && slotHour <= currentHour && currentHour <= 22;
+    } else if (currentShift === "Shift 3") {
+      // Handle shift 3 yang melewati tengah malam
+      if (currentHour >= 22) {
+        return slotHour >= 22 || slotHour <= 6;
+      } else if (currentHour <= 6) {
+        return (slotHour >= 22 && slotHour <= 23) || (slotHour >= 0 && slotHour <= currentHour);
+      }
+    }
+    return false;
+  };
+
   // Initialize time tracking with user activity check
   useEffect(() => {
     setShift(parentShift || getCurrentShift());
@@ -889,6 +882,7 @@ const GnrPerformanceInspectionTableBC = ({ username, onDataChange, initialData, 
           time: "",
           timeSlot: "",
           hourSlot: "",
+          useButtons: templateItem.useButtons || false,
         };
       });
 
@@ -935,6 +929,7 @@ const GnrPerformanceInspectionTableBC = ({ username, onDataChange, initialData, 
         need: item.need || "-",
         timeSlot: "",
         hourSlot: "",
+        useButtons: item.useButtons || false,
       }));
 
       // Check initial data even on error
@@ -1102,6 +1097,13 @@ const GnrPerformanceInspectionTableBC = ({ username, onDataChange, initialData, 
 
   // Update fungsi getBackgroundColor
   const getBackgroundColor = (item) => {
+    // Special handling for OK/NOT OK buttons
+    if (item.useButtons) {
+      if (item.results === "OK") return "#c8ecd4";
+      if (item.results === "NOT OK") return "#ffd6d6";
+      return "#fff";
+    }
+
     // Untuk per jam, gunakan hasil evaluasi
     if (item.periode === "Tiap Jam") {
       if (item.evaluatedResult === "R") return "#ffd6d6";
@@ -1198,8 +1200,12 @@ const GnrPerformanceInspectionTableBC = ({ username, onDataChange, initialData, 
         // Assign time slot and evaluation
         if (item.periode === "Tiap Jam") {
           updated[index].hourSlot = selectedHourlySlot;
-          const evalResult = evaluateValue(text, item.good, item.reject);
-          updated[index].evaluatedResult = evalResult === "good" ? "G" : evalResult === "reject" ? "R" : evalResult === "need" ? "N" : "";
+          if (!item.useButtons) {
+            const evalResult = evaluateValue(text, item.good, item.reject);
+            updated[index].evaluatedResult = evalResult === "good" ? "G" : evalResult === "reject" ? "R" : evalResult === "need" ? "N" : "";
+          } else {
+            updated[index].evaluatedResult = text === "OK" ? "G" : text === "NOT OK" ? "R" : "";
+          }
         } else if (item.periode === "30 menit") {
           updated[index].timeSlot = selected30MinSlot;
         }
@@ -1253,26 +1259,6 @@ const GnrPerformanceInspectionTableBC = ({ username, onDataChange, initialData, 
     }
   }, [selectedHourlySlot, selected30MinSlot]);
 
-  // Add visual indicator for unsaved changes
-  const getSlotButtonStyle = (slot, isActive, hasSavedData) => {
-    const buttonStyles = [styles.hourlySlotButton];
-
-    if (isActive) {
-      buttonStyles.push(styles.timeSlotButtonActive);
-    }
-
-    if (hasSavedData) {
-      buttonStyles.push(styles.timeSlotButtonWithData);
-    }
-
-    // Add special style for slot with unsaved data
-    if (isActive && hasUnsavedData) {
-      buttonStyles.push(styles.timeSlotButtonUnsaved);
-    }
-
-    return buttonStyles;
-  };
-
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -1323,22 +1309,25 @@ const GnrPerformanceInspectionTableBC = ({ username, onDataChange, initialData, 
               <Text style={styles.timeSlotLabel}>Jam:</Text>
               <View style={styles.timeSlotGrid}>
                 {generateHourlySlots().map((slot) => {
-                  const isCurrentSlot = slot === getCurrentHourSlot();
+                  const isAccessible = isSlotAccessible(slot);
+                  const isCurrentSlot = slot === selectedHourlySlot;
                   return (
                     <TouchableOpacity
                       key={slot}
                       style={[
                         styles.hourlySlotButton,
-                        isCurrentSlot ? styles.timeSlotButtonActive : styles.timeSlotButtonLocked,
+                        isCurrentSlot && styles.timeSlotButtonActive,
+                        !isAccessible && styles.timeSlotButtonLocked,
                       ]}
-                      disabled={!isCurrentSlot}
+                      disabled={!isAccessible}
                       onPress={() => {
-                        if (isCurrentSlot) setSelectedHourlySlot(slot);
+                        if (isAccessible) setSelectedHourlySlot(slot);
                       }}
                     >
                       <Text style={[
                         styles.timeSlotText,
-                        isCurrentSlot ? styles.timeSlotTextActive : styles.timeSlotTextLocked
+                        isCurrentSlot && styles.timeSlotTextActive,
+                        !isAccessible && styles.timeSlotTextLocked
                       ]}>
                         {slot}
                       </Text>
@@ -1398,20 +1387,67 @@ const GnrPerformanceInspectionTableBC = ({ username, onDataChange, initialData, 
                     </View>
                     <View style={{ width: "25%" }}>
                       <View style={styles.centeredContent}>
-                        <TextInput
-                          placeholder="isi disini"
-                          style={[styles.tableInput, { color: textColor }]}
-                          value={item.results || ""}
-                          onChangeText={(text) => handleInputChange(text, originalIndex)}
-                          placeholderTextColor={textColor === "#fff" ? "#ccc" : "#999"}
-                          keyboardType="default"
-                          autoCorrect={false}
-                          autoCapitalize="none"
-                          selectTextOnFocus={false}
-                          multiline={false}
-                          blurOnSubmit={true}
-                          underlineColorAndroid="transparent"
-                        />
+                        {item.useButtons ? (
+                          <View style={styles.buttonGroup}>
+                            <TouchableOpacity
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                              style={[
+                                styles.statusButton,
+                                item.results === "OK" ? styles.statusButtonOK : styles.statusButtonInactive,
+                                item.results === "OK" && styles.statusButtonActive,
+                                item.results === "OK" && styles.statusButtonOKActive,
+                              ]}
+                              onPress={() => handleInputChange("OK", originalIndex)}
+                            >
+                              <Text
+                                numberOfLines={1}
+                                style={[
+                                  styles.statusButtonText,
+                                  item.results === "OK" && styles.statusButtonTextActive
+                                ]}
+                              >
+                                OK
+                              </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                              style={[
+                                styles.statusButton,
+                                item.results === "NOT OK" ? styles.statusButtonNotOK : styles.statusButtonInactive,
+                                item.results === "NOT OK" && styles.statusButtonActive,
+                                item.results === "NOT OK" && styles.statusButtonNotOKActive,
+                              ]}
+                              onPress={() => handleInputChange("NOT OK", originalIndex)}
+                            >
+                              <Text
+                                numberOfLines={1}
+                                style={[
+                                  styles.statusButtonText,
+                                  item.results === "NOT OK" && styles.statusButtonTextActive
+                                ]}
+                              >
+                                NOT OK
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          /* TextInput seperti sebelumnya */
+                          <TextInput
+                            placeholder="isi disini"
+                            style={[styles.tableInput, { color: textColor }]}
+                            value={item.results || ""}
+                            onChangeText={(text) => handleInputChange(text, originalIndex)}
+                            placeholderTextColor={textColor === "#fff" ? "#ccc" : "#999"}
+                            keyboardType="default"
+                            autoCorrect={false}
+                            autoCapitalize="none"
+                            selectTextOnFocus={false}
+                            multiline={false}
+                            blurOnSubmit={true}
+                            underlineColorAndroid="transparent"
+                          />
+                        )}
                       </View>
                     </View>
                   </View>
@@ -1527,16 +1563,67 @@ const GnrPerformanceInspectionTableBC = ({ username, onDataChange, initialData, 
                         </Text>
                       </View>
                     ) : (
-                      <Picker
-                        selectedValue={item.results}
-                        onValueChange={(value) => handleInputChange(value, originalIndex)}
-                        style={styles.picker}
-                      >
-                        <Picker.Item label="Select" value="" />
-                        <Picker.Item label="Good" value="G" />
-                        <Picker.Item label="Need" value="N" />
-                        <Picker.Item label="Reject" value="R" />
-                      </Picker>
+                      <View style={styles.gnrButtonsWrap}>
+                        {/* Row atas: G & N */}
+                        <View style={styles.gnrRow}>
+                          <TouchableOpacity
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            style={[
+                              styles.gnrButton,
+                              styles.gnrHalf,
+                              item.results === "G" && styles.gnrButtonG,
+                              item.results === "G" && styles.gnrButtonActive,
+                              item.results === "G" && styles.gnrButtonGActive,
+                              item.results !== "G" && styles.gnrButtonInactive,
+                            ]}
+                            onPress={() => handleInputChange("G", originalIndex)}
+                          >
+                            <Text style={[
+                              styles.gnrButtonText,
+                              item.results === "G" && styles.gnrButtonTextActive
+                            ]}>G</Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            style={[
+                              styles.gnrButton,
+                              styles.gnrHalf,
+                              item.results === "N" && styles.gnrButtonN,
+                              item.results === "N" && styles.gnrButtonActive,
+                              item.results === "N" && styles.gnrButtonNActive,
+                              item.results !== "N" && styles.gnrButtonInactive,
+                            ]}
+                            onPress={() => handleInputChange("N", originalIndex)}
+                          >
+                            <Text style={[
+                              styles.gnrButtonText,
+                              item.results === "N" && styles.gnrButtonTextActive
+                            ]}>N</Text>
+                          </TouchableOpacity>
+                        </View>
+
+                        {/* Row bawah: R di tengah */}
+                        <View style={styles.gnrRowBottom}>
+                          <TouchableOpacity
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            style={[
+                              styles.gnrButton,
+                              styles.gnrWideCenter,
+                              item.results === "R" && styles.gnrButtonR,
+                              item.results === "R" && styles.gnrButtonActive,
+                              item.results === "R" && styles.gnrButtonRActive,
+                              item.results !== "R" && styles.gnrButtonInactive,
+                            ]}
+                            onPress={() => handleInputChange("R", originalIndex)}
+                          >
+                            <Text style={[
+                              styles.gnrButtonText,
+                              item.results === "R" && styles.gnrButtonTextActive
+                            ]}>R</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
                     )}
                   </View>
                 </View>
@@ -1708,10 +1795,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  picker: {
-    width: "100%",
-    height: 40,
-  },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
@@ -1778,19 +1861,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: 'center',
   },
-  unsavedIndicator: {
-    position: 'absolute',
-    top: 5,
-    right: 5,
-    backgroundColor: '#ff9800',
-    borderRadius: 10,
-    padding: 5,
-  },
-  unsavedText: {
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
   timeSlotButtonLocked: {
     backgroundColor: '#f7f7f7',
     opacity: 0.85,
@@ -1803,6 +1873,107 @@ const styles = StyleSheet.create({
     textDecorationLine: 'line-through',
     letterSpacing: 1,
   },
+  // OK / NOT OK buttons 
+  buttonGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    width: '100%',
+  },
+
+  statusButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    minHeight: 40,
+    minWidth: 82,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 1,
+  },
+
+  statusButtonOK: { borderColor: '#28a745' },
+  statusButtonNotOK: { borderColor: '#dc3545' },
+  statusButtonActive: { borderWidth: 2 },
+  statusButtonOKActive: { backgroundColor: '#28a745' },
+  statusButtonNotOKActive: { backgroundColor: '#dc3545' },
+
+  statusButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    color: '#666',
+  },
+  statusButtonTextActive: { color: '#fff' },
+
+  // pudar untuk yang tidak dipilih (tetap bisa diklik)
+  statusButtonInactive: { opacity: 0.5 },
+  
+  // style tombol GNR
+  gnrButtonsWrap: {
+    width: '100%',
+    paddingHorizontal: 4,
+  },
+  gnrRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  gnrRowBottom: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  // ukuran sel
+  gnrHalf: {
+    flexBasis: '48%',
+  },
+  gnrWideCenter: {
+    width: '48%',
+    alignSelf: 'center',
+  },
+
+  // tombol dasar 
+  gnrButton: {
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    minHeight: 44,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 1,
+  },
+  gnrButtonText: {
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    color: '#666',
+  },
+  gnrButtonInactive: {
+    opacity: 0.5,
+  },
+  statusButtonInactive: {
+    opacity: 0.5,
+  },
+  gnrButtonTextActive: { color: '#fff' },
+
+  // state/warna
+  gnrButtonActive: { borderWidth: 2 },
+  gnrButtonG: { borderColor: '#28a745' },
+  gnrButtonN: { borderColor: '#ffc107' },
+  gnrButtonR: { borderColor: '#dc3545' },
+  gnrButtonGActive: { backgroundColor: '#28a745' },
+  gnrButtonNActive: { backgroundColor: '#ffc107' },
+  gnrButtonRActive: { backgroundColor: '#dc3545' },
 });
 
 export default GnrPerformanceInspectionTableBC;
