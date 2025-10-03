@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   ActivityIndicator,
   ScrollView,
@@ -6,6 +6,7 @@ import {
   Text,
   View,
   TouchableOpacity,
+  RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Searchbar } from "react-native-paper";
@@ -21,6 +22,7 @@ const ReportCIP = ({ navigation }) => {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dataCIP, setDataCIP] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedPlant, setSelectedPlant] = useState("Milk Filling Packing");
   const [selectedLine, setSelectedLine] = useState(null);
@@ -30,24 +32,8 @@ const ReportCIP = ({ navigation }) => {
   const [selectedPosisi, setSelectedPosisi] = useState(null);
   const [posisiOptions, setPosisiOptions] = useState([]);
 
-  useEffect(() => {
-    fetchDataFromAPI();
-    fetchCIPTypes();
-    fetchStatusList();
-    fetchPosisiOptions();
-    const unsubscribe = navigation.addListener("focus", () => {
-      fetchDataFromAPI();
-    });
-    return unsubscribe;
-  }, [navigation]);
-
-  useEffect(() => {
-    // Fetch data when filters change
-    fetchDataFromAPI();
-  }, [selectedDate, selectedPlant, selectedLine, searchQuery, selectedCipType, selectedStatus, selectedPosisi]);
-
-  const fetchDataFromAPI = async () => {
-    setIsLoading(true);
+  const fetchDataFromAPI = useCallback(async (showLoader = true) => {
+    if (showLoader) setIsLoading(true);
     try {
       // Build query parameters
       const params = {};
@@ -75,20 +61,45 @@ const ReportCIP = ({ navigation }) => {
 
       const response = await api.get(`/cip-report`, { params });
       setDataCIP(response.data);
-      setIsLoading(false);
     } catch (error) {
       console.error("Error fetching CIP data:", error);
-      setIsLoading(false);
+    } finally {
+      if (showLoader) setIsLoading(false);
     }
-  };
+  }, [selectedDate, selectedPlant, selectedLine, searchQuery, selectedCipType, selectedStatus, selectedPosisi]);
+
+  const onRefresh = useCallback(async () => {
+    setIsRefreshing(true);
+    await fetchDataFromAPI(false);
+    setIsRefreshing(false);
+  }, [fetchDataFromAPI]);
+
+  useEffect(() => {
+    fetchCIPTypes();
+    fetchStatusList();
+    fetchPosisiOptions();
+  }, []);
+
+  useEffect(() => {
+    // Initial load
+    fetchDataFromAPI();
+  }, [fetchDataFromAPI]);
+
+  useEffect(() => {
+    // Listen to focus events for refresh after navigation
+    const unsubscribe = navigation.addListener("focus", () => {
+      // Refresh data when coming back from create/edit/detail screens
+      fetchDataFromAPI();
+    });
+    return unsubscribe;
+  }, [navigation, fetchDataFromAPI]);
 
   const fetchCIPTypes = async () => {
     try {
-      // For now, only CIP KITCHEN is available
-      const cipTypes = [{ id: 1, name: "CIP KITCHEN" }];
-      // If backend provides this endpoint:
-      // const response = await api.get(`/cip-report/types/list`);
-      // setCipTypes(response.data);
+      const response = await api.get("/cip-report/types/list");
+      if (response.data && response.data.length > 0) {
+        // Types are now available from API
+      }
     } catch (error) {
       console.error("Error fetching CIP types:", error);
     }
@@ -110,9 +121,6 @@ const ReportCIP = ({ navigation }) => {
         { id: 1, name: "Final", value: "Final" },
         { id: 2, name: "Intermediate", value: "Intermediate" }
       ]);
-      // If backend provides this endpoint:
-      // const response = await api.get(`/cip-report/posisi/list`);
-      // setPosisiOptions(response.data);
     } catch (error) {
       console.error("Error fetching posisi options:", error);
     }
@@ -133,6 +141,33 @@ const ReportCIP = ({ navigation }) => {
     return statusItem ? statusItem.color : COLORS.darkGray;
   };
 
+  const getStatusIcon = (status) => {
+    switch (status) {
+      case 'Complete':
+        return 'check-circle';
+      case 'In Progress':
+        return 'hourglass-empty';
+      case 'Under Review':
+        return 'rate-review';
+      case 'Approved':
+        return 'verified';
+      case 'Rejected':
+        return 'error';
+      case 'Cancelled':
+        return 'cancel';
+      default:
+        return 'info';
+    }
+  };
+
+  const isDraftStatus = (status) => {
+    return status === 'In Progress';
+  };
+
+  const isSubmittedStatus = (status) => {
+    return status === 'Complete' || status === 'Under Review' || status === 'Approved';
+  };
+
   const TableHeader = () => (
     <View style={styles.tableHeader}>
       <View style={styles.tableHeaderCell}>
@@ -140,9 +175,6 @@ const ReportCIP = ({ navigation }) => {
       </View>
       <View style={styles.tableHeaderCell}>
         <Text style={styles.tableHeaderText}>Process Order</Text>
-      </View>
-      <View style={styles.tableHeaderCell}>
-        <Text style={styles.tableHeaderText}>Plant</Text>
       </View>
       <View style={styles.tableHeaderCell}>
         <Text style={styles.tableHeaderText}>Line</Text>
@@ -153,25 +185,56 @@ const ReportCIP = ({ navigation }) => {
       <View style={styles.tableHeaderCell}>
         <Text style={styles.tableHeaderText}>Status</Text>
       </View>
+      <View style={styles.tableHeaderCell}>
+        <Text style={styles.tableHeaderText}>Action</Text>
+      </View>
     </View>
   );
 
-  const renderItem = (item) => (
-    <TouchableOpacity key={item.id} onPress={() => handleDetailPress(item)}>
-      <View style={styles.tableRow}>
+  const renderItem = (item) => {
+    const isDraft = isDraftStatus(item.status);
+    const isSubmitted = isSubmittedStatus(item.status);
+
+    return (
+      <View key={item.id} style={[
+        styles.tableRow,
+        isDraft && styles.draftRow,
+        isSubmitted && styles.submittedRow
+      ]}>
         <Text style={styles.tableCell}>
           {moment(item.date).format("DD/MM/YY")}
         </Text>
-        <Text style={styles.tableCell}>{item.processOrder}</Text>
-        <Text style={styles.tableCell}>{item.plant}</Text>
+        <View style={styles.processOrderContainer}>
+          <Text style={[styles.tableCell, styles.processOrderCell]} numberOfLines={2}>
+            {item.processOrder || item.process_order}
+          </Text>
+          {isDraft && (
+            <View style={styles.draftBadge}>
+              <Text style={styles.draftBadgeText}>DRAFT</Text>
+            </View>
+          )}
+        </View>
         <Text style={styles.tableCell}>{item.line}</Text>
         <Text style={styles.tableCell}>{item.posisi || '-'}</Text>
-        <Text style={[styles.tableCell, { color: getStatusColor(item.status) }]}>
-          {item.status}
-        </Text>
+        <View style={styles.statusCell}>
+          <Icon 
+            name={getStatusIcon(item.status)} 
+            size={16} 
+            color={getStatusColor(item.status)} 
+          />
+          <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>
+            {item.status}
+          </Text>
+        </View>
+        <TouchableOpacity 
+          style={styles.actionButton}
+          onPress={() => handleDetailPress(item)}
+        >
+          <Icon name="visibility" size={20} color={COLORS.blue} />
+        </TouchableOpacity>
       </View>
-    </TouchableOpacity>
-  );
+    );
+  };
 
   const clearFilters = () => {
     setSelectedDate(null);
@@ -183,24 +246,65 @@ const ReportCIP = ({ navigation }) => {
     setSelectedPosisi(null);
   };
 
+  const getFilteredCounts = () => {
+    const drafts = dataCIP.filter(item => isDraftStatus(item.status)).length;
+    const submitted = dataCIP.filter(item => isSubmittedStatus(item.status)).length;
+    const total = dataCIP.length;
+    return { drafts, submitted, total };
+  };
+
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={COLORS.green} />
-          <Text style={styles.loadingText}>Loading CIP Report...</Text>
+          <Text style={styles.loadingText}>Loading CIP Reports...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
+  const counts = getFilteredCounts();
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.headerContainer}>
         <Text style={styles.title}>Report CIP</Text>
-        <TouchableOpacity style={styles.addButton} onPress={handleCreateCIP}>
-          <Icon name="add" size={24} color="#fff" />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity 
+            style={styles.refreshButton} 
+            onPress={onRefresh}
+            disabled={isRefreshing}
+          >
+            <Icon 
+              name="refresh" 
+              size={24} 
+              color={isRefreshing ? COLORS.gray : COLORS.blue} 
+            />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.addButton} onPress={handleCreateCIP}>
+            <Icon name="add" size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Summary Cards */}
+      <View style={styles.summaryContainer}>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryNumber}>{counts.drafts}</Text>
+          <Text style={styles.summaryLabel}>Drafts</Text>
+          <View style={[styles.summaryIndicator, { backgroundColor: '#FF9800' }]} />
+        </View>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryNumber}>{counts.submitted}</Text>
+          <Text style={styles.summaryLabel}>Submitted</Text>
+          <View style={[styles.summaryIndicator, { backgroundColor: '#4CAF50' }]} />
+        </View>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryNumber}>{counts.total}</Text>
+          <Text style={styles.summaryLabel}>Total</Text>
+          <View style={[styles.summaryIndicator, { backgroundColor: COLORS.blue }]} />
+        </View>
       </View>
       
       <Searchbar
@@ -263,13 +367,6 @@ const ReportCIP = ({ navigation }) => {
           </View>
 
           <View style={styles.filterItem}>
-            <View style={[styles.dropdownContainer, { backgroundColor: '#f0f0f0' }]}>
-              <Text style={styles.filterText}>CIP KITCHEN</Text>
-              <Icon name="lock" size={20} color={COLORS.gray} />
-            </View>
-          </View>
-
-          <View style={styles.filterItem}>
             <View style={styles.dropdownContainer}>
               <Picker
                 selectedValue={selectedPosisi}
@@ -313,13 +410,30 @@ const ReportCIP = ({ navigation }) => {
         </View>
       </ScrollView>
 
-      <ScrollView style={styles.content}>
+      <ScrollView 
+        style={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            colors={[COLORS.blue]}
+          />
+        }
+      >
         <TableHeader />
         {dataCIP.map(renderItem)}
         
-        {dataCIP.length === 0 && (
+        {dataCIP.length === 0 && !isRefreshing && (
           <View style={styles.noDataContainer}>
+            <Icon name="assignment" size={64} color={COLORS.lightGray} />
             <Text style={styles.noDataText}>No CIP reports found</Text>
+            <Text style={styles.noDataSubText}>
+              Try adjusting your filters or create a new CIP report
+            </Text>
+            <TouchableOpacity style={styles.createFirstButton} onPress={handleCreateCIP}>
+              <Icon name="add" size={20} color="#fff" />
+              <Text style={styles.createFirstButtonText}>Create First Report</Text>
+            </TouchableOpacity>
           </View>
         )}
       </ScrollView>
@@ -344,6 +458,14 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: COLORS.blue,
   },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  refreshButton: {
+    marginRight: 12,
+    padding: 8,
+  },
   addButton: {
     backgroundColor: COLORS.green,
     borderRadius: 25,
@@ -351,6 +473,40 @@ const styles = StyleSheet.create({
     height: 50,
     justifyContent: "center",
     alignItems: "center",
+  },
+  summaryContainer: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  summaryCard: {
+    flex: 1,
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    padding: 16,
+    marginHorizontal: 4,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  summaryNumber: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: COLORS.blue,
+  },
+  summaryLabel: {
+    fontSize: 12,
+    color: COLORS.darkGray,
+    marginTop: 4,
+  },
+  summaryIndicator: {
+    width: 30,
+    height: 3,
+    borderRadius: 2,
+    marginTop: 8,
   },
   searchBar: {
     marginHorizontal: 16,
@@ -429,12 +585,61 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     borderLeftWidth: 3,
     borderLeftColor: COLORS.blue,
+    alignItems: "center",
+  },
+  draftRow: {
+    borderLeftColor: '#FF9800',
+    backgroundColor: '#fff8e1',
+  },
+  submittedRow: {
+    borderLeftColor: '#4CAF50',
+    backgroundColor: '#f1f8e9',
   },
   tableCell: {
     flex: 1,
     fontSize: 12,
     textAlign: "center",
     paddingHorizontal: 4,
+    color: COLORS.black,
+  },
+  processOrderContainer: {
+    flex: 1,
+    alignItems: "center",
+    paddingHorizontal: 4,
+  },
+  processOrderCell: {
+    fontSize: 11,
+    lineHeight: 14,
+  },
+  draftBadge: {
+    backgroundColor: '#FF9800',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    marginTop: 2,
+  },
+  draftBadgeText: {
+    color: '#fff',
+    fontSize: 8,
+    fontWeight: 'bold',
+  },
+  statusCell: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: "500",
+    marginLeft: 4,
+  },
+  actionButton: {
+    flex: 0.8,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 8,
   },
   loadingContainer: {
     flex: 1,
@@ -450,11 +655,35 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingVertical: 40,
+    paddingVertical: 60,
   },
   noDataText: {
-    fontSize: 16,
+    fontSize: 18,
+    fontWeight: "600",
     color: COLORS.darkGray,
+    marginTop: 16,
+  },
+  noDataSubText: {
+    fontSize: 14,
+    color: COLORS.gray,
+    marginTop: 8,
+    textAlign: "center",
+    paddingHorizontal: 32,
+  },
+  createFirstButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.green,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginTop: 24,
+  },
+  createFirstButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+    marginLeft: 8,
   },
 });
 

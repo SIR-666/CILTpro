@@ -5,6 +5,15 @@ import { api } from "../../../utils/axiosInstance";
 import moment from "moment-timezone";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+const isNumericItem = (item) =>
+  item?.status === 1 && item?.periode === "Tiap Jam" && !item?.useButtons;
+
+const sanitizeDecimal = (txt) =>
+  txt
+    .replace(",", ".")        // koma → titik
+    .replace(/[^0-9.]/g, "")  // hanya digit & titik
+    .replace(/(\..*?)\./g, "$1"); // maksimal 1 titik
+
 // Template khusus untuk LINE D
 const defaultTemplateD = [
   // Cek parameter mesin per jam
@@ -368,6 +377,10 @@ const GnrPerformanceInspectionTableD = ({ username, onDataChange, initialData, p
   const [lastActivityTime, setLastActivityTime] = useState(Date.now());
   const [hasUnsavedData, setHasUnsavedData] = useState(false);
 
+  // PERBAIKAN: State baru untuk tracking manual selection
+  const [isManualSelection, setIsManualSelection] = useState(false);
+  const [lastManualSelectionTime, setLastManualSelectionTime] = useState(null);
+
   // Prevent reset on machine/type change if data exists
   const previousMachineRef = useRef(machine);
   const previousTypeRef = useRef(type);
@@ -399,6 +412,40 @@ const GnrPerformanceInspectionTableD = ({ username, onDataChange, initialData, p
     const date = moment().tz("Asia/Jakarta").format("YYYY-MM-DD");
     const currentShift = shift || getCurrentShift();
     return `gnr_${plant}_${line}_${machine}_${date}_${currentShift}_${type}`;
+  };
+
+  // Helper untuk parsing slot 30 menit
+  const parse30MinSlot = (slot) => {
+    // contoh: "09:00 - 09:30" -> { hour:"09", mmStart:"00", mmEnd:"30" }
+    if (!slot || !slot.includes("-")) return null;
+    const [start] = slot.split("-").map(s => s.trim());
+    const [HH, MM] = start.split(":");
+    return { hour: HH, mmStart: MM };
+  };
+
+  // PERBAIKAN: Handler khusus untuk hourly slot selection
+  const handleHourlySlotSelection = (slot) => {
+    if (isSlotAccessible(slot)) {
+      // Tandai sebagai manual selection
+      setIsManualSelection(true);
+      setLastManualSelectionTime(Date.now());
+
+      // Save current data sebelum ganti slot
+      if (hasUnsavedData) {
+        saveDataBeforeSubmit();
+      }
+
+      setSelectedHourlySlot(slot);
+      updateUserActivity(); // Keep user active
+    }
+  };
+
+  // PERBAIKAN: Handler khusus untuk 30-min slot selection
+  const handle30MinSlotSelection = (slot) => {
+    setIsManualSelection(true);
+    setLastManualSelectionTime(Date.now());
+    setSelected30MinSlot(slot);
+    updateUserActivity(); // Keep user active
   };
 
   // Load saved data from AsyncStorage
@@ -621,14 +668,22 @@ const GnrPerformanceInspectionTableD = ({ username, onDataChange, initialData, p
           if (!all30MinData[slot]) {
             all30MinData[slot] = [];
           }
-          all30MinData[slot].push({
+          const payload = {
             activity: item.activity,
             results: item.results,
             user: item.user || username,
             time: item.time || new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }),
             done: item.done || !!item.results,
-            timeSlot: slot
-          });
+            timeSlot: slot,
+            evaluatedResult: item.evaluatedResult || ""
+          };
+          // NEW: mirror minute key agar nanti CombinedInspectionData mudah bikin results[HH][MM]
+          const p = parse30MinSlot(slot);
+          if (p) {
+            payload._hourKey = p.hour;     // NEW
+            payload._minuteKey = p.mmStart; // NEW: "00" atau "30"
+          }
+          all30MinData[slot].push(payload);
         }
       }
     });
@@ -644,12 +699,21 @@ const GnrPerformanceInspectionTableD = ({ username, onDataChange, initialData, p
       updatedExpiryTimes[expiryKey] = now + (60 * 60 * 1000); // 1 hour from now
     });
 
-    // Merge with existing saved data for 30-min
+    // Merge with existing saved data for 30-min (REPLACE-BY-ACTIVITY, no overwrite)
     const updated30MinData = { ...saved30MinData };
-
-    // Save all 30-min data with 30 minutes expiry
     Object.keys(all30MinData).forEach(slot => {
-      updated30MinData[slot] = all30MinData[slot];
+      const existing = Array.isArray(updated30MinData[slot]) ? [...updated30MinData[slot]] : [];
+      const incoming = all30MinData[slot]; // array payload per-activity untuk slot ini
+      // replace-by-activity di dalam slot yang sama
+      incoming.forEach(payload => {
+        const idx = existing.findIndex(x => x.activity === payload.activity);
+        if (idx >= 0) {
+          existing[idx] = payload;   // edit nilai di activity yang sama -> replace
+        } else {
+          existing.push(payload);     // pertama kali isi activity tsb di slot ini
+        }
+      });
+      updated30MinData[slot] = existing;
       const expiryKey = `30min_${slot}`;
       updatedExpiryTimes[expiryKey] = now + (30 * 60 * 1000); // 30 minutes from now
     });
@@ -743,6 +807,18 @@ const GnrPerformanceInspectionTableD = ({ username, onDataChange, initialData, p
       return `${hour.toString().padStart(2, '0')}:30 - ${nextHour.toString().padStart(2, '0')}:00`;
     }
   };
+  // === NEW: izinkan pilih slot 30-menit yang sedang berjalan atau sudah lewat (backfill) ===
+  const is30SlotAccessible = (slot) => {
+    // slot format: "HH:00 - HH:30" atau "HH:30 - HH+1:00"
+    const now = moment().tz("Asia/Jakarta");
+    const [startStr, endStr] = slot.split("-").map(s => s.trim());
+    const [sh, sm] = startStr.split(":").map(Number);
+    const [eh, em] = endStr.split(":").map(Number);
+    const start = now.clone().hour(sh).minute(sm).second(0).millisecond(0);
+    const end = now.clone().hour(eh).minute(em).second(0).millisecond(0);
+    // Boleh jika periodenya sudah selesai ATAU sedang berjalan; (masa depan tetap terkunci)
+    return end.isSameOrBefore(now) || (now.isSameOrAfter(start) && now.isBefore(end));
+  };
 
   // Check if slot is accessible (current or past in same shift)
   const isSlotAccessible = (slot) => {
@@ -765,12 +841,19 @@ const GnrPerformanceInspectionTableD = ({ username, onDataChange, initialData, p
     return false;
   };
 
-  // Initialize time tracking with user activity check
+  // PERBAIKAN: Initialize time tracking dengan protection untuk manual selection
   useEffect(() => {
     setShift(parentShift || getCurrentShift());
 
-    // Auto-pick slot HANYA jika user tidak aktif atau tidak ada unsaved data
-    if (!isUserActive && !hasUnsavedData) {
+    // PERBAIKAN: Jangan auto-pick jika ada manual selection dalam 10 menit terakhir
+    const now = Date.now();
+    const isRecentManualSelection = lastManualSelectionTime && (now - lastManualSelectionTime) < (10 * 60 * 1000); // 10 menit
+
+    // Auto-pick slot HANYA jika:
+    // 1. User tidak aktif
+    // 2. Tidak ada unsaved data  
+    // 3. TIDAK ada manual selection dalam 10 menit terakhir
+    if (!isUserActive && !hasUnsavedData && !isRecentManualSelection) {
       const now = moment().tz("Asia/Jakarta");
       const hour = now.hour();
       const minute = now.minute();
@@ -789,12 +872,8 @@ const GnrPerformanceInspectionTableD = ({ username, onDataChange, initialData, p
         }
       }
 
-      // Only change slot if different from current
+      // Only change slot if different from current AND no recent manual selection
       if (slot && slot !== selectedHourlySlot) {
-        // Save current data before changing slot
-        if (hasUnsavedData) {
-          saveDataBeforeSubmit();
-        }
         setSelectedHourlySlot(slot);
       }
 
@@ -823,10 +902,17 @@ const GnrPerformanceInspectionTableD = ({ username, onDataChange, initialData, p
       if (hasUnsavedData) {
         saveDataBeforeSubmit();
       }
+
+      // Reset manual selection flag setelah 10 menit tidak ada aktivitas
+      const now = Date.now();
+      if (isManualSelection && lastManualSelectionTime && (now - lastManualSelectionTime) > (10 * 60 * 1000)) {
+        setIsManualSelection(false);
+        setLastManualSelectionTime(null);
+      }
     }, 60000);
 
     return () => clearInterval(interval);
-  }, [lastHourCheck, last30MinCheck, parentShift, isUserActive, hasUnsavedData, selectedHourlySlot, selected30MinSlot]);
+  }, [lastHourCheck, last30MinCheck, parentShift, isUserActive, hasUnsavedData, selectedHourlySlot, selected30MinSlot, isManualSelection, lastManualSelectionTime]);
 
   const checkTimeAlerts = () => {
     const now = moment().tz("Asia/Jakarta");
@@ -1345,9 +1431,7 @@ const GnrPerformanceInspectionTableD = ({ username, onDataChange, initialData, p
                         !isAccessible && styles.timeSlotButtonLocked,
                       ]}
                       disabled={!isAccessible}
-                      onPress={() => {
-                        if (isAccessible) setSelectedHourlySlot(slot);
-                      }}
+                      onPress={() => handleHourlySlotSelection(slot)}
                     >
                       <Text style={[
                         styles.timeSlotText,
@@ -1459,18 +1543,17 @@ const GnrPerformanceInspectionTableD = ({ username, onDataChange, initialData, p
                         ) : (
                           /* TextInput seperti sebelumnya */
                           <TextInput
-                            placeholder="isi disini"
-                            style={[styles.tableInput, { color: textColor }]}
-                            value={item.results || ""}
-                            onChangeText={(text) => handleInputChange(text, originalIndex)}
-                            placeholderTextColor={textColor === "#fff" ? "#ccc" : "#999"}
-                            keyboardType="default"
-                            autoCorrect={false}
-                            autoCapitalize="none"
-                            selectTextOnFocus={false}
-                            multiline={false}
-                            blurOnSubmit={true}
-                            underlineColorAndroid="transparent"
+                            style={styles.input}
+                            value={String(item.results ?? "")}
+                            placeholder={isNumericItem(item) ? "_ _ _" : "isi disini"}
+                            keyboardType={isNumericItem(item) ? "decimal-pad" : "default"}
+                            inputMode={isNumericItem(item) ? "decimal" : "text"}
+                            returnKeyType="done"
+                            selectTextOnFocus
+                            onChangeText={(text) => {
+                              const value = isNumericItem(item) ? sanitizeDecimal(text) : text;
+                              handleResultChange(value, index);
+                            }}
                           />
                         )}
                       </View>
@@ -1491,23 +1574,24 @@ const GnrPerformanceInspectionTableD = ({ username, onDataChange, initialData, p
           <View style={styles.timeSlotContainer}>
             <Text style={styles.timeSlotLabel}>Pilih Slot 30 Menit {selectedHourlySlot && `(untuk jam ${selectedHourlySlot.split(' - ')[0]})`}:</Text>
             <View style={styles.timeSlotButtons}>
-              {generate30MinSlots(getCurrentHourSlot()).map((slot) => {
-                const isCurrentSlot = slot === getCurrent30MinSlot();
+              {generate30MinSlots(selectedHourlySlot || getCurrentHourSlot()).map((slot) => {
+                const canUse = is30SlotAccessible(slot);          // NEW
+                const isCurrent = slot === getCurrent30MinSlot();    // untuk highlight visual
                 return (
                   <TouchableOpacity
                     key={slot}
                     style={[
                       styles.timeSlotButton,
-                      isCurrentSlot ? styles.timeSlotButtonActive : styles.timeSlotButtonLocked,
+                      isCurrent && styles.timeSlotButtonActive,
+                      !canUse && styles.timeSlotButtonLocked,
                     ]}
-                    disabled={!isCurrentSlot}
-                    onPress={() => {
-                      if (isCurrentSlot) setSelected30MinSlot(slot);
-                    }}
+                    disabled={!canUse}                                // NEW: longgarkan ke "boleh current & past"
+                    onPress={() => handle30MinSlotSelection(slot)}
                   >
                     <Text style={[
                       styles.timeSlotText,
-                      isCurrentSlot ? styles.timeSlotTextActive : styles.timeSlotTextLocked
+                      isCurrent && styles.timeSlotTextActive,
+                      !canUse && styles.timeSlotTextLocked
                     ]}>
                       {slot}
                     </Text>
@@ -1674,6 +1758,12 @@ const GnrPerformanceInspectionTableD = ({ username, onDataChange, initialData, p
         {hasUnsavedData && (
           <Text style={[styles.progressText, { marginTop: 5, color: '#ff9800', fontWeight: 'bold' }]}>
             ⚠️ Ada data yang belum tersimpan
+          </Text>
+        )}
+        {/* PERBAIKAN: Indikator manual selection */}
+        {isManualSelection && (
+          <Text style={[styles.progressText, { marginTop: 5, color: '#2196F3', fontWeight: 'bold' }]}>
+            📌 Jam dipilih manual - Auto-pick dinonaktifkan untuk 10 menit
           </Text>
         )}
       </View>

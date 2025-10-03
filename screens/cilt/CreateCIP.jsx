@@ -22,14 +22,22 @@ import ReportCIPInspectionTableBCD from "../../components/package/filler/ReportC
 const CreateCIP = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [userProfile, setUserProfile] = useState(null);
 
-  // Form data
-  const [formData, setFormData] = useState({
+  // CIP Types state
+  const [cipTypes, setCipTypes] = useState([
+    { id: 1, name: "CIP KITCHEN 1", value: "CIP_KITCHEN_1" },
+    { id: 2, name: "CIP KITCHEN 2", value: "CIP_KITCHEN_2" },
+    { id: 3, name: "CIP KITCHEN 3", value: "CIP_KITCHEN_3" },
+  ]);
+
+  // Initial form state
+  const getInitialFormState = () => ({
     date: new Date(),
     processOrder: "",
     plant: "Milk Filling Packing",
     line: "",
-    cipType: "CIP KITCHEN",
+    cipType: "",
     operator: "",
     posisi: "",
     flowRate: "",
@@ -37,6 +45,9 @@ const CreateCIP = ({ navigation }) => {
     kodeOperator: "", 
     kodeTeknisi: "",
   });
+
+  // Form data
+  const [formData, setFormData] = useState(getInitialFormState());
 
   // Options
   const [lineOptions, setLineOptions] = useState([]);
@@ -47,7 +58,19 @@ const CreateCIP = ({ navigation }) => {
 
   useEffect(() => {
     fetchInitialData();
+    fetchUserProfile();
+    fetchCIPTypes();
   }, []);
+
+  // Reset form to initial state
+  const resetForm = () => {
+    const initialForm = getInitialFormState();
+    setFormData(prev => ({
+      ...initialForm,
+      operator: userProfile ? (userProfile.name || userProfile.fullName || userProfile.username || "") : ""
+    }));
+    generateProcessOrder();
+  };
 
   const fetchInitialData = async () => {
     try {
@@ -55,6 +78,42 @@ const CreateCIP = ({ navigation }) => {
       generateProcessOrder();
     } catch (error) {
       console.error("Error fetching initial data:", error);
+    }
+  };
+
+  // Fixed fetchUserProfile with better error handling
+  const fetchUserProfile = async () => {
+    try {
+      const response = await api.get("/user/profile");
+      const userData = response.data;
+      setUserProfile(userData);
+      
+      // Auto-set operator name from login
+      setFormData(prev => ({ 
+        ...prev, 
+        operator: userData.name || userData.fullName || userData.username || ""
+      }));
+    } catch (error) {
+      // Silent handling - don't log error, allow manual input
+      console.log("User profile not available, manual input enabled");
+      // User can still input operator name manually
+    }
+  };
+
+  // Fetch CIP types from backend
+  const fetchCIPTypes = async () => {
+    try {
+      const response = await api.get("/cip-report/types/list");
+      if (response.data && response.data.length > 0) {
+        setCipTypes(response.data.map(type => ({
+          id: type.id,
+          name: type.name,
+          value: type.value || type.name
+        })));
+      }
+    } catch (error) {
+      console.log("Using default CIP types");
+      // Keep default CIP types if API fails
     }
   };
 
@@ -78,6 +137,10 @@ const CreateCIP = ({ navigation }) => {
       Alert.alert("Validation Error", "Please select a line");
       return false;
     }
+    if (!formData.cipType) {
+      Alert.alert("Validation Error", "Please select a CIP Type");
+      return false;
+    }
     if (!formData.operator) {
       Alert.alert("Validation Error", "Operator is required");
       return false;
@@ -96,7 +159,19 @@ const CreateCIP = ({ navigation }) => {
     return true;
   };
 
-  const handleSaveCIP = async (cipTableData) => {
+  const showWarningsDialog = (warnings, isDraft) => {
+    if (!warnings || warnings.length === 0) return;
+
+    const warningMessages = warnings.map(w => `• ${w.message}`).join('\n\n');
+    const title = isDraft ? "Draft Saved with Warnings" : "Submitted with Warnings";
+    const message = isDraft 
+      ? `Your draft has been saved with the following warnings:\n\n${warningMessages}\n\nYou can edit and submit later.`
+      : `Your report has been submitted with the following warnings:\n\n${warningMessages}\n\nPlease note these for future reference.`;
+    
+    Alert.alert(title, message, [{ text: "OK" }]);
+  };
+
+  const handleSaveCIP = async (cipTableData, isDraft = false) => {
     if (!validateBasicInfo()) {
       return;
     }
@@ -110,10 +185,10 @@ const CreateCIP = ({ navigation }) => {
         plant: formData.plant,
         line: formData.line,
         cipType: formData.cipType,
-        status: "In Progress",
         operator: formData.operator,
         posisi: formData.posisi,
         notes: formData.notes || "",
+        isDraft, // Important flag for backend
       };
 
       // Handle LINE A data
@@ -248,12 +323,30 @@ const CreateCIP = ({ navigation }) => {
       const response = await api.post("/cip-report", dataToSubmit);
 
       if (response.status === 201) {
+        // Show warnings if any
+        if (response.data.hasValidationWarnings) {
+          showWarningsDialog(response.data.warnings, isDraft);
+        }
+
+        const successMessage = isDraft 
+          ? "CIP Report saved as draft successfully"
+          : response.data.hasValidationWarnings 
+            ? "CIP Report submitted successfully with some validation warnings. Check the details for recommendations."
+            : "CIP Report submitted successfully";
+
         Alert.alert(
-          "Success",
-          "CIP Report created successfully",
+          "Success", 
+          successMessage,
           [
             {
-              text: "OK",
+              text: "Create New Report",
+              onPress: () => {
+                // Reset form for new input
+                resetForm();
+              },
+            },
+            {
+              text: "View Reports",
               onPress: () => navigation.navigate("ReportCIP"),
             },
           ]
@@ -279,7 +372,7 @@ const CreateCIP = ({ navigation }) => {
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={COLORS.green} />
-          <Text style={styles.loadingText}>Creating CIP Report...</Text>
+          <Text style={styles.loadingText}>Processing CIP Report...</Text>
         </View>
       </SafeAreaView>
     );
@@ -294,7 +387,9 @@ const CreateCIP = ({ navigation }) => {
             <Icon name="arrow-back" size={24} color={COLORS.blue} />
           </TouchableOpacity>
           <Text style={styles.title}>Create CIP Report</Text>
-          <View style={{ width: 24 }} />
+          <TouchableOpacity onPress={resetForm} style={styles.resetButton}>
+            <Icon name="refresh" size={24} color={COLORS.orange} />
+          </TouchableOpacity>
         </View>
 
         {/* Basic Information Section */}
@@ -374,24 +469,51 @@ const CreateCIP = ({ navigation }) => {
             </View>
           </View>
 
-          {/* CIP Type (CIP KITCHEN) */}
+          {/* CIP Type - Now as Dropdown */}
           <View style={styles.formGroup}>
             <Text style={styles.label}>CIP Type</Text>
-            <View style={[styles.input, styles.readOnlyInput]}>
-              <Text style={styles.readOnlyText}>{formData.cipType}</Text>
-              <Icon name="lock" size={16} color={COLORS.gray} />
+            <View style={styles.pickerContainer}>
+              <Picker
+                selectedValue={formData.cipType}
+                onValueChange={(value) => handleInputChange("cipType", value)}
+                style={styles.picker}
+              >
+                <Picker.Item label="Select CIP Type" value="" />
+                {cipTypes.map((type) => (
+                  <Picker.Item
+                    key={type.id}
+                    label={type.name}
+                    value={type.value}
+                  />
+                ))}
+              </Picker>
             </View>
           </View>
 
-          {/* Operator (Text Input) */}
+          {/* Operator (Auto-populated with manual override) */}
           <View style={styles.formGroup}>
             <Text style={styles.label}>Operator</Text>
-            <TextInput
-              style={styles.input}
-              value={formData.operator}
-              onChangeText={(value) => handleInputChange("operator", value)}
-              placeholder="Enter operator name"
-            />
+            <View style={styles.operatorContainer}>
+              <TextInput
+                style={[styles.input, styles.operatorInput]}
+                value={formData.operator}
+                onChangeText={(value) => handleInputChange("operator", value)}
+                placeholder="Enter operator name"
+              />
+              {userProfile && (
+                <TouchableOpacity
+                  style={styles.resetOperatorButton}
+                  onPress={() => handleInputChange("operator", userProfile.name || userProfile.fullName || userProfile.username || "")}
+                >
+                  <Icon name="person" size={20} color={COLORS.blue} />
+                </TouchableOpacity>
+              )}
+            </View>
+            {userProfile && (
+              <Text style={styles.helperText}>
+                Auto-filled from your profile: {userProfile.name || userProfile.fullName || userProfile.username}
+              </Text>
+            )}
           </View>
 
           {/* Posisi */}
@@ -439,32 +561,6 @@ const CreateCIP = ({ navigation }) => {
             </View>
           )}
 
-          {/* Kode Operator - Only for LINE A */}
-          {formData.line === "LINE A" && (
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>Kode Operator</Text>
-              <TextInput
-                style={styles.input}
-                value={formData.kodeOperator}
-                onChangeText={(value) => handleInputChange("kodeOperator", value)}
-                placeholder="e.g. OP-001"
-              />
-            </View>
-          )}
-
-          {/* Kode Teknisi - Only for LINE A */}
-          {formData.line === "LINE A" && (
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>Kode Teknisi</Text>
-              <TextInput
-                style={styles.input}
-                value={formData.kodeTeknisi}
-                onChangeText={(value) => handleInputChange("kodeTeknisi", value)}
-                placeholder="e.g. TK-001"
-              />
-            </View>
-          )}
-
           {/* Notes */}
           <View style={styles.formGroup}>
             <Text style={styles.label}>Notes (Optional)</Text>
@@ -479,21 +575,32 @@ const CreateCIP = ({ navigation }) => {
           </View>
         </View>
 
+        {/* Status Info Box */}
+        <View style={styles.statusInfoBox}>
+          <Icon name="info-outline" size={20} color={COLORS.blue} />
+          <Text style={styles.statusInfoText}>
+            The "Save CIP Report" button will save and submit your report directly.
+            Data will be saved even if values are outside recommended ranges with validation warnings shown for reference.
+          </Text>
+        </View>
+
         {/* CIP Inspection Table - Conditional based on Line */}
         {formData.line && (
           <>
             {formData.line === "LINE A" ? (
               <ReportCIPInspectionTable
-                cipData={{ ...formData }}
-                onSave={handleSaveCIP}
+                cipData={formData}
+                onSave={(cipTableData) => handleSaveCIP(cipTableData, false)}
                 isEditable={true}
+                allowUnrestrictedInput={true}
               />
             ) : (
               <ReportCIPInspectionTableBCD
-                cipData={{ ...formData }}
-                onSave={handleSaveCIP}
-                isEditable={true}
+                cipData={formData}
                 selectedLine={formData.line}
+                onSave={(cipTableData) => handleSaveCIP(cipTableData, false)}
+                isEditable={true}
+                allowUnrestrictedInput={true}
               />
             )}
           </>
@@ -542,6 +649,11 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "bold",
     color: COLORS.blue,
+  },
+  resetButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: "#fff5e6",
   },
   section: {
     margin: 16,
@@ -631,6 +743,30 @@ const styles = StyleSheet.create({
   picker: {
     height: 50,
   },
+  
+  // Operator Section Styles
+  operatorContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  operatorInput: {
+    flex: 1,
+    marginRight: 8,
+  },
+  resetOperatorButton: {
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    backgroundColor: "#fff",
+  },
+  helperText: {
+    fontSize: 12,
+    color: COLORS.gray,
+    marginTop: 4,
+    fontStyle: "italic",
+  },
+  
   infoBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -644,6 +780,23 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.blue,
     flex: 1,
+  },
+  statusInfoBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "#e3f2fd",
+    padding: 12,
+    borderRadius: 8,
+    margin: 16,
+    borderWidth: 1,
+    borderColor: COLORS.blue,
+  },
+  statusInfoText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: "#0d47a1",
+    flex: 1,
+    lineHeight: 20,
   },
   instructionBox: {
     alignItems: "center",

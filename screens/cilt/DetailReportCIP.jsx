@@ -15,9 +15,15 @@ import { COLORS } from "../../constants/theme";
 import { api } from "../../utils/axiosInstance";
 
 const DetailReportCIP = ({ navigation, route }) => {
-  const { cipReportId } = route.params;
+  const raw = route.params?.cipReportId ?? route.params?.id;
+  const cipReportId = Number(raw);
+  if (!Number.isFinite(cipReportId)) {
+    Alert.alert("Error", "Invalid CIP id");
+    return null;
+  }
   const [cipData, setCipData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusList, setStatusList] = useState([]);
 
   useEffect(() => {
@@ -27,6 +33,11 @@ const DetailReportCIP = ({ navigation, route }) => {
 
   const fetchCIPDetail = async () => {
     setIsLoading(true);
+    if (!cipReportId) {
+      Alert.alert("Error", "Invalid CIP id");
+      setIsLoading(false);
+      return;
+    }
     try {
       const response = await api.get(`/cip-report/${cipReportId}`);
       setCipData(response.data);
@@ -48,11 +59,9 @@ const DetailReportCIP = ({ navigation, route }) => {
   };
 
   const handleEdit = () => {
-    // Pass complete cipData including all fields needed for editing
-    navigation.navigate("EditCIP", { 
+    navigation.navigate("EditCIP", {
       cipData: {
         ...cipData,
-        // Ensure all necessary fields are included
         id: cipData.id,
         line: cipData.line,
         posisi: cipData.posisi,
@@ -67,6 +76,45 @@ const DetailReportCIP = ({ navigation, route }) => {
         specialRecords: cipData.specialRecords,
       }
     });
+  };
+
+  const handleSubmit = () => {
+    Alert.alert(
+      "Submit Report",
+      "Are you sure you want to submit this CIP report? Once submitted, it cannot be edited without admin approval.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Submit",
+          style: "default",
+          onPress: async () => {
+            setIsSubmitting(true);
+            try {
+              // Fixed: Use correct endpoint for submitting
+              const response = await api.put(`/cip-report/${cipReportId}/submit`);
+
+              if (response.data.hasValidationWarnings) {
+                const warningMessages = response.data.warnings.map(w => `• ${w.message}`).join('\n\n');
+                Alert.alert(
+                  "⚠️ Submitted with Warnings",
+                  `Your report has been submitted with the following warnings:\n\n${warningMessages}\n\nPlease note these for future reference.`,
+                  [{ text: "OK", onPress: () => fetchCIPDetail() }]
+                );
+              } else {
+                Alert.alert("Success", "CIP report submitted successfully", [
+                  { text: "OK", onPress: () => fetchCIPDetail() }
+                ]);
+              }
+            } catch (error) {
+              console.error("Error submitting CIP report:", error);
+              Alert.alert("Error", error.response?.data?.message || "Failed to submit CIP report");
+            } finally {
+              setIsSubmitting(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleDelete = () => {
@@ -96,6 +144,29 @@ const DetailReportCIP = ({ navigation, route }) => {
     const statusItem = statusList.find(s => s.name === status);
     return statusItem ? statusItem.color : COLORS.darkGray;
   };
+
+  const getStatusIcon = (status) => {
+    switch (status) {
+      case 'Complete':
+        return 'check-circle';
+      case 'In Progress':
+        return 'hourglass-empty';
+      case 'Under Review':
+        return 'rate-review';
+      case 'Approved':
+        return 'verified';
+      case 'Rejected':
+        return 'error';
+      case 'Cancelled':
+        return 'cancel';
+      default:
+        return 'info';
+    }
+  };
+
+  const isDraft = cipData?.status === 'In Progress';
+  const isSubmitted = cipData?.status === 'Complete';
+  const canEdit = isDraft || cipData?.status === 'Rejected';
 
   const renderStepRow = (step) => (
     <View key={step.id} style={styles.stepRow}>
@@ -226,9 +297,9 @@ const DetailReportCIP = ({ navigation, route }) => {
             <View style={styles.specialItem}>
               <Text style={styles.specialLabel}>Temp:</Text>
               <Text style={styles.specialValue}>
-                {record.tempActual || '-'}°C 
-                {cipData.line === 'LINE D' ? 
-                  ` (${record.tempDMin || '-'}-${record.tempDMax || '-'}°C)` : 
+                {record.tempActual || '-'}°C
+                {cipData.line === 'LINE D' ?
+                  ` (${record.tempDMin || '-'}-${record.tempDMax || '-'}°C)` :
                   ` (${record.tempBC || '-'}°C)`
                 }
               </Text>
@@ -276,13 +347,46 @@ const DetailReportCIP = ({ navigation, route }) => {
           </TouchableOpacity>
           <Text style={styles.title}>CIP Report Detail</Text>
           <View style={styles.headerActions}>
-            <TouchableOpacity onPress={handleEdit} style={styles.iconButton}>
-              <Icon name="edit" size={24} color={COLORS.blue} />
-            </TouchableOpacity>
+            {canEdit && (
+              <TouchableOpacity onPress={handleEdit} style={styles.iconButton}>
+                <Icon name="edit" size={24} color={COLORS.blue} />
+              </TouchableOpacity>
+            )}
+            {isDraft && (
+              <TouchableOpacity
+                onPress={handleSubmit}
+                style={[styles.iconButton, styles.submitButton]}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator size={20} color="#fff" />
+                ) : (
+                  <Icon name="send" size={20} color="#fff" />
+                )}
+              </TouchableOpacity>
+            )}
             <TouchableOpacity onPress={handleDelete} style={styles.iconButton}>
               <Icon name="delete" size={24} color={COLORS.red} />
             </TouchableOpacity>
           </View>
+        </View>
+
+        {/* Status Badge */}
+        <View style={styles.statusContainer}>
+          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(cipData.status) }]}>
+            <Icon name={getStatusIcon(cipData.status)} size={16} color="#fff" />
+            <Text style={styles.statusBadgeText}>{cipData.status}</Text>
+          </View>
+          {isDraft && (
+            <Text style={styles.draftNote}>
+              This is a draft report. You can edit it or submit it to finalize.
+            </Text>
+          )}
+          {isSubmitted && cipData.submittedAt && (
+            <Text style={styles.submittedNote}>
+              Submitted on {moment(cipData.submittedAt).format("DD/MM/YYYY HH:mm")}
+            </Text>
+          )}
         </View>
 
         {/* Main Info */}
@@ -308,12 +412,6 @@ const DetailReportCIP = ({ navigation, route }) => {
             <Text style={styles.value}>{cipData.cipType}</Text>
           </View>
           <View style={styles.infoRow}>
-            <Text style={styles.label}>Status:</Text>
-            <Text style={[styles.value, { color: getStatusColor(cipData.status) }]}>
-              {cipData.status}
-            </Text>
-          </View>
-          <View style={styles.infoRow}>
             <Text style={styles.label}>Operator:</Text>
             <Text style={styles.value}>{cipData.operator || '-'}</Text>
           </View>
@@ -321,7 +419,7 @@ const DetailReportCIP = ({ navigation, route }) => {
             <Text style={styles.label}>Posisi:</Text>
             <Text style={styles.value}>{cipData.posisi || '-'}</Text>
           </View>
-          
+
           {/* Flow Rate for LINE A */}
           {cipData.line === 'LINE A' && (
             <View style={styles.infoRow}>
@@ -329,7 +427,7 @@ const DetailReportCIP = ({ navigation, route }) => {
               <Text style={styles.value}>{cipData.flowRate || '-'} L/hr</Text>
             </View>
           )}
-          
+
           {/* Flow Rates for LINE B/C/D */}
           {(cipData.line === 'LINE B' || cipData.line === 'LINE C') && cipData.flowRateBC && (
             <View style={styles.infoRow}>
@@ -337,7 +435,7 @@ const DetailReportCIP = ({ navigation, route }) => {
               <Text style={styles.value}>{cipData.flowRateBC} L/H</Text>
             </View>
           )}
-          
+
           {cipData.line === 'LINE D' && cipData.flowRateD && (
             <View style={styles.infoRow}>
               <Text style={styles.label}>Flow D:</Text>
@@ -351,8 +449,8 @@ const DetailReportCIP = ({ navigation, route }) => {
               <Text style={styles.label}>Valve Positions:</Text>
               <View style={styles.valveContainer}>
                 <Text style={styles.valveText}>
-                  A: {cipData.valvePositions.A ? 'Open' : 'Close'} | 
-                  B: {cipData.valvePositions.B ? 'Open' : 'Close'} | 
+                  A: {cipData.valvePositions.A ? 'Open' : 'Close'} |
+                  B: {cipData.valvePositions.B ? 'Open' : 'Close'} |
                   C: {cipData.valvePositions.C ? 'Open' : 'Close'}
                 </Text>
               </View>
@@ -381,6 +479,33 @@ const DetailReportCIP = ({ navigation, route }) => {
           )}
         </View>
 
+        {/* Action Buttons for Draft */}
+        {isDraft && (
+          <View style={styles.actionButtonsContainer}>
+            <TouchableOpacity
+              style={styles.editButton}
+              onPress={handleEdit}
+            >
+              <Icon name="edit" size={20} color="#fff" />
+              <Text style={styles.buttonText}>Edit Draft</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.submitButtonLarge}
+              onPress={handleSubmit}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? (
+                <ActivityIndicator size={20} color="#fff" />
+              ) : (
+                <Icon name="send" size={20} color="#fff" />
+              )}
+              <Text style={styles.buttonText}>
+                {isSubmitting ? "Submitting..." : "Submit Report"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* CIP Steps */}
         {cipData.steps && cipData.steps.length > 0 && (
           <View style={styles.section}>
@@ -398,13 +523,13 @@ const DetailReportCIP = ({ navigation, route }) => {
         )}
 
         {/* Special Records for LINE B/C/D */}
-        {(cipData.line === 'LINE B' || cipData.line === 'LINE C' || cipData.line === 'LINE D') && 
-         cipData.specialRecords && cipData.specialRecords.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>DRYING, FOAMING, DISINFECT/SANITASI Records</Text>
-            {cipData.specialRecords.map(renderSpecialRow)}
-          </View>
-        )}
+        {(cipData.line === 'LINE B' || cipData.line === 'LINE C' || cipData.line === 'LINE D') &&
+          cipData.specialRecords && cipData.specialRecords.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>DRYING, FOAMING, DISINFECT/SANITASI Records</Text>
+              {cipData.specialRecords.map(renderSpecialRow)}
+            </View>
+          )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -464,6 +589,74 @@ const styles = StyleSheet.create({
   },
   iconButton: {
     marginLeft: 16,
+    padding: 8,
+  },
+  submitButton: {
+    backgroundColor: COLORS.green,
+    borderRadius: 20,
+  },
+  statusContainer: {
+    alignItems: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+  },
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginBottom: 8,
+  },
+  statusBadgeText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "bold",
+    marginLeft: 6,
+  },
+  draftNote: {
+    fontSize: 12,
+    color: COLORS.orange,
+    textAlign: "center",
+    fontStyle: "italic",
+  },
+  submittedNote: {
+    fontSize: 12,
+    color: COLORS.green,
+    textAlign: "center",
+    fontStyle: "italic",
+  },
+  actionButtonsContainer: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    justifyContent: "space-between",
+  },
+  editButton: {
+    backgroundColor: COLORS.blue,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    flex: 0.48,
+    justifyContent: "center",
+  },
+  submitButtonLarge: {
+    backgroundColor: COLORS.green,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+    flex: 0.48,
+    justifyContent: "center",
+  },
+  buttonText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "600",
+    marginLeft: 8,
   },
   mainInfo: {
     padding: 16,

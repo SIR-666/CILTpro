@@ -1,7 +1,7 @@
 import * as Print from "expo-print";
 import { shareAsync } from "expo-sharing";
 import moment from "moment";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -25,6 +25,12 @@ const DetailLaporanShiftly = ({ route }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedImage, setSelectedImage] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
+
+  // Refs untuk sinkronisasi scroll
+  const headerScrollRef = useRef(null);
+  const actualTimeScrollRef = useRef(null);
+  const contentScrollRef = useRef(null);
+  const verticalScrollRef = useRef(null);
 
   const { width } = Dimensions.get("window");
   const modalImageSize = width * 0.8;
@@ -74,7 +80,6 @@ const DetailLaporanShiftly = ({ route }) => {
 
     records.forEach((record) => {
       try {
-        // Gunakan regex untuk menangkap semua JSON array dalam string
         const matches = record.CombinedInspectionData.match(/\[.*?\]/g);
 
         if (!matches || matches.length === 0) {
@@ -85,7 +90,6 @@ const DetailLaporanShiftly = ({ route }) => {
           return;
         }
 
-        // Ambil JSON array yang terakhir
         const lastInspectionData = JSON.parse(matches[matches.length - 1]);
 
         lastInspectionData.forEach((inspection) => {
@@ -169,9 +173,9 @@ const DetailLaporanShiftly = ({ route }) => {
 
   const getResultColor = (result, good, reject) => {
     if (["G", "N", "R"].includes(result)) {
-      if (result === "G") return "#d4edda";     // Good - green
-      if (result === "N") return "#fff3cd";     // Need - yellow
-      if (result === "R") return "#f8d7da";     // Reject - red
+      if (result === "G") return "#d4edda";
+      if (result === "N") return "#fff3cd";
+      if (result === "R") return "#f8d7da";
     }
 
     const evalResult = evaluateValue(result, good, reject);
@@ -179,17 +183,55 @@ const DetailLaporanShiftly = ({ route }) => {
     if (evalResult === "need") return "#fff3cd";
     if (evalResult === "reject") return "#f8d7da";
 
-    return "#f8f9fa"; // default gray
+    return "#f8f9fa";
   };
 
-  // Helper function to check if row should have separator
   const shouldShowSeparator = (index, data) => {
-    const separatorIndices = [13, 20, 39]; // After indices 13, 20, and 39
+    const separatorIndices = [13, 20, 39];
     return separatorIndices.includes(index);
   };
 
+  // Fungsi untuk sinkronisasi scroll horizontal
+  const handleHorizontalScroll = (event, source) => {
+    const { contentOffset } = event.nativeEvent;
+
+    if (source !== 'header' && headerScrollRef.current) {
+      headerScrollRef.current.scrollTo({ x: contentOffset.x, animated: false });
+    }
+    if (source !== 'actualTime' && actualTimeScrollRef.current) {
+      actualTimeScrollRef.current.scrollTo({ x: contentOffset.x, animated: false });
+    }
+    if (source !== 'content' && contentScrollRef.current) {
+      contentScrollRef.current.scrollTo({ x: contentOffset.x, animated: false });
+    }
+  };
+
+  // === Half-hour helper ===
+  const getHalfHourSlots = (hours) =>
+    hours.flatMap(h => {
+      const HH = String(h).padStart(2, "0");
+      return [{ hour: HH, mm: "00" }, { hour: HH, mm: "30" }];
+    });
+
+  const getResultAtHalfHour = (item, hour, mm, { duplicateHourlyToBoth = true } = {}) => {
+    const r = item?.results?.[hour];
+    if (r && typeof r === "object") return r?.[mm] ?? "";
+    if (typeof r === "string" || typeof r === "number") {
+      // fallback untuk data lama per-jam
+      return duplicateHourlyToBoth ? String(r) : (mm === "00" ? String(r) : "");
+    }
+    return "";
+  };
+
+  const getHalfHourBg = (raw, good, reject) => {
+    const evalResult = evaluateValue(raw, good, reject);
+    if (evalResult === "good") return "#d4edda";
+    if (evalResult === "need") return "#fff3cd";
+    if (evalResult === "reject") return "#f8d7da";
+    return "#ffffff";
+  };
+
   const printToFile = async () => {
-    // Format Data Tambahan dengan layout dua kolom
     const formattedData = `
         <p><strong>Process Order:</strong> ${item.processOrder}</p>
         <table class="general-info-table">
@@ -215,46 +257,26 @@ const DetailLaporanShiftly = ({ route }) => {
         </table>
       `;
 
-    // Baris indikator waktu sebelum header tabel utama
+    const halfHourSlots = getHalfHourSlots(shiftHours);
+
     const actualTimeRow = `
     <tr>
       <td colspan="5" style="font-weight: bold; text-align: center;">Actual Time</td>
-      ${shiftHours
-        .map((hour) => {
-          const relatedItems = data.filter(
-            (item) => hour == moment.utc(item.LastRecordTime).format("HH")
-          );
-
-          if (relatedItems.length === 0) {
-            return `<td></td>`; // Jika tidak ada data, isi dengan sel kosong
-          }
-
-          return relatedItems
-            .map((filteredItem) => {
-              const lastRecordHour = moment
-                .utc(filteredItem.LastRecordTime)
-                .format("HH");
-              const submitHour = moment
-                .utc(filteredItem.submitTime)
-                .format("HH");
-              const sumbitMinutes = moment
-                .utc(filteredItem.submitTime)
-                .format("mm");
-
-              // Hitung selisih jam
-              const isMoreThanOneHour =
-                Math.abs(lastRecordHour - submitHour) >= 1;
-
-              return `<td style="font-weight: bold; background-color: ${isMoreThanOneHour ? "#f59f95" : "#b5e6c1"
-                }">${submitHour}:${sumbitMinutes}</td>`;
-            })
-            .join("");
-        })
-        .join("")}
+      ${halfHourSlots.map(({ hour, mm }) => {
+      const relatedItems = data.filter(
+        it => hour === moment.utc(it.LastRecordTime).format("HH")
+      );
+      const isLate = relatedItems.some(it => {
+        const lastH = parseInt(moment.utc(it.LastRecordTime).format("HH"), 10);
+        const subH = parseInt(moment.utc(it.submitTime).format("HH"), 10);
+        return Math.abs(lastH - subH) >= 1;
+      });
+      const bg = isLate ? "#ffebee" : "#e8f5e9";
+      return `<td style="text-align:center; font-weight:bold; background:${bg}">${hour}:${mm}</td>`;
+    }).join("")}
     </tr>
   `;
 
-    // Mapping inspectionData ke dalam tabel
     const inspectionRows = uniqueData
       .map((item, index) => {
         return `
@@ -264,30 +286,16 @@ const DetailLaporanShiftly = ({ route }) => {
         <td class="col-good">${item.good ?? "-"}</td>
         <td class="col-need">${item.need ?? "-"}</td>
         <td class="col-red">${item.reject ?? "-"}</td>
-        ${shiftHours
-            .map((hour) => {
-              const rawValue = item.results?.[hour];
-              const resultValue = parseFloat(rawValue);
-              const goodValue = parseFloat(item.good);
-              const needValue = parseFloat(item.need);
-              const rejectValue = parseFloat(item.reject);
-
-              let resultColor = "#ffffff"; // default
-              const evalResult = evaluateValue(rawValue, item.good, item.reject);
-              if (evalResult === "good") resultColor = "#d4edda";
-              else if (evalResult === "need") resultColor = "#fff3cd";
-              else if (evalResult === "reject") resultColor = "#f8d7da";
-
-              return `<td class="col-shift" style="background-color: ${resultColor}; font-weight: bold;">${rawValue || ""
-                }</td>`;
-            })
-            .join("")}
+        ${halfHourSlots.map(({ hour, mm }) => {
+          const rawValue = getResultAtHalfHour(item, hour, mm, { duplicateHourlyToBoth: true });
+          const bg = getHalfHourBg(rawValue, item.good, item.reject);
+          return `<td class="col-shift" style="background-color:${bg}; font-weight:bold; text-align:center;">${rawValue || ""}</td>`;
+        }).join("")}
       </tr>
     `;
       })
       .join("");
 
-    // HTML untuk file yang akan dicetak
     const html = `
         <html>
           <head>
@@ -306,14 +314,13 @@ const DetailLaporanShiftly = ({ route }) => {
               th { background-color: #f2f2f2; }
               img { display: block; margin: auto; }
 
-              /* Atur lebar spesifik untuk setiap kolom */
-              th.col-no, td.col-no { width: 5%; } /* No */
-              th.col-activity, td.col-activity { width: 20%; } /* Activity */
-              th.col-good, td.col-good { width: 7%; }  /* G */
-              th.col-need, td.col-need { width: 7%; }  /* N */
-              th.col-red, td.col-red { width: 7%; }    /* R */
+              th.col-no, td.col-no { width: 5%; }
+              th.col-activity, td.col-activity { width: 20%; }
+              th.col-good, td.col-good { width: 7%; }
+              th.col-need, td.col-need { width: 7%; }
+              th.col-red, td.col-red { width: 7%; }
 
-              th.col-shift, td.col-shift { width: ${(100 - (5 + 20 + 7 + 7 + 7)) / shiftHours.length
+              th.col-shift, td.col-shift { width: ${(100 - (5 + 20 + 7 + 7 + 7)) / halfHourSlots.length
       }%; }
             </style>
           </head>
@@ -331,8 +338,8 @@ const DetailLaporanShiftly = ({ route }) => {
                     <th class="col-good">G</th>
                     <th class="col-need">N</th>
                     <th class="col-red">R</th>
-                    ${shiftHours
-        .map((hour) => `<th class="col-shift">${hour}</th>`)
+                    ${halfHourSlots
+        .map(({ hour, mm }) => `<th class="col-shift">${hour}:${mm}</th>`)
         .join("")}
                   </tr>
                 </thead>
@@ -356,22 +363,21 @@ const DetailLaporanShiftly = ({ route }) => {
     }
   };
 
-  // Fixed cell widths for consistent alignment
+  // Fixed cell widths
   const CELL_WIDTHS = {
     no: 40,
     activity: 200,
-    status: 50,    // Increased from 40 to 50 for G, N, R columns
+    status: 50,
     hour: 60,
-    total: 380      // Sum of no + activity + 3 status cells (40 + 200 + 50*3 = 390)
+    fixedTotal: 390 // no + activity + 3 status cells
   };
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <View>
         <View style={styles.header}>
           <Text style={styles.title}>Detail Data Shiftly</Text>
-          
-          {/* Info Section with better layout */}
+
           <View style={styles.infoSection}>
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Date:</Text>
@@ -379,32 +385,32 @@ const DetailLaporanShiftly = ({ route }) => {
                 {moment(item.date, "YYYY-MM-DD HH:mm:ss.SSS").format("DD/MM/YY HH:mm:ss")}
               </Text>
             </View>
-            
+
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Process Order:</Text>
               <Text style={styles.infoValue}>{item.processOrder}</Text>
             </View>
-            
+
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Package:</Text>
               <Text style={styles.infoValue}>{item.packageType}</Text>
             </View>
-            
+
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Plant:</Text>
               <Text style={styles.infoValue}>{item.plant}</Text>
             </View>
-            
+
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Line:</Text>
               <Text style={styles.infoValue}>{item.line}</Text>
             </View>
-            
+
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Shift:</Text>
               <Text style={styles.infoValue}>{item.shift}</Text>
             </View>
-            
+
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Machine:</Text>
               <Text style={styles.infoValue}>{item.machine}</Text>
@@ -424,129 +430,181 @@ const DetailLaporanShiftly = ({ route }) => {
             <ActivityIndicator size="large" color="#3bcd6b" />
           </View>
         ) : (
-          <ScrollView horizontal showsHorizontalScrollIndicator={true}>
-            <View style={styles.tableContainer}>
-              {/* Actual Time Header */}
+          <View style={styles.tableWrapper}>
+            {/* Sticky Headers Container */}
+            <View style={styles.stickyContainer}>
+              {/* Sticky Actual Time Row */}
               <View style={styles.actualTimeRow}>
-                <View style={[styles.actualTimeLabel, { width: CELL_WIDTHS.total }]}>
+                {/* Fixed Actual Time Label */}
+                <View style={[styles.actualTimeLabel, { width: CELL_WIDTHS.fixedTotal }]}>
                   <Text style={styles.actualTimeText}>Actual Time</Text>
                 </View>
-                {shiftHours.map((hour, index) => {
-                  const relatedItems = data.filter(
-                    (item) => hour == moment.utc(item.LastRecordTime).format("HH")
-                  );
 
-                  return (
-                    <View key={`time-column-${hour}-${index}`} style={[styles.actualTimeCell, { width: CELL_WIDTHS.hour }]}>
-                      {relatedItems.length === 0 ? (
-                        <Text style={styles.actualTimeEmpty}>-</Text>
-                      ) : (
-                        relatedItems.map((filteredItem, idx) => {
-                          const lastRecordHour = moment.utc(filteredItem.LastRecordTime).format("HH");
-                          const submitHour = moment.utc(filteredItem.submitTime).format("HH");
-                          const submitMinutes = moment.utc(filteredItem.submitTime).format("mm");
-                          const isMoreThanOneHour = Math.abs(parseInt(lastRecordHour) - parseInt(submitHour)) >= 1;
+                {/* Scrollable Actual Time Cells */}
+                <ScrollView
+                  ref={actualTimeScrollRef}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  onScroll={(event) => handleHorizontalScroll(event, 'actualTime')}
+                  scrollEventThrottle={16}
+                >
+                  <View style={styles.actualTimeContent}>
+                    {shiftHours.map((hour, index) => {
+                      const relatedItems = data.filter(
+                        (item) => hour == moment.utc(item.LastRecordTime).format("HH")
+                      );
 
-                          return (
-                            <View 
-                              key={`time-${hour}-${idx}-${filteredItem.id || idx}`}
-                              style={[
-                                styles.actualTimeBox,
-                                { backgroundColor: isMoreThanOneHour ? "#ffebee" : "#e8f5e9" }
-                              ]}
-                            >
-                              <Text style={[
-                                styles.actualTimeValue,
-                                { color: isMoreThanOneHour ? "#d32f2f" : "#2e7d32" }
-                              ]}>
-                                {submitHour}:{submitMinutes}
-                              </Text>
-                            </View>
-                          );
-                        })
-                      )}
-                    </View>
-                  );
-                })}
-              </View>
+                      return (
+                        <View key={`time-${hour}-${index}`} style={[styles.actualTimeCell, { width: CELL_WIDTHS.hour }]}>
+                          {relatedItems.length === 0 ? (
+                            <Text style={styles.actualTimeEmpty}>-</Text>
+                          ) : (
+                            relatedItems.map((filteredItem, idx) => {
+                              const lastRecordHour = moment.utc(filteredItem.LastRecordTime).format("HH");
+                              const submitHour = moment.utc(filteredItem.submitTime).format("HH");
+                              const submitMinutes = moment.utc(filteredItem.submitTime).format("mm");
+                              const isMoreThanOneHour = Math.abs(parseInt(lastRecordHour) - parseInt(submitHour)) >= 1;
 
-              {/* Main Table Header */}
-              <View style={styles.tableHeader}>
-                <View style={[styles.noCell, { width: CELL_WIDTHS.no }]}>
-                  <Text style={styles.headerText}>No</Text>
-                </View>
-                <View style={[styles.activityCell, { width: CELL_WIDTHS.activity }]}>
-                  <Text style={styles.headerText}>Activity</Text>
-                </View>
-                <View style={[styles.statusCell, { width: CELL_WIDTHS.status }]}>
-                  <Text style={styles.headerText}>G</Text>
-                </View>
-                <View style={[styles.statusCell, { width: CELL_WIDTHS.status }]}>
-                  <Text style={styles.headerText}>N</Text>
-                </View>
-                <View style={[styles.statusCell, { width: CELL_WIDTHS.status }]}>
-                  <Text style={styles.headerText}>R</Text>
-                </View>
-                {shiftHours.map((hour, index) => (
-                  <View key={`header-${hour}-${index}`} style={[styles.hourCell, { width: CELL_WIDTHS.hour }]}>
-                    <Text style={styles.headerText}>{hour}:00</Text>
+                              return (
+                                <View
+                                  key={`time-value-${hour}-${idx}`}
+                                  style={[
+                                    styles.actualTimeBox,
+                                    { backgroundColor: isMoreThanOneHour ? "#ffebee" : "#e8f5e9" }
+                                  ]}
+                                >
+                                  <Text style={[
+                                    styles.actualTimeValue,
+                                    { color: isMoreThanOneHour ? "#d32f2f" : "#2e7d32" }
+                                  ]}>
+                                    {submitHour}:{submitMinutes}
+                                  </Text>
+                                </View>
+                              );
+                            })
+                          )}
+                        </View>
+                      );
+                    })}
                   </View>
-                ))}
+                </ScrollView>
               </View>
 
-              {/* Table Body */}
-              {uniqueData.map((item, index) => (
-                <View key={`row-${index}-${item.activity}`}>
-                  <View style={[
-                    styles.tableRow,
-                    index % 2 === 1 && styles.tableRowAlt
-                  ]}>
-                    <View style={[styles.noCell, { width: CELL_WIDTHS.no }]}>
-                      <Text style={styles.cellText}>{index + 1}</Text>
-                    </View>
-                    <View style={[styles.activityCell, { width: CELL_WIDTHS.activity }]}>
-                      <Text style={styles.activityText}>{item.activity}</Text>
-                    </View>
-                    <View style={[styles.statusCell, { width: CELL_WIDTHS.status }]}>
-                      <Text style={styles.cellText}>{item.good ?? "-"}</Text>
-                    </View>
-                    <View style={[styles.statusCell, { width: CELL_WIDTHS.status }]}>
-                      <Text style={styles.cellText}>{item.need ?? "-"}</Text>
-                    </View>
-                    <View style={[styles.statusCell, { width: CELL_WIDTHS.status }]}>
-                      <Text style={styles.cellText}>{item.reject ?? "-"}</Text>
-                    </View>
-                    {shiftHours.map((hour, idx) => (
-                      <TouchableOpacity
-                        key={`cell-${index}-${hour}-${idx}`}
-                        style={[
-                          styles.hourCell,
-                          { 
-                            width: CELL_WIDTHS.hour,
-                            backgroundColor: getResultColor(item.results[hour], item.good, item.reject) 
-                          }
-                        ]}
-                        onPress={() => item.picture[hour] && handlePress(item.picture[hour])}
-                        disabled={!item.picture[hour]}
-                      >
-                        <Text style={[
-                          styles.cellText,
-                          { fontWeight: item.results[hour] ? 'bold' : 'normal' }
-                        ]}>
-                          {item.results[hour] || ""}
-                        </Text>
-                      </TouchableOpacity>
+              {/* Sticky Table Header */}
+              <View style={styles.tableHeaderRow}>
+                {/* Fixed Header Columns */}
+                <View style={styles.fixedHeaderColumns}>
+                  <View style={[styles.headerCell, { width: CELL_WIDTHS.no }]}>
+                    <Text style={styles.headerText}>No</Text>
+                  </View>
+                  <View style={[styles.headerCell, { width: CELL_WIDTHS.activity }]}>
+                    <Text style={styles.headerText}>Activity</Text>
+                  </View>
+                  <View style={[styles.headerCell, { width: CELL_WIDTHS.status }]}>
+                    <Text style={styles.headerText}>G</Text>
+                  </View>
+                  <View style={[styles.headerCell, { width: CELL_WIDTHS.status }]}>
+                    <Text style={styles.headerText}>N</Text>
+                  </View>
+                  <View style={[styles.headerCell, { width: CELL_WIDTHS.status }]}>
+                    <Text style={styles.headerText}>R</Text>
+                  </View>
+                </View>
+
+                {/* Scrollable Header Columns */}
+                <ScrollView
+                  ref={headerScrollRef}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  onScroll={(event) => handleHorizontalScroll(event, 'header')}
+                  scrollEventThrottle={16}
+                >
+                  <View style={styles.scrollableHeaderContent}>
+                    {shiftHours.map((hour, index) => (
+                      <View key={`header-${hour}-${index}`} style={[styles.headerCell, { width: CELL_WIDTHS.hour }]}>
+                        <Text style={styles.headerText}>{hour}:00</Text>
+                      </View>
                     ))}
+                  </View>
+                </ScrollView>
+              </View>
+            </View>
+
+            {/* Table Content with Vertical Scroll */}
+            <ScrollView
+              ref={verticalScrollRef}
+              style={styles.tableContent}
+              showsVerticalScrollIndicator={true}
+              nestedScrollEnabled={true}   // <- penting di Android
+            >
+              {uniqueData.map((item, index) => (
+                <View key={`row-${index}`}>
+                  <View style={[styles.tableRow, index % 2 === 1 && styles.tableRowAlt]}>
+                    {/* Fixed Columns */}
+                    <View style={styles.fixedColumns}>
+                      <View style={[styles.cell, { width: CELL_WIDTHS.no }]}>
+                        <Text style={styles.cellText}>{index + 1}</Text>
+                      </View>
+                      <View style={[styles.cell, { width: CELL_WIDTHS.activity }]}>
+                        <Text style={styles.activityText}>{item.activity}</Text>
+                      </View>
+                      <View style={[styles.cell, { width: CELL_WIDTHS.status }]}>
+                        <Text style={styles.cellText}>{item.good ?? "-"}</Text>
+                      </View>
+                      <View style={[styles.cell, { width: CELL_WIDTHS.status }]}>
+                        <Text style={styles.cellText}>{item.need ?? "-"}</Text>
+                      </View>
+                      <View style={[styles.cell, { width: CELL_WIDTHS.status }]}>
+                        <Text style={styles.cellText}>{item.reject ?? "-"}</Text>
+                      </View>
+                    </View>
+
+                    {/* Scrollable Columns */}
+                    <ScrollView
+                      ref={index === 0 ? contentScrollRef : null}
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      onScroll={(event) => {
+                        if (index === 0) {
+                          handleHorizontalScroll(event, 'content');
+                        }
+                      }}
+                      scrollEventThrottle={16}
+                    >
+                      <View style={styles.scrollableContent}>
+                        {shiftHours.map((hour, idx) => (
+                          <TouchableOpacity
+                            key={`cell-${index}-${hour}-${idx}`}
+                            style={[
+                              styles.cell,
+                              {
+                                width: CELL_WIDTHS.hour,
+                                backgroundColor: getResultColor(item.results[hour], item.good, item.reject)
+                              }
+                            ]}
+                            onPress={() => item.picture[hour] && handlePress(item.picture[hour])}
+                            disabled={!item.picture[hour]}
+                          >
+                            <Text style={[
+                              styles.cellText,
+                              { fontWeight: item.results[hour] ? 'bold' : 'normal' }
+                            ]}>
+                              {item.results[hour] || ""}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </ScrollView>
                   </View>
                   {shouldShowSeparator(index, uniqueData) && (
                     <View style={styles.sectionSeparator} />
                   )}
                 </View>
               ))}
-            </View>
-          </ScrollView>
+            </ScrollView>
+          </View>
         )}
-      </ScrollView>
+      </View>
 
       {/* Image Modal */}
       <Modal
@@ -623,7 +681,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 50,
   },
-  tableContainer: {
+  tableWrapper: {
     backgroundColor: "#fff",
     borderRadius: 8,
     margin: 10,
@@ -633,19 +691,24 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  stickyContainer: {
+    backgroundColor: "#fff",
+    borderBottomWidth: 2,
+    borderBottomColor: "#e0e0e0",
+    zIndex: 100,
+    elevation: 4, // untuk Android agar sticky
+  },
   actualTimeRow: {
     flexDirection: "row",
     backgroundColor: "#f8f9fa",
-    borderTopLeftRadius: 8,
-    borderTopRightRadius: 8,
-    borderBottomWidth: 2,
-    borderBottomColor: "#e0e0e0",
     minHeight: 50,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e0e0e0",
   },
   actualTimeLabel: {
     justifyContent: "center",
     alignItems: "center",
-    padding: 10,
+    backgroundColor: "#f8f9fa",
     borderRightWidth: 1,
     borderRightColor: "#e0e0e0",
   },
@@ -653,6 +716,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "bold",
     color: "#333",
+  },
+  actualTimeContent: {
+    flexDirection: "row",
   },
   actualTimeCell: {
     justifyContent: "center",
@@ -675,10 +741,33 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#999",
   },
-  tableHeader: {
+  tableHeaderRow: {
     flexDirection: "row",
     backgroundColor: "#3bcd6b",
+    minHeight: 45,
+  },
+  fixedHeaderColumns: {
+    flexDirection: "row",
+    backgroundColor: "#3bcd6b",
+  },
+  scrollableHeaderContent: {
+    flexDirection: "row",
+  },
+  headerCell: {
+    justifyContent: "center",
+    alignItems: "center",
     paddingVertical: 12,
+    borderRightWidth: 1,
+    borderRightColor: "rgba(255,255,255,0.3)",
+  },
+  headerText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 13,
+    textAlign: "center",
+  },
+  tableContent: {
+    maxHeight: 757.7,
   },
   tableRow: {
     flexDirection: "row",
@@ -689,38 +778,19 @@ const styles = StyleSheet.create({
   tableRowAlt: {
     backgroundColor: "#f8f9fa",
   },
-  noCell: {
+  fixedColumns: {
+    flexDirection: "row",
+  },
+  scrollableContent: {
+    flexDirection: "row",
+  },
+  cell: {
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 5,
-    borderRightWidth: 1,
-    borderRightColor: "#e0e0e0",
-  },
-  activityCell: {
-    justifyContent: "center",
-    paddingHorizontal: 10,
     paddingVertical: 8,
     borderRightWidth: 1,
     borderRightColor: "#e0e0e0",
-  },
-  statusCell: {
-    justifyContent: "center",
-    alignItems: "center",
-    borderRightWidth: 1,
-    borderRightColor: "#e0e0e0",
-  },
-  hourCell: {
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 8,
-    borderRightWidth: 1,
-    borderRightColor: "#e0e0e0",
-  },
-  headerText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 13,
-    textAlign: "center",
   },
   cellText: {
     fontSize: 13,
@@ -730,6 +800,7 @@ const styles = StyleSheet.create({
   activityText: {
     fontSize: 13,
     color: "#333",
+    paddingHorizontal: 10,
   },
   sectionSeparator: {
     height: 3,

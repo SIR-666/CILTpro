@@ -1,6 +1,11 @@
-import { Picker } from "@react-native-picker/picker";
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import {
+  Platform,
+  StyleSheet,
+  Text,
+  View,
+  TouchableOpacity,
+} from "react-native";
 
 import { api } from "../../../utils/axiosInstance";
 import ReusableOfflineUploadImage from "../../Reusable/ReusableOfflineUploadImage";
@@ -51,8 +56,8 @@ const ChecklistCILTInspectionTable = ({
   };
 
   const handleImageSelected = (uri, index) => {
-    let data = [...inspectionData];
-    data[index].picture = uri; // Update picture field with uploaded image URI or local URI
+    const data = [...inspectionData];
+    data[index].picture = uri;
     setInspectionData(data);
   };
 
@@ -73,7 +78,7 @@ const ChecklistCILTInspectionTable = ({
         job_type: item.job_type,
         componen: item.componen,
         standart: item.standart,
-        results: item.results || "",
+        results: item.results || "", 
         picture: item.picture || "",
         done: !!item.results,
         user: item.user || "",
@@ -97,20 +102,57 @@ const ChecklistCILTInspectionTable = ({
     }
   }, [plant, line, machine, type, initialData]);
 
-  const handleInputChange = (text, index) => {
+  const handleResultSelect = (value, index) => {
     const updated = [...inspectionData];
     const now = new Date();
     const hours = String(now.getHours()).padStart(2, "0");
     const minutes = String(now.getMinutes()).padStart(2, "0");
     const formattedTime = `${hours}:${minutes}`;
 
-    updated[index].results = text;
-    updated[index].user = username;
-    updated[index].time = formattedTime;
-    updated[index].done = !!text;
+    // toggle: jika klik ulang nilai yang sama → kosongkan
+    const nextValue = updated[index].results === value ? "" : value;
+
+    updated[index].results = nextValue;
+    updated[index].user = nextValue ? username : "";
+    updated[index].time = nextValue ? formattedTime : "";
+    updated[index].done = !!nextValue;
 
     setInspectionData(updated);
     onDataChange(updated);
+  };
+
+  const renderResultButtons = (item, index) => {
+    const isOK = item.results === "OK";
+    const isNG = item.results === "NOT OK";
+
+    return (
+      <View
+        style={[
+          styles.resultCell,
+          isOK ? styles.bgOk : isNG ? styles.bgNotOk : styles.bgNeutral,
+        ]}
+      >
+        <View style={styles.resultButtonsWrap}>
+          <TouchableOpacity
+            onPress={() => handleResultSelect("OK", index)}
+            style={[styles.resultBtn, isOK && styles.resultBtnActiveOk]}
+          >
+            <Text style={[styles.resultBtnText, isOK && styles.resultBtnTextActive]}>
+              OK
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => handleResultSelect("NOT OK", index)}
+            style={[styles.resultBtn, isNG && styles.resultBtnActiveNotOk]}
+          >
+            <Text style={[styles.resultBtnText, isNG && styles.resultBtnTextActive]}>
+              NOT OK
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
   };
 
   return (
@@ -134,24 +176,18 @@ const ChecklistCILTInspectionTable = ({
           <View style={{ width: "30%" }}>
             <Text style={styles.tableData}>{item.standart}</Text>
           </View>
+
+          {/* Hasil: Buttons */}
           <View style={{ width: "20%" }}>
-            <View style={[styles.tableData, styles.centeredContent]}>
-              <Picker
-                selectedValue={item.results}
-                onValueChange={(value) => handleInputChange(value, index)}
-                style={styles.picker}
-              >
-                <Picker.Item label="Select" value="" />
-                <Picker.Item label="OK" value="OK" />
-                <Picker.Item label="NOT OK" value="NOT OK" />
-              </Picker>
-            </View>
+            {renderResultButtons(item, index)}
           </View>
+
+          {/* Photo */}
           <View style={{ width: "10%" }}>
             <View style={[styles.tableData, styles.centeredContent]}>
               <ReusableOfflineUploadImage
                 onImageSelected={(uri) => handleImageSelected(uri, index)}
-                uploadImage={uploadImageToServer} // Pass upload function here
+                uploadImage={uploadImageToServer}
               />
             </View>
           </View>
@@ -173,7 +209,8 @@ const styles = StyleSheet.create({
   },
   tableBody: {
     flexDirection: "row",
-    padding: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
   },
   tableCaption: {
     color: "#fff",
@@ -188,9 +225,52 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  picker: {
-    width: "100%",
-    height: 40,
+
+  /* ====== Hasil cell + buttons ====== */
+  resultCell: {
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  bgNeutral: {
+    backgroundColor: "#f2f2f2",
+  },
+  bgOk: {
+    backgroundColor: "#dff6e6", 
+  },
+  bgNotOk: {
+    backgroundColor: "#fde3e3", 
+  },
+  resultButtonsWrap: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  resultBtn: {
+    borderWidth: 1,
+    borderColor: "#cfcfcf",
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    minWidth: 63,
+    alignItems: "center",
+  },
+  resultBtnText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#333",
+  },
+  resultBtnActiveOk: {
+    backgroundColor: "#2ecc71",
+    borderColor: "#2ecc71",
+  },
+  resultBtnActiveNotOk: {
+    backgroundColor: "#e74c3c",
+    borderColor: "#e74c3c",
+  },
+  resultBtnTextActive: {
+    color: "#fff",
   },
 });
 
