@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  FlatList,
   StyleSheet,
   Text,
   TextInput,
@@ -49,6 +48,7 @@ const H2o2CheckInspectionTable = ({
       setTableData(emptyData);
       onDataChange(emptyData);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialData]);
 
   const handleInputChange = (text, index, field) => {
@@ -77,66 +77,65 @@ const H2o2CheckInspectionTable = ({
         <Text style={styles.headerCell}>Kode Operator</Text>
       </View>
 
-      <FlatList
-        data={tableData}
-        keyExtractor={(_, index) => index.toString()}
-        renderItem={({ item, index }) => (
-          <View style={styles.row}>
-            {/* JAM: Time Picker */}
-            <TouchableOpacity
-              style={styles.cell}
-              onPress={() => setShowTimePickerIndex(index)}
-            >
-              <Text>{item.jam ? item.jam : "Pilih Jam"}</Text>
-            </TouchableOpacity>
-            {showTimePickerIndex === index && (
-              <DateTimePicker
-                mode="time"
-                value={new Date()}
-                is24Hour={true}
-                display="default"
-                onChange={(event, selectedTime) => {
-                  setShowTimePickerIndex(null);
-                  if (selectedTime) {
-                    const formatted = `${String(
-                      selectedTime.getHours()
-                    ).padStart(2, "0")}:${String(
-                      selectedTime.getMinutes()
-                    ).padStart(2, "0")}`;
-                    handleInputChange(formatted, index, "jam");
-                  }
-                }}
-              />
-            )}
-
-            {/* KONSENTRASI */}
-            <TextInput
-              style={styles.cell}
-              value={item.konsentrasi}
-              placeholder="Konsentrasi"
-              onChangeText={(text) =>
-                handleInputChange(text, index, "konsentrasi")
-              }
+      {/* Render tanpa FlatList untuk menghindari nested VirtualizedList */}
+      {tableData.map((item, index) => (
+        <View key={index} style={styles.row}>
+          {/* JAM: Time Picker */}
+          <TouchableOpacity
+            style={styles.cell}
+            onPress={() => setShowTimePickerIndex(index)}
+          >
+            <Text>{item.jam ? item.jam : "Pilih Jam"}</Text>
+          </TouchableOpacity>
+          {showTimePickerIndex === index && (
+            <DateTimePicker
+              mode="time"
+              value={new Date()}
+              is24Hour={true}
+              display="default"
+              onChange={(event, selectedTime) => {
+                setShowTimePickerIndex(null);
+                if (selectedTime) {
+                  const formatted = `${String(
+                    selectedTime.getHours()
+                  ).padStart(2, "0")}:${String(
+                    selectedTime.getMinutes()
+                  ).padStart(2, "0")}`;
+                  handleInputChange(formatted, index, "jam");
+                }
+              }}
             />
+          )}
 
-            {/* VOLUME */}
-            <TextInput
-              style={styles.cell}
-              value={item.volume}
-              placeholder="Volume"
-              onChangeText={(text) => handleInputChange(text, index, "volume")}
-            />
+          {/* KONSENTRASI (pakai decimal pad) */}
+          <TextInput
+            style={styles.cell}
+            value={item.konsentrasi}
+            placeholder="Konsentrasi"
+            keyboardType="decimal-pad"
+            onChangeText={(text) =>
+              handleInputChange(text, index, "konsentrasi")
+            }
+          />
 
-            {/* KODE */}
-            <TextInput
-              style={styles.cell}
-              value={item.kode}
-              placeholder="Kode"
-              onChangeText={(text) => handleInputChange(text, index, "kode")}
-            />
-          </View>
-        )}
-      />
+          {/* VOLUME (angka murni) */}
+          <TextInput
+            style={styles.cell}
+            value={item.volume}
+            placeholder="Volume"
+            keyboardType="numeric"
+            onChangeText={(text) => handleInputChange(text, index, "volume")}
+          />
+
+          {/* KODE */}
+          <TextInput
+            style={styles.cell}
+            value={item.kode}
+            placeholder="Kode"
+            onChangeText={(text) => handleInputChange(text, index, "kode")}
+          />
+        </View>
+      ))}
     </View>
   );
 };

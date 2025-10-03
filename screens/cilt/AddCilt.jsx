@@ -13,6 +13,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Platform,
 } from "react-native";
 import { Checkbox } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -74,6 +75,25 @@ const getShiftByHour = (hour) => {
   return "Unknown Shift";
 };
 
+// Helper function to check if description data has any meaningful content
+const hasDescriptionData = (descriptionData) => {
+  if (!descriptionData || !Array.isArray(descriptionData)) return false;
+
+  return descriptionData.some(item =>
+    item.flavour ||
+    item.prodTypeStatus ||
+    item.kodeProd ||
+    item.kodeExp ||
+    item.startTime ||
+    item.stopTime ||
+    item.startNum ||
+    item.stopNum ||
+    item.counterOutfeed ||
+    item.totalOutfeed ||
+    item.waste
+  );
+};
+
 const CILTinspection = ({ route, navigation }) => {
   const { username } = route.params;
   const [processOrder, setProcessOrder] = useState("");
@@ -92,11 +112,12 @@ const CILTinspection = ({ route, navigation }) => {
   const [batch, setBatch] = useState("");
   const [remarks, setRemarks] = useState("");
   const [agreed, setAgreed] = useState(false);
-  const [isLoading, setIsLoading] = useState(false); // State to manage loading animation
+  const [isLoading, setIsLoading] = useState(false);
   const [formOpenTime, setFormOpenTime] = useState(null);
   const [hideDateInput, setHideDateInput] = useState(false);
 
   const [inspectionData, setInspectionData] = useState([]);
+  const [segregationDescriptionData, setSegregationDescriptionData] = useState([]);
   const [plantOptions, setPlantOptions] = useState([]);
   const [lineOptions, setLineOptions] = useState([]);
   const [machineOptions, setMachineOptions] = useState([]);
@@ -130,13 +151,17 @@ const CILTinspection = ({ route, navigation }) => {
     };
     lockOrientation();
     fetchPackageMaster();
-    setFormOpenTime(moment().tz("Asia/Jakarta").format()); // Record the time the form is opened
+    setFormOpenTime(moment().tz("Asia/Jakarta").format());
   }, []);
 
   useEffect(() => {
     const loadDate = async () => {
       setPlant(await AsyncStorage.getItem("plant"));
       setLine(await AsyncStorage.getItem("line"));
+      const savedMachine = await AsyncStorage.getItem("machine");
+      if (savedMachine) setMachine(savedMachine);
+      const savedProduct = await AsyncStorage.getItem("product");
+      if (savedProduct) setProduct(savedProduct);
     };
     loadDate();
   }, []);
@@ -152,17 +177,26 @@ const CILTinspection = ({ route, navigation }) => {
       const response = await api.get(
         `/cilt/getCILTByProcessOrder?processOrder=${processOrder}`
       );
-      // console.log("processOrder", processOrder);
-      // console.log("Data", response.data);
 
       if (response.data.exists) {
         // Jika sudah ada, preload data sebelumnya
         const parsedData = JSON.parse(response.data.data.inspectionData);
         setInspectionData(parsedData);
+
+        // Load description data if exists for segregation
+        if (packageType === "SEGREGASI" && response.data.data.descriptionData) {
+          try {
+            const parsedDescriptionData = JSON.parse(response.data.data.descriptionData);
+            setSegregationDescriptionData(parsedDescriptionData);
+          } catch (error) {
+            console.error("Failed to parse description data:", error);
+            setSegregationDescriptionData([]);
+          }
+        }
+
         Alert.alert("Info", "Data ditemukan. Form akan dilanjutkan.");
       } else {
-        Alert.alert("Info", "Data belum ada. Mulai dari kosong.");
-        // setInspectionData([]); // atau reset data input
+        console.log("No existing data found for processOrder:", processOrder);
       }
     } catch (error) {
       console.error("Failed to check existing data:", error);
@@ -170,14 +204,24 @@ const CILTinspection = ({ route, navigation }) => {
     }
   };
 
-  useEffect(() => {
-    setInspectionData([]); // clear form data ketika komponen ganti
-    console.log("RESET inspectionData karena machine/packageType berubah");
-  }, [machine, packageType]);
+  // Function untuk clear storage spesifik berdasarkan package dan product setelah submit berhasil
+  const clearPackageStorageAfterSubmit = async () => {
+    try {
+      if (packageType === "PEMAKAIAN PAPER" && window.clearPaperStorage) {
+        await window.clearPaperStorage();
+        console.log("Cleared paper storage after submit");
+      } else if (packageType === "PEMAKAIAN SCREW CAP" && window.clearScrewCapStorage) {
+        await window.clearScrewCapStorage();
+        console.log("Cleared screw cap storage after submit");
+      }
+      // Tambahkan untuk package type lainnya jika diperlukan
+    } catch (error) {
+      console.error("Error clearing package storage after submit:", error);
+    }
+  };
 
   // Fetch product options from API
   const fetchProductOptions = async (plant) => {
-    // setIsLoading(true);
     try {
       const response = await api.get(`/cilt/sku?plant=${plant}`);
       const options = response.data.map((item) => ({
@@ -193,8 +237,6 @@ const CILTinspection = ({ route, navigation }) => {
     } catch (error) {
       console.error("Error fetching product options:", error);
       Alert.alert("Error", "Failed to fetch product options.");
-    } finally {
-      // setIsLoading(false);
     }
   };
 
@@ -218,25 +260,24 @@ const CILTinspection = ({ route, navigation }) => {
 
   useEffect(() => {
     if (!plant || !line || !date || !shift || !machine || !packageType) return;
-    checkIfDataExists(); // ini akan dijalankan setelah processOrder updated
+    checkIfDataExists();
   }, [processOrder]);
 
   const handleImageSelected = (uri, index) => {
     let data = [...inspectionData];
-    data[index].picture = uri; // Update picture field with uploaded image URI or local URI
+    data[index].picture = uri;
     setInspectionData(data);
   };
 
-  // Updated handleSubmit function for CILTinspection.js
+  // Updated handleSubmit function
   const handleSubmit = async (status) => {
-    // Tambahkan alert konfirmasi
     Alert.alert(
       "Konfirmasi Submit",
       "Apakah anda yakin dengan data yang anda inputkan?",
       [
         {
           text: "Batal",
-          style: "cancel"
+          style: "cancel",
         },
         {
           text: "Ya, Submit",
@@ -247,22 +288,21 @@ const CILTinspection = ({ route, navigation }) => {
             try {
               // Call GNR save function before submit if it's GNR form
               if (packageType === "PERFORMA RED AND GREEN") {
-                // Determine which save function to call based on LINE
                 if (line === "LINE A" && window.gnrBeforeSubmit) {
                   console.log("Calling GNR save for LINE A before submit...");
                   window.gnrBeforeSubmit();
-                  // Wait a bit for save to complete
-                  await new Promise(resolve => setTimeout(resolve, 500));
-                } else if ((line === "LINE B" || line === "LINE C") && window.gnrBCBeforeSubmit) {
+                  await new Promise((resolve) => setTimeout(resolve, 500));
+                } else if (
+                  (line === "LINE B" || line === "LINE C") &&
+                  window.gnrBCBeforeSubmit
+                ) {
                   console.log("Calling GNR save for LINE B/C before submit...");
                   window.gnrBCBeforeSubmit();
-                  // Wait a bit for save to complete
-                  await new Promise(resolve => setTimeout(resolve, 500));
+                  await new Promise((resolve) => setTimeout(resolve, 500));
                 } else if (line === "LINE D" && window.gnrDBeforeSubmit) {
                   console.log("Calling GNR save for LINE D before submit...");
                   window.gnrDBeforeSubmit();
-                  // Wait a bit for save to complete
-                  await new Promise(resolve => setTimeout(resolve, 500));
+                  await new Promise((resolve) => setTimeout(resolve, 500));
                 }
               }
 
@@ -274,7 +314,9 @@ const CILTinspection = ({ route, navigation }) => {
                   let updatedItem = { ...item, id: index + 1 };
 
                   if (item.picture && item.picture.startsWith("file://")) {
-                    const serverImageUrl = await uploadImageToServer(item.picture);
+                    const serverImageUrl = await uploadImageToServer(
+                      item.picture
+                    );
                     updatedItem.picture = serverImageUrl;
                   }
 
@@ -290,7 +332,9 @@ const CILTinspection = ({ route, navigation }) => {
                 line,
                 date: hideDateInput
                   ? undefined
-                  : moment(date).tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss.SSS"),
+                  : moment(date)
+                    .tz("Asia/Jakarta")
+                    .format("YYYY-MM-DD HH:mm:ss.SSS"),
                 shift,
                 product,
                 machine,
@@ -306,6 +350,27 @@ const CILTinspection = ({ route, navigation }) => {
                   .format("YYYY-MM-DD HH:mm:ss.SSS"),
               };
 
+              // FIXED: Always save description data for SEGREGASI package, even if partially filled
+              if (packageType === "SEGREGASI") {
+                console.log("=== SAVING DESCRIPTION DATA ===");
+                console.log("segregationDescriptionData:", segregationDescriptionData);
+
+                // Save description data even if partially filled or empty
+                order.descriptionData = JSON.stringify(segregationDescriptionData);
+
+                // Also save username and timestamp for each description entry
+                const descriptionWithMeta = segregationDescriptionData.map(item => ({
+                  ...item,
+                  lastModifiedBy: username,
+                  lastModifiedTime: moment().tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss")
+                }));
+                order.descriptionDataWithMeta = JSON.stringify(descriptionWithMeta);
+
+                console.log("order.descriptionData:", order.descriptionData);
+                console.log("order.descriptionDataWithMeta:", order.descriptionDataWithMeta);
+                console.log("=== END DESCRIPTION DATA ===");
+              }
+
               console.log("Submitting order:", order);
 
               // Send to server
@@ -315,8 +380,12 @@ const CILTinspection = ({ route, navigation }) => {
                 Alert.alert("Success", "Data submitted successfully!");
                 await clearOfflineData();
 
-                // DO NOT clear inspection data - let it persist
-                // Only navigate back after a delay
+                // Clear storage spesifik untuk package dan product ini setelah submit berhasil
+                await clearPackageStorageAfterSubmit();
+
+                // Reset inspection data setelah submit berhasil
+                setInspectionData([]);
+
                 setTimeout(() => {
                   navigation.goBack();
                 }, 500);
@@ -329,8 +398,8 @@ const CILTinspection = ({ route, navigation }) => {
                 "No network connection. Data has been saved locally and will be submitted when you are back online."
               );
             }
-          }
-        }
+          },
+        },
       ]
     );
   };
@@ -356,11 +425,65 @@ const CILTinspection = ({ route, navigation }) => {
     }
   };
 
+  // === RESET ALL selections & caches ===
+  const resetForm = async () => {
+    try {
+      // Bersihkan storage yang menyimpan pilihan terakhir
+      await AsyncStorage.multiRemove(["plant", "line", "machine", "product"]);
+
+      // Jika ada storage paket khusus, bersihkan juga
+      try {
+        if (packageType === "PEMAKAIAN PAPER" && window.clearPaperStorage) {
+          await window.clearPaperStorage();
+        } else if (packageType === "PEMAKAIAN SCREW CAP" && window.clearScrewCapStorage) {
+          await window.clearScrewCapStorage();
+        }
+      } catch (e) {
+        console.log("Optional package storage clear error:", e);
+      }
+
+      // Reset semua state pilihan
+      setProcessOrder("");
+      setPackageType("");
+      setPlant("");
+      setLine("");
+      const now = new Date();
+      setDate(now);
+      setShift(getShiftByHour(moment(now).tz("Asia/Jakarta").format("HH")));
+      setProduct("");
+      setProductOptions([]); // kosongkan opsi agar refres ulang setelah pilih plant lagi
+      setMachine("");
+      setBatch("");
+      setRemarks("");
+      setAgreed(false);
+
+      // Reset data table/description
+      setInspectionData([]);
+      setSegregationDescriptionData([]);
+
+      // (opsional) tampilkan notifikasi kecil
+      Alert.alert("Reset", "Semua pilihan telah dikosongkan.");
+    } catch (error) {
+      console.error("Reset failed:", error);
+      Alert.alert("Error", "Gagal melakukan reset. Coba lagi.");
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContainer}
-        nestedScrollEnabled={true}>
-        <Text style={styles.title}>New Inspection Schedule</Text>
+      <ScrollView contentContainerStyle={styles.scrollContainer} nestedScrollEnabled={true}>
+        {/* Header dengan tombol Reset */}
+        <View style={styles.header}>
+          <Text style={styles.title}>New Inspection Schedule</Text>
+          <TouchableOpacity
+            onPress={resetForm}
+            accessibilityLabel="Reset semua pilihan"
+            style={styles.resetBtn}
+            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+          >
+            <MaterialCommunityIcons name="refresh" size={20} color={COLORS.blue} />
+          </TouchableOpacity>
+        </View>
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Process Order *</Text>
           <View style={styles.dropdownContainer}>
@@ -369,11 +492,7 @@ const CILTinspection = ({ route, navigation }) => {
               size={20}
               color={COLORS.lightBlue}
             />
-            <TextInput
-              style={styles.input}
-              value={processOrder}
-              editable={false}
-            />
+            <TextInput style={styles.input} value={processOrder} editable={false} />
           </View>
         </View>
 
@@ -446,7 +565,7 @@ const CILTinspection = ({ route, navigation }) => {
                 </View>
               </View>
 
-              <View style={styles.halfInputGroup}>
+              <View className="halfInputGroup" style={styles.halfInputGroup}>
                 <Text style={styles.label}>Line *</Text>
                 <View style={styles.dropdownContainer}>
                   <MaterialCommunityIcons
@@ -483,8 +602,9 @@ const CILTinspection = ({ route, navigation }) => {
                   <Picker
                     selectedValue={machine}
                     style={styles.dropdown}
-                    onValueChange={(itemValue) => {
+                    onValueChange={async (itemValue) => {
                       setMachine(itemValue);
+                      await AsyncStorage.setItem("machine", itemValue);
                     }}
                   >
                     <Picker.Item label="Select option" value="" />
@@ -587,18 +707,22 @@ const CILTinspection = ({ route, navigation }) => {
               {machine === "FILLER" &&
                 packageType === "PEMAKAIAN SCREW CAP" && (
                   <ScrewCapInspectionTable
-                    key="screw-cap"
+                    key={`screw-cap-${processOrder}-${product}`}
                     username={username}
                     onDataChange={(data) => setInspectionData(data)}
                     initialData={inspectionData}
+                    processOrder={processOrder}
+                    product={product}
                   />
                 )}
               {machine === "FILLER" && packageType === "PEMAKAIAN PAPER" && (
                 <PaperUsageInspectionTable
-                  key="paper"
+                  key={`paper-${processOrder}-${product}`}
                   username={username}
                   onDataChange={(data) => setInspectionData(data)}
                   initialData={inspectionData}
+                  processOrder={processOrder}
+                  product={product}
                 />
               )}
               {machine === "FILLER" &&
@@ -611,7 +735,7 @@ const CILTinspection = ({ route, navigation }) => {
                   />
                 )}
               {machine === "FILLER" &&
-                packageType === "PERFORMA RED AND GREEN" && 
+                packageType === "PERFORMA RED AND GREEN" &&
                 line === "LINE A" && (
                   <GnrPerformanceInspectionTable
                     key="gnr-performance-line-a"
@@ -626,7 +750,7 @@ const CILTinspection = ({ route, navigation }) => {
                   />
                 )}
               {machine === "FILLER" &&
-                packageType === "PERFORMA RED AND GREEN" && 
+                packageType === "PERFORMA RED AND GREEN" &&
                 (line === "LINE B" || line === "LINE C") && (
                   <GnrPerformanceInspectionTableBC
                     key="gnr-performance-line-bc"
@@ -641,7 +765,7 @@ const CILTinspection = ({ route, navigation }) => {
                   />
                 )}
               {machine === "FILLER" &&
-                packageType === "PERFORMA RED AND GREEN" && 
+                packageType === "PERFORMA RED AND GREEN" &&
                 line === "LINE D" && (
                   <GnrPerformanceInspectionTableD
                     key="gnr-performance-line-d"
@@ -669,16 +793,22 @@ const CILTinspection = ({ route, navigation }) => {
               )}
               {machine === "FILLER" && packageType === "SEGREGASI" && (
                 <SegregasiInspectionTable
+                  key={`segregasi-${processOrder}-${product}`}
                   username={username}
                   onDataChange={(data) => setInspectionData(data)}
+                  onDescriptionChange={(data) => setSegregationDescriptionData(data)}
                   initialData={inspectionData}
+                  initialDescription={segregationDescriptionData}
+                  product={product}
+                  productOptions={productOptions}
+                  lineName={line}
                 />
               )}
             </View>
           </>
         )}
 
-        <View style={styles.checkboxContainer}>
+        <View className="checkboxContainer" style={styles.checkboxContainer}>
           <Checkbox
             status={agreed ? "checked" : "unchecked"}
             onPress={() => setAgreed(!agreed)}
@@ -706,9 +836,7 @@ const CILTinspection = ({ route, navigation }) => {
             </View>
           </>
         ) : (
-          <>
-            <View></View>
-          </>
+          <></>
         )}
 
         <View>
@@ -736,12 +864,35 @@ const styles = StyleSheet.create({
   scrollContainer: {
     padding: 20,
   },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+    position: "relative",
+  },
   title: {
     fontSize: 24,
     fontWeight: "bold",
-    marginBottom: 20,
     alignSelf: "center",
     color: COLORS.blue,
+  },
+  resetBtn: {
+    position: "absolute",
+    right: 0,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.lightBlue,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
   },
   inputGroup: {
     marginBottom: 20,
@@ -791,10 +942,9 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 10,
   },
-  // tableCSS
   wrapper: {},
   table: {
-    width: "100%", // Make table take the full width
+    width: "100%",
     margin: 15,
   },
   tableHead: {
@@ -805,7 +955,6 @@ const styles = StyleSheet.create({
   },
   tableBody: {
     flexDirection: "row",
-    // backgroundColor: "#3bcd6b",
     padding: 20,
     width: "100%",
   },
@@ -815,18 +964,13 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   tableData: {
-    // color: "#fff",
-    // fontWeight: "bold",
     fontSize: 16,
-    textAlign: "center", // Center-align text in cells
+    textAlign: "center",
   },
   centeredContent: {
     justifyContent: "center",
     alignItems: "center",
   },
-
-  // tableCSS end
-
   checkboxContainer: {
     flexDirection: "row",
     alignItems: "center",

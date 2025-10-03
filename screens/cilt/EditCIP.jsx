@@ -20,24 +20,37 @@ import ReportCIPInspectionTable from "../../components/package/filler/ReportCIPI
 import ReportCIPInspectionTableBCD from "../../components/package/filler/ReportCIPInspectionTableBCD";
 
 const EditCIP = ({ navigation, route }) => {
-  const { cipData } = route.params;
+  const { cipData: existingCipData } = route.params;
   const [loading, setLoading] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  
-  // Form data
+  const [userProfile, setUserProfile] = useState(null);
+
+  // CIP Types state
+  const [cipTypes, setCipTypes] = useState([
+    { id: 1, name: "CIP KITCHEN 1", value: "CIP_KITCHEN_1" },
+    { id: 2, name: "CIP KITCHEN 2", value: "CIP_KITCHEN_2" },
+    { id: 3, name: "CIP KITCHEN 3", value: "CIP_KITCHEN_3" },
+  ]);
+
+  // Status checks
+  const isDraft = existingCipData.status === 'In Progress';
+  const isSubmitted = existingCipData.status === 'Complete';
+  const canEdit = isDraft || existingCipData.status === 'Rejected';
+
+  // Initialize form data with existing data
   const [formData, setFormData] = useState({
-    date: new Date(),
-    processOrder: "",
-    plant: "Milk Filling Packing",
-    line: "",
-    cipType: "CIP KITCHEN",
-    operator: "",
-    posisi: "",
-    flowRate: "",
-    notes: "",
-    status: "In Progress",
-    kodeOperator: "",
-    kodeTeknisi: "",
+    id: existingCipData.id,
+    date: existingCipData.date ? new Date(existingCipData.date) : new Date(),
+    processOrder: existingCipData.processOrder || existingCipData.process_order || "",
+    plant: existingCipData.plant || "Milk Filling Packing",
+    line: existingCipData.line || "",
+    cipType: existingCipData.cipType || existingCipData.cip_type || "",
+    operator: existingCipData.operator || "",
+    posisi: existingCipData.posisi || "",
+    flowRate: existingCipData.flowRate || existingCipData.flow_rate || "",
+    notes: existingCipData.notes || "",
+    kodeOperator: existingCipData.kodeOperator || existingCipData.kode_operator || "",
+    kodeTeknisi: existingCipData.kodeTeknisi || existingCipData.kode_teknisi || "",
   });
 
   // Options
@@ -45,40 +58,52 @@ const EditCIP = ({ navigation, route }) => {
     { label: "Final", value: "Final" },
     { label: "Intermediate", value: "Intermediate" },
   ]);
-  const [statusList, setStatusList] = useState([]);
 
   useEffect(() => {
-    fetchInitialData();
-    loadExistingData();
+    fetchUserProfile();
+    fetchCIPTypes();
+    console.log("Editing CIP Data:", existingCipData);
+
+    // Check if editing is allowed
+    if (!canEdit) {
+      Alert.alert(
+        "Edit Restricted",
+        "This report cannot be edited because it has been submitted. Contact admin if changes are needed.",
+        [{ text: "OK", onPress: () => navigation.goBack() }]
+      );
+    }
   }, []);
 
-  const fetchInitialData = async () => {
+  const fetchUserProfile = async () => {
     try {
-      // Fetch status list
-      const statusResponse = await api.get(`/cip-report/status/list`);
-      setStatusList(statusResponse.data);
+      const response = await api.get("/user/profile");
+      const userData = response.data;
+      setUserProfile(userData);
     } catch (error) {
-      console.error("Error fetching initial data:", error);
+      console.log("User profile not available for edit mode");
     }
   };
 
-  const loadExistingData = () => {
-    if (cipData) {
-      setFormData({
-        date: cipData.date ? new Date(cipData.date) : new Date(),
-        processOrder: cipData.processOrder || "",
-        plant: cipData.plant || "Milk Filling Packing",
-        line: cipData.line || "",
-        cipType: cipData.cipType || "CIP KITCHEN",
-        operator: cipData.operator || "",
-        posisi: cipData.posisi || "",
-        flowRate: cipData.flowRate?.toString() || "",
-        notes: cipData.notes || "",
-        status: cipData.status || "In Progress",
-        kodeOperator: cipData.kodeOperator || "",
-        kodeTeknisi: cipData.kodeTeknisi || "",
-      });
+  const fetchCIPTypes = async () => {
+    try {
+      const response = await api.get("/cip-report/types/list");
+      if (response.data && response.data.length > 0) {
+        setCipTypes(response.data.map(type => ({
+          id: type.id,
+          name: type.name,
+          value: type.value || type.name
+        })));
+      }
+    } catch (error) {
+      console.log("Using default CIP types");
     }
+  };
+
+  const generateProcessOrder = () => {
+    const date = moment().format("YYYY");
+    const randomNum = Math.floor(Math.random() * 9000) + 1000;
+    const processOrder = `PO-MFP-${date}-${randomNum}`;
+    setFormData(prev => ({ ...prev, processOrder }));
   };
 
   const handleInputChange = (field, value) => {
@@ -92,6 +117,10 @@ const EditCIP = ({ navigation, route }) => {
     }
     if (!formData.line) {
       Alert.alert("Validation Error", "Please select a line");
+      return false;
+    }
+    if (!formData.cipType) {
+      Alert.alert("Validation Error", "Please select a CIP Type");
       return false;
     }
     if (!formData.operator) {
@@ -109,14 +138,22 @@ const EditCIP = ({ navigation, route }) => {
       return false;
     }
     
-    if (!formData.status) {
-      Alert.alert("Validation Error", "Please select a status");
-      return false;
-    }
     return true;
   };
 
-  const handleUpdateCIP = async (cipTableData) => {
+  const showWarningsDialog = (warnings, isDraft) => {
+    if (!warnings || warnings.length === 0) return;
+
+    const warningMessages = warnings.map(w => `• ${w.message}`).join('\n\n');
+    const title = isDraft ? "Draft Updated with Warnings" : "Submitted with Warnings";
+    const message = isDraft 
+      ? `Your draft has been updated with the following warnings:\n\n${warningMessages}\n\nYou can continue editing to adjust the values if needed.`
+      : `Your report has been submitted with the following warnings:\n\n${warningMessages}\n\nPlease note these for future reference.`;
+    
+    Alert.alert(title, message, [{ text: "OK" }]);
+  };
+
+  const handleUpdateCIP = async (cipTableData, isDraft = false) => {
     if (!validateBasicInfo()) {
       return;
     }
@@ -130,10 +167,10 @@ const EditCIP = ({ navigation, route }) => {
         plant: formData.plant,
         line: formData.line,
         cipType: formData.cipType,
-        status: formData.status,
         operator: formData.operator,
         posisi: formData.posisi,
         notes: formData.notes || "",
+        isDraft, // Important flag for backend
       };
 
       // Handle LINE A data
@@ -199,7 +236,7 @@ const EditCIP = ({ navigation, route }) => {
             endTime: step.endTime || null,
           })),
           
-          // Special records for BCD
+          // Special records for BCD (DRYING, FOAMING, DISINFECT)
           specialRecords: cipTableData.specialRecords.map(record => ({
             stepType: record.stepType,
             tempMin: record.tempMin ? parseFloat(record.tempMin) : null,
@@ -243,7 +280,7 @@ const EditCIP = ({ navigation, route }) => {
             endTime: step.endTime || null,
           })),
           
-          // Special records for BCD
+          // Special records for BCD (DRYING, FOAMING, DISINFECT)
           specialRecords: cipTableData.specialRecords.map(record => ({
             stepType: record.stepType,
             tempMin: record.tempMin ? parseFloat(record.tempMin) : null,
@@ -265,16 +302,30 @@ const EditCIP = ({ navigation, route }) => {
 
       console.log("Updating CIP data:", JSON.stringify(dataToSubmit, null, 2));
 
-      const response = await api.put(`/cip-report/${cipData.id}`, dataToSubmit);
+      const response = await api.put(`/cip-report/${formData.id}`, dataToSubmit);
 
       if (response.status === 200) {
+        // Show warnings if any
+        if (response.data.hasValidationWarnings) {
+          showWarningsDialog(response.data.warnings, isDraft);
+        }
+
+        const successMessage = isDraft 
+          ? "CIP Report updated as draft successfully"
+          : response.data.hasValidationWarnings 
+            ? "CIP Report submitted successfully with some validation warnings. Check the details for recommendations."
+            : "CIP Report submitted successfully";
+
         Alert.alert(
-          "Success",
-          "CIP Report updated successfully",
+          "Success", 
+          successMessage,
           [
             {
               text: "OK",
-              onPress: () => navigation.navigate("DetailReportCIP", { cipReportId: cipData.id }),
+              onPress: () => {
+                // Navigate back to detail view
+                navigation.goBack();
+              },
             },
           ]
         );
@@ -305,6 +356,24 @@ const EditCIP = ({ navigation, route }) => {
     );
   }
 
+  if (!canEdit) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.restrictedContainer}>
+          <Icon name="lock" size={64} color={COLORS.gray} />
+          <Text style={styles.restrictedTitle}>Edit Restricted</Text>
+          <Text style={styles.restrictedText}>
+            This report has been submitted and cannot be edited. 
+            Contact your administrator if changes are needed.
+          </Text>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <Text style={styles.backButtonText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false}>
@@ -313,9 +382,26 @@ const EditCIP = ({ navigation, route }) => {
           <TouchableOpacity onPress={() => navigation.goBack()}>
             <Icon name="arrow-back" size={24} color={COLORS.blue} />
           </TouchableOpacity>
-          <Text style={styles.title}>Edit CIP Report - {formData.line}</Text>
-          <View style={{ width: 24 }} />
+          <Text style={styles.title}>Edit CIP Report</Text>
+          <View style={styles.statusContainer}>
+            <Text style={[styles.statusBadge, { 
+              backgroundColor: isDraft ? '#FF9800' : '#4CAF50',
+              color: '#fff'
+            }]}>
+              {isDraft ? 'DRAFT' : 'SUBMITTED'}
+            </Text>
+          </View>
         </View>
+
+        {/* Edit Info Box */}
+        {isDraft && (
+          <View style={styles.draftInfoBox}>
+            <Icon name="edit" size={20} color={COLORS.blue} />
+            <Text style={styles.draftInfoText}>
+              You are editing a draft. The "Save CIP Report" button will save and submit your changes directly.
+            </Text>
+          </View>
+        )}
 
         {/* Basic Information Section */}
         <View style={styles.section}>
@@ -351,12 +437,20 @@ const EditCIP = ({ navigation, route }) => {
           {/* Process Order */}
           <View style={styles.formGroup}>
             <Text style={styles.label}>Process Order</Text>
-            <TextInput
-              style={styles.input}
-              value={formData.processOrder}
-              onChangeText={(value) => handleInputChange("processOrder", value)}
-              placeholder="PO-MFP-2025-XXXX"
-            />
+            <View style={styles.processOrderContainer}>
+              <TextInput
+                style={[styles.input, styles.processOrderInput]}
+                value={formData.processOrder}
+                onChangeText={(value) => handleInputChange("processOrder", value)}
+                placeholder="PO-MFP-2025-XXXX"
+              />
+              <TouchableOpacity
+                style={styles.regenerateButton}
+                onPress={generateProcessOrder}
+              >
+                <Icon name="refresh" size={20} color={COLORS.blue} />
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Plant (Read-only) */}
@@ -368,54 +462,69 @@ const EditCIP = ({ navigation, route }) => {
             </View>
           </View>
 
-          {/* Line (Read-only in Edit mode) */}
+          {/* Line */}
           <View style={styles.formGroup}>
             <Text style={styles.label}>Line</Text>
-            <View style={[styles.input, styles.readOnlyInput]}>
-              <Text style={styles.readOnlyText}>{formData.line}</Text>
-              <Icon name="lock" size={16} color={COLORS.gray} />
-            </View>
-          </View>
-
-          {/* CIP Type (Fixed to CIP KITCHEN) */}
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>CIP Type</Text>
-            <View style={[styles.input, styles.readOnlyInput]}>
-              <Text style={styles.readOnlyText}>{formData.cipType}</Text>
-              <Icon name="lock" size={16} color={COLORS.gray} />
-            </View>
-          </View>
-
-          {/* Status */}
-          <View style={styles.formGroup}>
-            <Text style={styles.label}>Status</Text>
             <View style={styles.pickerContainer}>
               <Picker
-                selectedValue={formData.status}
-                onValueChange={(value) => handleInputChange("status", value)}
+                selectedValue={formData.line}
+                onValueChange={(value) => handleInputChange("line", value)}
                 style={styles.picker}
               >
-                <Picker.Item label="Select Status" value="" />
-                {statusList.map((status) => (
+                <Picker.Item label="Select Line" value="" />
+                <Picker.Item label="LINE A" value="LINE A" />
+                <Picker.Item label="LINE B" value="LINE B" />
+                <Picker.Item label="LINE C" value="LINE C" />
+                <Picker.Item label="LINE D" value="LINE D" />
+              </Picker>
+            </View>
+          </View>
+
+          {/* CIP Type - Now as Dropdown */}
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>CIP Type</Text>
+            <View style={styles.pickerContainer}>
+              <Picker
+                selectedValue={formData.cipType}
+                onValueChange={(value) => handleInputChange("cipType", value)}
+                style={styles.picker}
+              >
+                <Picker.Item label="Select CIP Type" value="" />
+                {cipTypes.map((type) => (
                   <Picker.Item
-                    key={status.id}
-                    label={status.name}
-                    value={status.name}
+                    key={type.id}
+                    label={type.name}
+                    value={type.value}
                   />
                 ))}
               </Picker>
             </View>
           </View>
 
-          {/* Operator (Text Input) */}
+          {/* Operator (Auto-populated with manual override) */}
           <View style={styles.formGroup}>
             <Text style={styles.label}>Operator</Text>
-            <TextInput
-              style={styles.input}
-              value={formData.operator}
-              onChangeText={(value) => handleInputChange("operator", value)}
-              placeholder="Enter operator name"
-            />
+            <View style={styles.operatorContainer}>
+              <TextInput
+                style={[styles.input, styles.operatorInput]}
+                value={formData.operator}
+                onChangeText={(value) => handleInputChange("operator", value)}
+                placeholder="Enter operator name"
+              />
+              {userProfile && (
+                <TouchableOpacity
+                  style={styles.resetOperatorButton}
+                  onPress={() => handleInputChange("operator", userProfile.name || userProfile.fullName || userProfile.username || "")}
+                >
+                  <Icon name="person" size={20} color={COLORS.blue} />
+                </TouchableOpacity>
+              )}
+            </View>
+            {userProfile && (
+              <Text style={styles.helperText}>
+                Current profile: {userProfile.name || userProfile.fullName || userProfile.username}
+              </Text>
+            )}
           </View>
 
           {/* Posisi */}
@@ -445,7 +554,7 @@ const EditCIP = ({ navigation, route }) => {
               <Text style={styles.label}>Flow Rate (L/hr)</Text>
               <TextInput
                 style={styles.input}
-                value={formData.flowRate}
+                value={formData.flowRate.toString()}
                 onChangeText={(value) => handleInputChange("flowRate", value)}
                 keyboardType="numeric"
                 placeholder="e.g. 1500"
@@ -458,34 +567,8 @@ const EditCIP = ({ navigation, route }) => {
             <View style={styles.infoBox}>
               <Icon name="info" size={20} color={COLORS.blue} />
               <Text style={styles.infoText}>
-                Flow rates and valve positions for {formData.line} will be configured in the inspection table below.
+                Flow rates for {formData.line} will be configured in the inspection table below.
               </Text>
-            </View>
-          )}
-
-          {/* Kode Operator - Only for LINE A */}
-          {formData.line === "LINE A" && (
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>Kode Operator</Text>
-              <TextInput
-                style={styles.input}
-                value={formData.kodeOperator}
-                onChangeText={(value) => handleInputChange("kodeOperator", value)}
-                placeholder="e.g. OP-001"
-              />
-            </View>
-          )}
-
-          {/* Kode Teknisi - Only for LINE A */}
-          {formData.line === "LINE A" && (
-            <View style={styles.formGroup}>
-              <Text style={styles.label}>Kode Teknisi</Text>
-              <TextInput
-                style={styles.input}
-                value={formData.kodeTeknisi}
-                onChangeText={(value) => handleInputChange("kodeTeknisi", value)}
-                placeholder="e.g. TK-001"
-              />
             </View>
           )}
 
@@ -503,20 +586,45 @@ const EditCIP = ({ navigation, route }) => {
           </View>
         </View>
 
+        {/* Status Info Box for Draft */}
+        <View style={styles.statusInfoBox}>
+          <Icon name="info-outline" size={20} color={COLORS.blue} />
+          <Text style={styles.statusInfoText}>
+            The "Save CIP Report" button will save and submit your changes directly.
+            Data will be saved even if values are outside recommended ranges with validation warnings shown for reference.
+          </Text>
+        </View>
+
         {/* CIP Inspection Table - Conditional based on Line */}
-        {formData.line === "LINE A" ? (
-          <ReportCIPInspectionTable
-            cipData={cipData}
-            onSave={handleUpdateCIP}
-            isEditable={true}
-          />
-        ) : (
-          <ReportCIPInspectionTableBCD
-            cipData={cipData}
-            onSave={handleUpdateCIP}
-            isEditable={true}
-            selectedLine={formData.line}
-          />
+        {formData.line && (
+          <>
+            {formData.line === "LINE A" ? (
+              <ReportCIPInspectionTable
+                cipData={formData}
+                onSave={(cipTableData) => handleUpdateCIP(cipTableData, false)}
+                isEditable={true}
+                allowUnrestrictedInput={true}
+              />
+            ) : (
+              <ReportCIPInspectionTableBCD
+                cipData={formData}
+                selectedLine={formData.line}
+                onSave={(cipTableData) => handleUpdateCIP(cipTableData, false)}
+                isEditable={true}
+                allowUnrestrictedInput={true}
+              />
+            )}
+          </>
+        )}
+
+        {/* Instruction if no line selected */}
+        {!formData.line && (
+          <View style={styles.instructionBox}>
+            <Icon name="info-outline" size={24} color={COLORS.orange} />
+            <Text style={styles.instructionText}>
+              Please select a line to see the inspection table
+            </Text>
+          </View>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -538,6 +646,37 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COLORS.darkGray,
   },
+  restrictedContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 32,
+  },
+  restrictedTitle: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: COLORS.darkGray,
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  restrictedText: {
+    fontSize: 16,
+    color: COLORS.gray,
+    textAlign: "center",
+    lineHeight: 24,
+    marginBottom: 32,
+  },
+  backButton: {
+    backgroundColor: COLORS.blue,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  backButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -552,6 +691,34 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "bold",
     color: COLORS.blue,
+  },
+  statusContainer: {
+    alignItems: "flex-end",
+  },
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    fontSize: 12,
+    fontWeight: "bold",
+    textAlign: "center",
+  },
+  draftInfoBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#e3f2fd",
+    padding: 12,
+    margin: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.blue,
+  },
+  draftInfoText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: "#0d47a1",
+    flex: 1,
+    lineHeight: 20,
   },
   section: {
     margin: 16,
@@ -607,6 +774,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.black,
   },
+  processOrderContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  processOrderInput: {
+    flex: 1,
+    marginRight: 8,
+  },
+  regenerateButton: {
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    backgroundColor: "#fff",
+  },
   readOnlyInput: {
     flexDirection: "row",
     alignItems: "center",
@@ -626,6 +808,30 @@ const styles = StyleSheet.create({
   picker: {
     height: 50,
   },
+  
+  // Operator Section Styles
+  operatorContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  operatorInput: {
+    flex: 1,
+    marginRight: 8,
+  },
+  resetOperatorButton: {
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    backgroundColor: "#fff",
+  },
+  helperText: {
+    fontSize: 12,
+    color: COLORS.gray,
+    marginTop: 4,
+    fontStyle: "italic",
+  },
+  
   infoBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -639,6 +845,40 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.blue,
     flex: 1,
+  },
+  statusInfoBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "#e3f2fd",
+    padding: 12,
+    borderRadius: 8,
+    margin: 16,
+    borderWidth: 1,
+    borderColor: COLORS.blue,
+  },
+  statusInfoText: {
+    marginLeft: 8,
+    fontSize: 14,
+    color: "#0d47a1",
+    flex: 1,
+    lineHeight: 20,
+  },
+  instructionBox: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 32,
+    margin: 16,
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.orange,
+    borderStyle: "dashed",
+  },
+  instructionText: {
+    marginTop: 8,
+    fontSize: 16,
+    color: COLORS.darkGray,
+    textAlign: "center",
   },
 });
 

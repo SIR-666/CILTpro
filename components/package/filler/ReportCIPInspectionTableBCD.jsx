@@ -25,9 +25,83 @@ const COLORS = {
     red: "#F44336",
     orange: "#FF9800",
     gray: "#9E9E9E",
+    warningOrange: "#FFA726",
+    warningYellow: "#FFF9C4",
+    warningText: "#F57C00",
 };
 
-// Custom Time Picker Component (same as original)
+// Flexible Numeric Input Component
+const FlexibleNumericInput = ({ 
+    value, 
+    onChangeText, 
+    placeholder, 
+    minRange, 
+    maxRange, 
+    unit = "", 
+    style = {},
+    ...props 
+}) => {
+    const [isFocused, setIsFocused] = useState(false);
+
+    const isOutOfRange = () => {
+        if (!value || value === '') return false;
+        const numValue = parseFloat(value);
+        if (isNaN(numValue)) return false;
+        
+        if (minRange !== undefined && numValue < minRange) return true;
+        if (maxRange !== undefined && numValue > maxRange) return true;
+        return false;
+    };
+
+    const getInputStyle = () => {
+        const baseStyle = [styles.input, style];
+        
+        if (isOutOfRange()) {
+            baseStyle.push(styles.warningInput);
+        } else if (isFocused) {
+            baseStyle.push(styles.focusedInput);
+        }
+        
+        return baseStyle;
+    };
+
+    const getRangeMessage = () => {
+        if (!isOutOfRange()) return null;
+        
+        let message = "Outside recommended range";
+        if (minRange !== undefined && maxRange !== undefined) {
+            message += ` (${minRange}-${maxRange}${unit})`;
+        } else if (minRange !== undefined) {
+            message += ` (min: ${minRange}${unit})`;
+        } else if (maxRange !== undefined) {
+            message += ` (max: ${maxRange}${unit})`;
+        }
+        
+        return message;
+    };
+
+    return (
+        <View style={styles.flexibleInputContainer}>
+            <TextInput
+                value={value}
+                onChangeText={onChangeText}
+                placeholder={placeholder}
+                keyboardType="numeric"
+                style={getInputStyle()}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setIsFocused(false)}
+                {...props}
+            />
+            {isOutOfRange() && (
+                <Text style={styles.warningText}>
+                    {getRangeMessage()}
+                </Text>
+            )}
+        </View>
+    );
+};
+
+// Custom Time Picker Component
 const TimePickerInput = ({ value, onChange, placeholder, editable = true }) => {
     const [showPicker, setShowPicker] = useState(false);
     const [tempTime, setTempTime] = useState(new Date());
@@ -138,7 +212,7 @@ const Checkbox = ({ value, onValueChange, label, disabled = false }) => {
     );
 };
 
-const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selectedLine }) => {
+const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selectedLine, allowUnrestrictedInput = false }) => {
     // CIP Steps (same as LINE A)
     const [cipSteps, setCipSteps] = useState([
         {
@@ -284,12 +358,6 @@ const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selec
 
     const [kodeOperator, setKodeOperator] = useState("");
     const [kodeTeknisi, setKodeTeknisi] = useState("");
-    const [temperatureErrors, setTemperatureErrors] = useState({});
-    const [specialTemperatureErrors, setSpecialTemperatureErrors] = useState({});
-    const [flowRateErrors, setFlowRateErrors] = useState({});
-
-    // Get posisi from parent component (passed from CreateCIP)
-    const [parentPosisi, setParentPosisi] = useState("");
 
     useEffect(() => {
         if (cipData) {
@@ -342,7 +410,6 @@ const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selec
 
             setKodeOperator(cipData.kodeOperator || "");
             setKodeTeknisi(cipData.kodeTeknisi || "");
-            setParentPosisi(cipData.posisi || "");
         }
     }, [cipData]);
 
@@ -357,85 +424,12 @@ const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selec
         }
     }, [cipData?.posisi]);
 
-    // Validate temperature
-    const validateTemperature = (value, min, max, stepIndex) => {
-        const numValue = parseFloat(value);
-        const numMin = parseFloat(min);
-        const numMax = parseFloat(max);
-
-        if (!isNaN(numValue) && !isNaN(numMin) && !isNaN(numMax)) {
-            if (numValue < numMin || numValue > numMax) {
-                setTemperatureErrors({
-                    ...temperatureErrors,
-                    [stepIndex]: `Temperature must be between ${min}°C and ${max}°C`
-                });
-                return false;
-            } else {
-                const newErrors = { ...temperatureErrors };
-                delete newErrors[stepIndex];
-                setTemperatureErrors(newErrors);
-                return true;
-            }
-        }
-        return true;
-    };
-
-    // Validate special record temperature
-    const validateSpecialTemperature = (value, min, max, recordIndex, fieldName) => {
-        const numValue = parseFloat(value);
-        const numMin = parseFloat(min);
-        const numMax = parseFloat(max);
-
-        if (!isNaN(numValue) && !isNaN(numMin) && !isNaN(numMax)) {
-            if (numValue < numMin || numValue > numMax) {
-                setSpecialTemperatureErrors({
-                    ...specialTemperatureErrors,
-                    [`${recordIndex}-${fieldName}`]: `Temperature must be between ${min}°C and ${max}°C`
-                });
-                return false;
-            } else {
-                const newErrors = { ...specialTemperatureErrors };
-                delete newErrors[`${recordIndex}-${fieldName}`];
-                setSpecialTemperatureErrors(newErrors);
-                return true;
-            }
-        }
-        return true;
-    };
-
-    // Validate flow rates
-    const validateFlowRate = (field, value) => {
-        const numValue = parseFloat(value);
-        const minValue = field === 'flowD' ? 6000 : 9000;
-
-        if (!isNaN(numValue)) {
-            if (numValue < minValue) {
-                setFlowRateErrors({
-                    ...flowRateErrors,
-                    [field]: `${field === 'flowD' ? 'Flow D' : 'Flow B,C'} must be minimum ${minValue} L/H`
-                });
-                return false;
-            } else {
-                const newErrors = { ...flowRateErrors };
-                delete newErrors[field];
-                setFlowRateErrors(newErrors);
-                return true;
-            }
-        }
-        return true;
-    };
-
     const updateStepField = (index, field, value) => {
         const updatedSteps = [...cipSteps];
         updatedSteps[index] = {
             ...updatedSteps[index],
             [field]: value,
         };
-
-        if (field === 'temperatureActual') {
-            const step = updatedSteps[index];
-            validateTemperature(value, step.temperatureSetpointMin, step.temperatureSetpointMax, index);
-        }
 
         if (field === 'startTime' || field === 'timeActual') {
             const step = updatedSteps[index];
@@ -457,23 +451,9 @@ const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selec
             [field]: value,
         };
 
-        // Validate temperatures
-        const record = updatedRecords[index];
-        if (field === 'tempActual') {
-            if (record.stepType === 'DRYING') {
-                validateSpecialTemperature(value, record.tempMin, record.tempMax, index, 'drying');
-            } else if (record.stepType === 'DISINFECT/SANITASI') {
-                // Validate based on selected line
-                if (selectedLine === 'LINE D') {
-                    validateSpecialTemperature(value, record.tempDMin, record.tempDMax, index, 'disinfect');
-                } else {
-                    validateSpecialTemperature(value, record.tempBC, record.tempBC, index, 'disinfect');
-                }
-            }
-        }
-
         // Auto-calculate end time
         if (field === 'startTime' || field === 'time') {
+            const record = updatedRecords[index];
             if (record.startTime && record.time) {
                 const startMoment = moment(record.startTime, "HH:mm");
                 const duration = parseInt(record.time) || 0;
@@ -490,7 +470,6 @@ const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selec
             ...flowRates,
             [field]: value,
         });
-        validateFlowRate(field, value);
     };
 
     const updateValvePosition = (valve) => {
@@ -501,32 +480,16 @@ const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selec
     };
 
     const validateAndSave = () => {
-        // Validate temperature errors
-        if (Object.keys(temperatureErrors).length > 0 || Object.keys(specialTemperatureErrors).length > 0) {
-            Alert.alert(
-                "Temperature Validation Error",
-                "Please fix temperature values that are outside the allowed range"
-            );
-            return;
-        }
-
-        // Validate flow rate errors
-        if (Object.keys(flowRateErrors).length > 0) {
-            Alert.alert(
-                "Flow Rate Validation Error",
-                "Please ensure flow rates meet minimum requirements"
-            );
-            return;
-        }
-
-        // Validate flow rates based on selected line
+        // Basic validation - only check required fields, no strict range validation
+        
+        // Validate flow rates based on selected line (basic check only)
         if (selectedLine === 'LINE D') {
             if (!flowRates.flowD) {
                 Alert.alert(
                     "Validation Error",
                     "Please fill in Flow D rate"
                 );
-                return;
+                return null;
             }
         } else if (selectedLine === 'LINE B' || selectedLine === 'LINE C') {
             if (!flowRates.flowBC) {
@@ -534,7 +497,7 @@ const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selec
                     "Validation Error",
                     "Please fill in Flow B,C rate"
                 );
-                return;
+                return null;
             }
         }
 
@@ -548,7 +511,7 @@ const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selec
                 "Validation Error",
                 `Please fill all required fields for steps: ${invalidSteps.map(s => s.stepNumber).join(", ")}`
             );
-            return;
+            return null;
         }
 
         // Validate special records
@@ -568,17 +531,21 @@ const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selec
                 "Validation Error",
                 `Please fill all required fields for: ${invalidSpecial.map(r => r.stepType).join(", ")}`
             );
-            return;
+            return null;
         }
 
-        // Validate DISINFECT concentration
-        const disinfectRecord = specialRecords.find(r => r.stepType === 'DISINFECT/SANITASI');
-        if (disinfectRecord && disinfectRecord.concActual) {
-            const conc = parseFloat(disinfectRecord.concActual);
-            if (conc < 0.3 || conc > 0.5) {
-                Alert.alert("Validation Error", "DISINFECT/SANITASI concentration must be between 0.3% and 0.5%");
-                return;
-            }
+        // Validate concentration for ALKALI and ACID (still required)
+        const alkaliStep = cipSteps.find(s => s.stepName === "ALKALI");
+        const acidStep = cipSteps.find(s => s.stepName === "ACID");
+
+        if (alkaliStep && !alkaliStep.concentrationActual) {
+            Alert.alert("Validation Error", "Please enter concentration for ALKALI step");
+            return null;
+        }
+
+        if (acidStep && !acidStep.concentrationActual) {
+            Alert.alert("Validation Error", "Please enter concentration for ACID step");
+            return null;
         }
 
         // Prepare data for save
@@ -594,25 +561,7 @@ const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selec
             kodeTeknisi: kodeTeknisi,
         };
 
-        if (onSave) {
-            onSave(dataToSave);
-        }
-    };
-
-    const getTemperatureInputStyle = (index) => {
-        return [
-            styles.input,
-            styles.smallInput,
-            temperatureErrors[index] ? styles.inputError : null
-        ];
-    };
-
-    const getSpecialTemperatureInputStyle = (index, field) => {
-        return [
-            styles.input,
-            styles.specialTempInput,
-            specialTemperatureErrors[`${index}-${field}`] ? styles.inputError : null
-        ];
+        return dataToSave; 
     };
 
     const renderStepRow = (step, index) => (
@@ -644,43 +593,81 @@ const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selec
                     <Text style={styles.rangeSeparator}>-</Text>
                     <Text style={styles.setpointText}>{step.temperatureSetpointMax}</Text>
                     <Text style={styles.separator}>/</Text>
-                    <TextInput
-                        style={getTemperatureInputStyle(index)}
-                        value={step.temperatureActual}
-                        onChangeText={(value) => updateStepField(index, "temperatureActual", value)}
-                        keyboardType="numeric"
-                        placeholder="Temp"
-                        editable={isEditable}
-                    />
+                    
+                    {allowUnrestrictedInput ? (
+                        <FlexibleNumericInput
+                            value={step.temperatureActual}
+                            onChangeText={(value) => updateStepField(index, "temperatureActual", value)}
+                            placeholder="Temp"
+                            minRange={parseFloat(step.temperatureSetpointMin)}
+                            maxRange={parseFloat(step.temperatureSetpointMax)}
+                            unit="°C"
+                            style={styles.smallInput}
+                            editable={isEditable}
+                        />
+                    ) : (
+                        <TextInput
+                            style={[styles.input, styles.smallInput]}
+                            value={step.temperatureActual}
+                            onChangeText={(value) => updateStepField(index, "temperatureActual", value)}
+                            keyboardType="numeric"
+                            placeholder="Temp"
+                            editable={isEditable}
+                        />
+                    )}
+                    
                     {(step.stepName === "ALKALI" || step.stepName === "ACID") && (
                         <>
                             <Text style={styles.separator}>|</Text>
-                            <TextInput
-                                style={[styles.input, styles.smallInput]}
-                                value={step.concentrationActual}
-                                onChangeText={(value) => updateStepField(index, "concentrationActual", value)}
-                                keyboardType="numeric"
-                                placeholder="Conc"
-                                editable={isEditable}
-                            />
+                            {allowUnrestrictedInput ? (
+                                <FlexibleNumericInput
+                                    value={step.concentrationActual}
+                                    onChangeText={(value) => updateStepField(index, "concentrationActual", value)}
+                                    placeholder="Conc"
+                                    minRange={step.stepName === "ALKALI" ? 1.5 : 0.5}
+                                    maxRange={step.stepName === "ALKALI" ? 2.0 : 1.0}
+                                    unit="%"
+                                    style={styles.smallInput}
+                                    editable={isEditable}
+                                />
+                            ) : (
+                                <TextInput
+                                    style={[styles.input, styles.smallInput]}
+                                    value={step.concentrationActual}
+                                    onChangeText={(value) => updateStepField(index, "concentrationActual", value)}
+                                    keyboardType="numeric"
+                                    placeholder="Conc"
+                                    editable={isEditable}
+                                />
+                            )}
                         </>
                     )}
                 </View>
-                {temperatureErrors[index] && (
-                    <Text style={styles.errorText}>{temperatureErrors[index]}</Text>
-                )}
             </View>
 
             <View style={styles.timeCell}>
                 <Text style={styles.cellLabel}>Time (Min)</Text>
-                <TextInput
-                    style={[styles.input, styles.timeActualInput]}
-                    value={step.timeActual}
-                    onChangeText={(value) => updateStepField(index, "timeActual", value)}
-                    keyboardType="numeric"
-                    placeholder={step.timeSetpoint}
-                    editable={isEditable}
-                />
+                {allowUnrestrictedInput ? (
+                    <FlexibleNumericInput
+                        value={step.timeActual}
+                        onChangeText={(value) => updateStepField(index, "timeActual", value)}
+                        placeholder={step.timeSetpoint}
+                        minRange={parseFloat(step.timeSetpoint) * 0.8} // 20% tolerance
+                        maxRange={parseFloat(step.timeSetpoint) * 1.2}
+                        unit=" min"
+                        style={styles.timeActualInput}
+                        editable={isEditable}
+                    />
+                ) : (
+                    <TextInput
+                        style={[styles.input, styles.timeActualInput]}
+                        value={step.timeActual}
+                        onChangeText={(value) => updateStepField(index, "timeActual", value)}
+                        keyboardType="numeric"
+                        placeholder={step.timeSetpoint}
+                        editable={isEditable}
+                    />
+                )}
             </View>
 
             <View style={styles.durationCell}>
@@ -716,17 +703,51 @@ const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selec
                     <View style={styles.specialDetails}>
                         <View style={styles.specialItem}>
                             <Text style={styles.specialLabel}>Temp ({record.tempMin}-{record.tempMax}°C):</Text>
-                            <TextInput
-                                style={getSpecialTemperatureInputStyle(index, 'drying')}
-                                value={record.tempActual}
-                                onChangeText={(value) => updateSpecialField(index, "tempActual", value)}
-                                keyboardType="numeric"
-                                placeholder="Actual"
-                                editable={isEditable}
-                            />
+                            {allowUnrestrictedInput ? (
+                                <FlexibleNumericInput
+                                    value={record.tempActual}
+                                    onChangeText={(value) => updateSpecialField(index, "tempActual", value)}
+                                    placeholder="Actual"
+                                    minRange={parseFloat(record.tempMin)}
+                                    maxRange={parseFloat(record.tempMax)}
+                                    unit="°C"
+                                    style={styles.specialTempInput}
+                                    editable={isEditable}
+                                />
+                            ) : (
+                                <TextInput
+                                    style={[styles.input, styles.specialTempInput]}
+                                    value={record.tempActual}
+                                    onChangeText={(value) => updateSpecialField(index, "tempActual", value)}
+                                    keyboardType="numeric"
+                                    placeholder="Actual"
+                                    editable={isEditable}
+                                />
+                            )}
                         </View>
                         <View style={styles.specialItem}>
-                            <Text style={styles.specialLabel}>Time: {record.time} min</Text>
+                            <Text style={styles.specialLabel}>Time (min):</Text>
+                            {allowUnrestrictedInput ? (
+                                <FlexibleNumericInput
+                                    value={record.time}
+                                    onChangeText={(value) => updateSpecialField(index, "time", value)}
+                                    placeholder="57"
+                                    minRange={50}
+                                    maxRange={65}
+                                    unit=" min"
+                                    style={styles.specialTimeInput}
+                                    editable={isEditable}
+                                />
+                            ) : (
+                                <TextInput
+                                    style={[styles.input, styles.specialTimeInput]}
+                                    value={record.time}
+                                    onChangeText={(value) => updateSpecialField(index, "time", value)}
+                                    keyboardType="numeric"
+                                    placeholder="57"
+                                    editable={isEditable}
+                                />
+                            )}
                         </View>
                     </View>
                 )}
@@ -735,7 +756,28 @@ const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selec
                 {record.stepType === "FOAMING" && (
                     <View style={styles.specialDetails}>
                         <View style={styles.specialItem}>
-                            <Text style={styles.specialLabel}>Time: {record.time} min</Text>
+                            <Text style={styles.specialLabel}>Time (min):</Text>
+                            {allowUnrestrictedInput ? (
+                                <FlexibleNumericInput
+                                    value={record.time}
+                                    onChangeText={(value) => updateSpecialField(index, "time", value)}
+                                    placeholder="41"
+                                    minRange={35}
+                                    maxRange={50}
+                                    unit=" min"
+                                    style={styles.specialTimeInput}
+                                    editable={isEditable}
+                                />
+                            ) : (
+                                <TextInput
+                                    style={[styles.input, styles.specialTimeInput]}
+                                    value={record.time}
+                                    onChangeText={(value) => updateSpecialField(index, "time", value)}
+                                    keyboardType="numeric"
+                                    placeholder="41"
+                                    editable={isEditable}
+                                />
+                            )}
                         </View>
                         <View style={styles.specialItem}>
                             <Text style={styles.specialNote}>(No Temperature)</Text>
@@ -748,30 +790,77 @@ const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selec
                     <View style={styles.specialDetails}>
                         <View style={styles.specialItem}>
                             <Text style={styles.specialLabel}>Conc ({record.concMin}-{record.concMax}%):</Text>
-                            <TextInput
-                                style={[styles.input, styles.concInput]}
-                                value={record.concActual}
-                                onChangeText={(value) => updateSpecialField(index, "concActual", value)}
-                                keyboardType="numeric"
-                                placeholder="Actual"
-                                editable={isEditable}
-                            />
+                            {allowUnrestrictedInput ? (
+                                <FlexibleNumericInput
+                                    value={record.concActual}
+                                    onChangeText={(value) => updateSpecialField(index, "concActual", value)}
+                                    placeholder="Actual"
+                                    minRange={parseFloat(record.concMin)}
+                                    maxRange={parseFloat(record.concMax)}
+                                    unit="%"
+                                    style={styles.concInput}
+                                    editable={isEditable}
+                                />
+                            ) : (
+                                <TextInput
+                                    style={[styles.input, styles.concInput]}
+                                    value={record.concActual}
+                                    onChangeText={(value) => updateSpecialField(index, "concActual", value)}
+                                    keyboardType="numeric"
+                                    placeholder="Actual"
+                                    editable={isEditable}
+                                />
+                            )}
                         </View>
                         <View style={styles.specialItem}>
-                            <Text style={styles.specialLabel}>Time: {record.time} min</Text>
+                            <Text style={styles.specialLabel}>Time (min):</Text>
+                            {allowUnrestrictedInput ? (
+                                <FlexibleNumericInput
+                                    value={record.time}
+                                    onChangeText={(value) => updateSpecialField(index, "time", value)}
+                                    placeholder="30"
+                                    minRange={25}
+                                    maxRange={35}
+                                    unit=" min"
+                                    style={styles.specialTimeInput}
+                                    editable={isEditable}
+                                />
+                            ) : (
+                                <TextInput
+                                    style={[styles.input, styles.specialTimeInput]}
+                                    value={record.time}
+                                    onChangeText={(value) => updateSpecialField(index, "time", value)}
+                                    keyboardType="numeric"
+                                    placeholder="30"
+                                    editable={isEditable}
+                                />
+                            )}
                         </View>
                         <View style={styles.specialItem}>
                             <Text style={styles.specialLabel}>
                                 Temp {selectedLine === 'LINE D' ? `(${record.tempDMin}-${record.tempDMax}°C)` : `(${record.tempBC}°C)`}:
                             </Text>
-                            <TextInput
-                                style={getSpecialTemperatureInputStyle(index, 'disinfect')}
-                                value={record.tempActual}
-                                onChangeText={(value) => updateSpecialField(index, "tempActual", value)}
-                                keyboardType="numeric"
-                                placeholder="Actual"
-                                editable={isEditable}
-                            />
+                            {allowUnrestrictedInput ? (
+                                <FlexibleNumericInput
+                                    value={record.tempActual}
+                                    onChangeText={(value) => updateSpecialField(index, "tempActual", value)}
+                                    placeholder="Actual"
+                                    minRange={selectedLine === 'LINE D' ? parseFloat(record.tempDMin) : parseFloat(record.tempBC)}
+                                    maxRange={selectedLine === 'LINE D' ? parseFloat(record.tempDMax) : parseFloat(record.tempBC)}
+                                    unit="°C"
+                                    style={styles.specialTempInput}
+                                    editable={isEditable}
+                                />
+                            ) : (
+                                <TextInput
+                                    style={[styles.input, styles.specialTempInput]}
+                                    value={record.tempActual}
+                                    onChangeText={(value) => updateSpecialField(index, "tempActual", value)}
+                                    keyboardType="numeric"
+                                    placeholder="Actual"
+                                    editable={isEditable}
+                                />
+                            )}
                         </View>
                     </View>
                 )}
@@ -795,14 +884,6 @@ const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selec
                         />
                     </View>
                 </View>
-
-                {/* Error messages */}
-                {specialTemperatureErrors[`${index}-drying`] && record.stepType === "DRYING" && (
-                    <Text style={styles.errorText}>{specialTemperatureErrors[`${index}-drying`]}</Text>
-                )}
-                {specialTemperatureErrors[`${index}-disinfect`] && record.stepType === "DISINFECT/SANITASI" && (
-                    <Text style={styles.errorText}>{specialTemperatureErrors[`${index}-disinfect`]}</Text>
-                )}
             </View>
         </View>
     );
@@ -852,16 +933,26 @@ const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selec
                     {selectedLine === 'LINE D' && (
                         <View style={styles.flowItem}>
                             <Text style={styles.flowLabel}>Flow D (Min 6000 L/H):</Text>
-                            <TextInput
-                                style={[styles.input, styles.flowInput, flowRateErrors.flowD ? styles.inputError : null]}
-                                value={flowRates.flowD}
-                                onChangeText={(value) => updateFlowRate('flowD', value)}
-                                keyboardType="numeric"
-                                placeholder="e.g. 6500"
-                                editable={isEditable}
-                            />
-                            {flowRateErrors.flowD && (
-                                <Text style={styles.errorText}>{flowRateErrors.flowD}</Text>
+                            {allowUnrestrictedInput ? (
+                                <FlexibleNumericInput
+                                    value={flowRates.flowD}
+                                    onChangeText={(value) => updateFlowRate('flowD', value)}
+                                    placeholder="e.g. 6500"
+                                    minRange={6000}
+                                    maxRange={undefined}
+                                    unit=" L/H"
+                                    style={styles.flowInput}
+                                    editable={isEditable}
+                                />
+                            ) : (
+                                <TextInput
+                                    style={[styles.input, styles.flowInput]}
+                                    value={flowRates.flowD}
+                                    onChangeText={(value) => updateFlowRate('flowD', value)}
+                                    keyboardType="numeric"
+                                    placeholder="e.g. 6500"
+                                    editable={isEditable}
+                                />
                             )}
                         </View>
                     )}
@@ -870,16 +961,26 @@ const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selec
                     {(selectedLine === 'LINE B' || selectedLine === 'LINE C') && (
                         <View style={styles.flowItem}>
                             <Text style={styles.flowLabel}>Flow B,C (Min 9000 L/H):</Text>
-                            <TextInput
-                                style={[styles.input, styles.flowInput, flowRateErrors.flowBC ? styles.inputError : null]}
-                                value={flowRates.flowBC}
-                                onChangeText={(value) => updateFlowRate('flowBC', value)}
-                                keyboardType="numeric"
-                                placeholder="e.g. 9500"
-                                editable={isEditable}
-                            />
-                            {flowRateErrors.flowBC && (
-                                <Text style={styles.errorText}>{flowRateErrors.flowBC}</Text>
+                            {allowUnrestrictedInput ? (
+                                <FlexibleNumericInput
+                                    value={flowRates.flowBC}
+                                    onChangeText={(value) => updateFlowRate('flowBC', value)}
+                                    placeholder="e.g. 9500"
+                                    minRange={9000}
+                                    maxRange={undefined}
+                                    unit=" L/H"
+                                    style={styles.flowInput}
+                                    editable={isEditable}
+                                />
+                            ) : (
+                                <TextInput
+                                    style={[styles.input, styles.flowInput]}
+                                    value={flowRates.flowBC}
+                                    onChangeText={(value) => updateFlowRate('flowBC', value)}
+                                    keyboardType="numeric"
+                                    placeholder="e.g. 9500"
+                                    editable={isEditable}
+                                />
                             )}
                         </View>
                     )}
@@ -944,7 +1045,15 @@ const ReportCIPInspectionTableBCD = ({ cipData, onSave, isEditable = true, selec
 
             {/* Save Button */}
             {isEditable && (
-                <TouchableOpacity style={styles.saveButton} onPress={validateAndSave}>
+                <TouchableOpacity
+                    style={styles.saveButton}
+                    onPress={() => {
+                        const data = validateAndSave();
+                        if (data && onSave) {
+                            onSave(data); 
+                        }
+                    }}
+                >
                     <Icon name="save" size={24} color="#fff" />
                     <Text style={styles.saveButtonText}>Save CIP Report</Text>
                 </TouchableOpacity>
@@ -960,34 +1069,59 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: "#f5f5f5",
     },
+    
+    // Flexible Input Styles
+    flexibleInputContainer: {
+        marginBottom: 10,
+        width: "100%",
+    },
+    focusedInput: {
+        borderColor: COLORS.blue,
+        borderWidth: 2,
+    },
+    warningInput: {
+        borderColor: COLORS.warningOrange,
+        backgroundColor: COLORS.warningYellow,
+        borderWidth: 2,
+    },
+    warningText: {
+        fontSize: 10,
+        color: COLORS.warningText,
+        marginTop: 3,
+        fontStyle: 'italic',
+        textAlign: 'center',
+        lineHeight: 13,
+        paddingHorizontal: 3,
+    },
+    
     section: {
-        margin: 16,
+        margin: 20,
         backgroundColor: "#fff",
-        borderRadius: 8,
-        padding: 16,
+        borderRadius: 12,
+        padding: 20,
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 5,
     },
     sectionTitle: {
-        fontSize: 16,
+        fontSize: 18,
         fontWeight: "bold",
         color: COLORS.blue,
-        marginBottom: 16,
+        marginBottom: 20,
         textAlign: "center",
     },
     
     // Valve Position Styles
     valveInfo: {
         backgroundColor: COLORS.lightBlue,
-        padding: 12,
-        borderRadius: 8,
-        marginBottom: 16,
+        padding: 16,
+        borderRadius: 10,
+        marginBottom: 20,
     },
     valveInfoText: {
-        fontSize: 14,
+        fontSize: 16,
         color: COLORS.blue,
         fontWeight: "600",
         textAlign: "center",
@@ -1000,16 +1134,16 @@ const styles = StyleSheet.create({
     checkboxContainer: {
         flexDirection: "row",
         alignItems: "center",
-        marginBottom: 8,
-        marginHorizontal: 8,
+        marginBottom: 12,
+        marginHorizontal: 10,
     },
     checkbox: {
-        width: 24,
-        height: 24,
+        width: 28,
+        height: 28,
         borderWidth: 2,
         borderColor: COLORS.blue,
-        borderRadius: 4,
-        marginRight: 8,
+        borderRadius: 6,
+        marginRight: 12,
         justifyContent: "center",
         alignItems: "center",
     },
@@ -1021,7 +1155,7 @@ const styles = StyleSheet.create({
         backgroundColor: "#f0f0f0",
     },
     checkboxLabel: {
-        fontSize: 14,
+        fontSize: 16,
         color: COLORS.black,
     },
     checkboxLabelDisabled: {
@@ -1036,111 +1170,113 @@ const styles = StyleSheet.create({
     },
     flowItem: {
         flex: 1,
-        minWidth: 150,
-        marginHorizontal: 4,
+        minWidth: 200,
+        marginHorizontal: 6,
     },
     flowLabel: {
-        fontSize: 14,
+        fontSize: 16,
         fontWeight: "600",
         color: COLORS.darkGray,
-        marginBottom: 8,
+        marginBottom: 12,
     },
     flowInput: {
-        fontSize: 14,
+        fontSize: 16,
         textAlign: "center",
+        paddingVertical: 12,
     },
 
-    // Table styles (same as original)
+    // Table styles (optimized for tablet)
     tableHeader: {
         flexDirection: "row",
         backgroundColor: COLORS.lightBlue,
-        paddingVertical: 8,
-        borderRadius: 4,
-        marginBottom: 8,
+        paddingVertical: 12,
+        borderRadius: 8,
+        marginBottom: 12,
     },
     headerText: {
-        fontSize: 12,
+        fontSize: 14,
         fontWeight: "bold",
         color: COLORS.blue,
         textAlign: "center",
     },
     stepNumberHeader: {
-        width: 40,
+        width: 50,
         alignItems: "center",
     },
     stepNameHeader: {
-        flex: 2,
-        paddingHorizontal: 8,
+        flex: 2.5,
+        paddingHorizontal: 10,
     },
     temperatureHeader: {
-        flex: 2.5,
+        flex: 3,
         alignItems: "center",
     },
     timeHeader: {
-        flex: 1.5,
+        flex: 2,
         alignItems: "center",
     },
     durationHeader: {
-        flex: 2.5,
+        flex: 3,
         alignItems: "center",
     },
     stepRow: {
         flexDirection: "row",
         borderBottomWidth: 1,
         borderBottomColor: "#e0e0e0",
-        paddingVertical: 8,
+        paddingVertical: 12,
         alignItems: "center",
+        minHeight: 80,
     },
     stepNumberCell: {
-        width: 40,
+        width: 50,
         alignItems: "center",
     },
     stepNumber: {
-        fontSize: 14,
+        fontSize: 16,
         fontWeight: "bold",
         color: COLORS.blue,
     },
     stepNameCell: {
-        flex: 2,
-        paddingHorizontal: 8,
+        flex: 2.5,
+        paddingHorizontal: 10,
     },
     stepName: {
-        fontSize: 12,
+        fontSize: 14,
         fontWeight: "600",
         color: COLORS.black,
     },
     concentrationContainer: {
         flexDirection: "row",
         alignItems: "center",
-        marginTop: 4,
+        marginTop: 6,
     },
     concentrationLabel: {
-        fontSize: 11,
+        fontSize: 12,
         color: COLORS.darkGray,
-        marginRight: 4,
+        marginRight: 6,
     },
     concentrationRange: {
-        fontSize: 11,
+        fontSize: 12,
         color: COLORS.blue,
         fontWeight: "600",
-        marginLeft: 4,
+        marginLeft: 6,
     },
     temperatureCell: {
-        flex: 2.5,
+        flex: 3,
         alignItems: "center",
     },
     timeCell: {
-        flex: 1.5,
+        flex: 2,
         alignItems: "center",
     },
     durationCell: {
-        flex: 2.5,
+        flex: 3,
         alignItems: "center",
     },
     cellLabel: {
-        fontSize: 10,
+        fontSize: 11,
         color: COLORS.darkGray,
-        marginBottom: 4,
+        marginBottom: 6,
     },
     inputRow: {
         flexDirection: "row",
@@ -1151,37 +1287,34 @@ const styles = StyleSheet.create({
     input: {
         borderWidth: 1,
         borderColor: "#ddd",
-        borderRadius: 4,
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        fontSize: 11,
+        borderRadius: 6,
+        paddingHorizontal: 10,
+        paddingVertical: 8,
+        fontSize: 13,
         backgroundColor: "#fff",
     },
-    inputError: {
-        borderColor: COLORS.red,
-        borderWidth: 2,
-    },
     smallInput: {
-        width: 45,
+        width: 58,
         textAlign: "center",
+        marginHorizontal: 2,
     },
     timeActualInput: {
-        width: 50,
+        width: 64,
         textAlign: "center",
     },
     setpointText: {
-        fontSize: 11,
+        fontSize: 12,
         color: COLORS.darkGray,
     },
     rangeSeparator: {
-        marginHorizontal: 2,
-        fontSize: 12,
+        marginHorizontal: 3,
+        fontSize: 13,
         color: COLORS.darkGray,
         fontWeight: "500",
     },
     separator: {
-        marginHorizontal: 4,
-        fontSize: 12,
+        marginHorizontal: 6,
+        fontSize: 13,
         color: COLORS.darkGray,
     },
     timeInputRow: {
@@ -1189,7 +1322,7 @@ const styles = StyleSheet.create({
         alignItems: "center",
     },
     timeInput: {
-        width: 60,
+        width: 72,
         textAlign: "center",
         flexDirection: "row",
         alignItems: "center",
@@ -1199,12 +1332,12 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "space-between",
-        paddingHorizontal: 6,
+        paddingHorizontal: 8,
     },
     timeText: {
-        fontSize: 11,
+        fontSize: 12,
         color: COLORS.black,
-        marginRight: 4,
+        marginRight: 6,
     },
     placeholderText: {
         color: COLORS.gray,
@@ -1213,31 +1346,26 @@ const styles = StyleSheet.create({
         backgroundColor: "#f0f0f0",
     },
     timeSeparator: {
-        marginHorizontal: 4,
-        fontSize: 12,
+        marginHorizontal: 6,
+        fontSize: 13,
         color: COLORS.darkGray,
     },
-    errorText: {
-        fontSize: 10,
-        color: COLORS.red,
-        marginTop: 2,
-        textAlign: "center",
-    },
 
-    // Special Records Styles
+    // Special Records Styles (enhanced for tablet)
     specialRow: {
         borderWidth: 1,
         borderColor: "#ddd",
-        borderRadius: 8,
-        padding: 12,
-        marginBottom: 12,
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 16,
         backgroundColor: "#f9f9f9",
+        minHeight: 120,
     },
     specialTypeCell: {
-        marginBottom: 8,
+        marginBottom: 12,
     },
     specialType: {
-        fontSize: 16,
+        fontSize: 18,
         fontWeight: "bold",
         color: COLORS.orange,
     },
@@ -1247,81 +1375,98 @@ const styles = StyleSheet.create({
     specialDetails: {
         flexDirection: "row",
         flexWrap: "wrap",
-        marginBottom: 8,
+        marginBottom: 12,
+        alignItems: "flex-start",
     },
     specialItem: {
-        marginRight: 16,
-        marginBottom: 8,
-        flexDirection: "row",
-        alignItems: "center",
+        marginRight: 20,
+        marginBottom: 12,
+        flexDirection: "column",
+        alignItems: "flex-start",
+        minWidth: 120,
     },
     specialLabel: {
-        fontSize: 12,
+        fontSize: 13,
         color: COLORS.darkGray,
-        marginRight: 8,
+        marginBottom: 6,
+        fontWeight: "500",
+    },
+    specialValue: {
+        fontSize: 13,
+        color: COLORS.black,
+        fontWeight: "500",
     },
     specialNote: {
-        fontSize: 12,
+        fontSize: 13,
         color: COLORS.gray,
         fontStyle: "italic",
     },
     specialTempInput: {
-        width: 60,
+        width: 80,
+        textAlign: "center",
+    },
+    specialTimeInput: {
+        width: 70,
         textAlign: "center",
     },
     concInput: {
-        width: 60,
+        width: 80,
         textAlign: "center",
     },
     specialTimeRange: {
         borderTopWidth: 1,
         borderTopColor: "#e0e0e0",
-        paddingTop: 8,
+        paddingTop: 12,
     },
 
     // Kode Section
     kodeSection: {
         flexDirection: "row",
-        margin: 16,
+        margin: 20,
         backgroundColor: "#fff",
-        borderRadius: 8,
-        padding: 16,
+        borderRadius: 12,
+        padding: 20,
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 5,
     },
     kodeHalfSection: {
         flex: 1,
-        marginHorizontal: 4,
+        marginHorizontal: 8,
     },
     kodeLabel: {
-        fontSize: 14,
+        fontSize: 16,
         fontWeight: "bold",
         color: COLORS.blue,
-        marginBottom: 8,
+        marginBottom: 12,
     },
     kodeHalfInput: {
         flex: 1,
-        fontSize: 14,
+        fontSize: 16,
     },
 
-    // Save Button
+    // Save Button (enhanced)
     saveButton: {
         flexDirection: "row",
         backgroundColor: COLORS.green,
-        margin: 16,
-        padding: 16,
-        borderRadius: 8,
+        margin: 20,
+        padding: 20,
+        borderRadius: 12,
         alignItems: "center",
         justifyContent: "center",
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+        elevation: 5,
     },
     saveButtonText: {
         color: "#fff",
-        fontSize: 16,
+        fontSize: 18,
         fontWeight: "bold",
-        marginLeft: 8,
+        marginLeft: 12,
     },
 
     // Modal styles
@@ -1332,36 +1477,36 @@ const styles = StyleSheet.create({
     },
     modalContent: {
         backgroundColor: "#fff",
-        borderTopLeftRadius: 20,
-        borderTopRightRadius: 20,
-        paddingBottom: 20,
+        borderTopLeftRadius: 24,
+        borderTopRightRadius: 24,
+        paddingBottom: 24,
     },
     modalHeader: {
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
-        padding: 16,
+        padding: 20,
         borderBottomWidth: 1,
         borderBottomColor: "#e0e0e0",
     },
     modalTitle: {
-        fontSize: 18,
+        fontSize: 20,
         fontWeight: "600",
         color: COLORS.black,
         flex: 1,
         textAlign: "center",
     },
     cancelButton: {
-        fontSize: 16,
+        fontSize: 18,
         color: COLORS.red,
         position: "absolute",
-        left: 16,
+        left: 20,
     },
     doneButton: {
-        fontSize: 16,
+        fontSize: 18,
         color: COLORS.blue,
         fontWeight: "600",
         position: "absolute",
-        right: 16,
+        right: 20,
     },
 });

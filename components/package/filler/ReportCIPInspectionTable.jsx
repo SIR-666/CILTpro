@@ -25,6 +25,83 @@ const COLORS = {
     red: "#F44336",
     orange: "#FF9800",
     gray: "#9E9E9E",
+    warningOrange: "#FFA726",
+    warningYellow: "#FFF9C4",
+    warningText: "#F57C00",
+};
+
+// Flexible Numeric Input Component with Fixed Styling
+const FlexibleNumericInput = ({ 
+    value, 
+    onChangeText, 
+    placeholder, 
+    minRange, 
+    maxRange, 
+    unit = "", 
+    style = {},
+    ...props 
+}) => {
+    const [isFocused, setIsFocused] = useState(false);
+
+    // Check if value is outside the recommended range
+    const isOutOfRange = () => {
+        if (!value || value === '') return false;
+        const numValue = parseFloat(value);
+        if (isNaN(numValue)) return false;
+        
+        if (minRange !== undefined && numValue < minRange) return true;
+        if (maxRange !== undefined && numValue > maxRange) return true;
+        return false;
+    };
+
+    // Get input style based on range validation
+    const getInputStyle = () => {
+        const baseStyle = [styles.input, style];
+        
+        if (isOutOfRange()) {
+            baseStyle.push(styles.warningInput);
+        } else if (isFocused) {
+            baseStyle.push(styles.focusedInput);
+        }
+        
+        return baseStyle;
+    };
+
+    // Get range message
+    const getRangeMessage = () => {
+        if (!isOutOfRange()) return null;
+        
+        let message = "Out of range";
+        if (minRange !== undefined && maxRange !== undefined) {
+            message += ` (${minRange}-${maxRange}${unit})`;
+        } else if (minRange !== undefined) {
+            message += ` (min: ${minRange}${unit})`;
+        } else if (maxRange !== undefined) {
+            message += ` (max: ${maxRange}${unit})`;
+        }
+        
+        return message;
+    };
+
+    return (
+        <View style={styles.flexibleInputContainer}>
+            <TextInput
+                value={value}
+                onChangeText={onChangeText}
+                placeholder={placeholder}
+                keyboardType="numeric"
+                style={getInputStyle()}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setIsFocused(false)}
+                {...props}
+            />
+            {isOutOfRange() && (
+                <Text style={styles.warningText}>
+                    {getRangeMessage()}
+                </Text>
+            )}
+        </View>
+    );
 };
 
 // Custom Time Picker Component for consistent cross-platform experience
@@ -123,7 +200,7 @@ const TimePickerInput = ({ value, onChange, placeholder, editable = true }) => {
     );
 };
 
-const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
+const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true, allowUnrestrictedInput = false }) => {
     const [cipSteps, setCipSteps] = useState([
         {
             stepNumber: 1,
@@ -259,8 +336,6 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
 
     const [kodeOperator, setKodeOperator] = useState("");
     const [kodeTeknisi, setKodeTeknisi] = useState("");
-    const [temperatureErrors, setTemperatureErrors] = useState({});
-    const [copTemperatureErrors, setCopTemperatureErrors] = useState({});
 
     useEffect(() => {
         if (cipData) {
@@ -301,64 +376,12 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
         }
     }, [cipData]);
 
-    // Validate temperature against min/max bounds
-    const validateTemperature = (value, min, max, stepIndex) => {
-        const numValue = parseFloat(value);
-        const numMin = parseFloat(min);
-        const numMax = parseFloat(max);
-
-        if (!isNaN(numValue) && !isNaN(numMin) && !isNaN(numMax)) {
-            if (numValue < numMin || numValue > numMax) {
-                setTemperatureErrors({
-                    ...temperatureErrors,
-                    [stepIndex]: `Temperature must be between ${min}°C and ${max}°C`
-                });
-                return false;
-            } else {
-                const newErrors = { ...temperatureErrors };
-                delete newErrors[stepIndex];
-                setTemperatureErrors(newErrors);
-                return true;
-            }
-        }
-        return true;
-    };
-
-    // Validate COP temperature against min/max bounds
-    const validateCopTemperature = (value, min, max, copIndex) => {
-        const numValue = parseFloat(value);
-        const numMin = parseFloat(min);
-        const numMax = parseFloat(max);
-
-        if (!isNaN(numValue) && !isNaN(numMin) && !isNaN(numMax)) {
-            if (numValue < numMin || numValue > numMax) {
-                setCopTemperatureErrors({
-                    ...copTemperatureErrors,
-                    [copIndex]: `Temperature must be between ${min}°C and ${max}°C`
-                });
-                return false;
-            } else {
-                const newErrors = { ...copTemperatureErrors };
-                delete newErrors[copIndex];
-                setCopTemperatureErrors(newErrors);
-                return true;
-            }
-        }
-        return true;
-    };
-
     const updateStepField = (index, field, value) => {
         const updatedSteps = [...cipSteps];
         updatedSteps[index] = {
             ...updatedSteps[index],
             [field]: value,
         };
-
-        // Validate temperature when it changes
-        if (field === 'temperatureActual') {
-            const step = updatedSteps[index];
-            validateTemperature(value, step.temperatureSetpointMin, step.temperatureSetpointMax, index);
-        }
 
         // Auto-recalculate end time when start time or actual time changes
         if (field === 'startTime' || field === 'timeActual') {
@@ -374,19 +397,12 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
         setCipSteps(updatedSteps);
     };
 
-
     const updateCopField = (index, field, value) => {
         const updatedCop = [...copRecords];
         updatedCop[index] = {
             ...updatedCop[index],
             [field]: value,
         };
-
-        // Validate COP temperature when it changes
-        if (field === 'tempActual') {
-            const cop = updatedCop[index];
-            validateCopTemperature(value, cop.tempMin, cop.tempMax, index);
-        }
 
         // Auto-calculate endTime if startTime or duration (timeXXMin) changes
         const cop = updatedCop[index];
@@ -409,41 +425,8 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
         setCopRecords(updatedCop);
     };
 
-    // const updateCopField = (index, field, value) => {
-    //     const updatedCop = [...copRecords];
-    //     updatedCop[index] = {
-    //         ...updatedCop[index],
-    //         [field]: value,
-    //     };
-
-    //     // Validate COP temperature when it changes
-    //     if (field === 'tempActual') {
-    //         const cop = updatedCop[index];
-    //         validateCopTemperature(value, cop.tempMin, cop.tempMax, index);
-    //     }
-
-    //     setCopRecords(updatedCop);
-    // };
-
     const validateAndSave = () => {
-        // Check for temperature validation errors
-        if (Object.keys(temperatureErrors).length > 0) {
-            Alert.alert(
-                "Temperature Validation Error",
-                "Please fix temperature values that are outside the allowed range"
-            );
-            return;
-        }
-
-        if (Object.keys(copTemperatureErrors).length > 0) {
-            Alert.alert(
-                "COP Temperature Validation Error",
-                "Please fix COP/SOP/SIP temperature values that are outside the allowed range"
-            );
-            return;
-        }
-
-        // Validate required fields
+        // Basic validation - only check required fields, no range validation
         const invalidSteps = cipSteps.filter(step =>
             !step.temperatureActual || !step.timeActual || !step.startTime || !step.endTime
         );
@@ -453,7 +436,7 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
                 "Validation Error",
                 `Please fill all required fields for steps: ${invalidSteps.map(s => s.stepNumber).join(", ")}`
             );
-            return;
+            return null;
         }
 
         // Validate time format
@@ -468,38 +451,21 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
                 "Time Format Error",
                 `Invalid time format in steps: ${invalidTimeSteps.map(s => s.stepNumber).join(", ")}. Use HH:mm format.`
             );
-            return;
+            return null;
         }
 
-        // Validate concentration for ALKALI and ACID
+        // Validate concentration for ALKALI and ACID (still required)
         const alkaliStep = cipSteps.find(s => s.stepName === "ALKALI");
         const acidStep = cipSteps.find(s => s.stepName === "ACID");
 
         if (alkaliStep && !alkaliStep.concentrationActual) {
             Alert.alert("Validation Error", "Please enter concentration for ALKALI step");
-            return;
+            return null;
         }
 
         if (acidStep && !acidStep.concentrationActual) {
             Alert.alert("Validation Error", "Please enter concentration for ACID step");
-            return;
-        }
-
-        // Validate concentration ranges
-        if (alkaliStep && alkaliStep.concentrationActual) {
-            const alkaliConc = parseFloat(alkaliStep.concentrationActual);
-            if (alkaliConc < 1.5 || alkaliConc > 2) {
-                Alert.alert("Validation Error", "ALKALI concentration must be between 1.5% and 2%");
-                return;
-            }
-        }
-
-        if (acidStep && acidStep.concentrationActual) {
-            const acidConc = parseFloat(acidStep.concentrationActual);
-            if (acidConc < 0.5 || acidConc > 1) {
-                Alert.alert("Validation Error", "ACID concentration must be between 0.5% and 1%");
-                return;
-            }
+            return null;
         }
 
         // Validate COP records
@@ -512,7 +478,7 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
                 "Validation Error",
                 `Please fill all required fields for: ${invalidCop.map(c => c.stepType).join(", ")}`
             );
-            return;
+            return null;
         }
 
         // Validate COP time format
@@ -527,7 +493,7 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
                 "Time Format Error",
                 `Invalid time format in COP records: ${invalidCopTimes.map(c => c.stepType).join(", ")}. Use HH:mm format.`
             );
-            return;
+            return null;
         }
 
         // Prepare data for save
@@ -538,25 +504,7 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
             kodeTeknisi: kodeTeknisi,
         };
 
-        if (onSave) {
-            onSave(dataToSave);
-        }
-    };
-
-    const getTemperatureInputStyle = (index) => {
-        return [
-            styles.input,
-            styles.smallInput,
-            temperatureErrors[index] ? styles.inputError : null
-        ];
-    };
-
-    const getCopTemperatureInputStyle = (index) => {
-        return [
-            styles.input,
-            styles.copTempInput,
-            copTemperatureErrors[index] ? styles.inputError : null
-        ];
+        return dataToSave;
     };
 
     const renderStepRow = (step, index) => (
@@ -588,43 +536,81 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
                     <Text style={styles.rangeSeparator}>-</Text>
                     <Text style={styles.setpointText}>{step.temperatureSetpointMax}</Text>
                     <Text style={styles.separator}>/</Text>
-                    <TextInput
-                        style={getTemperatureInputStyle(index)}
-                        value={step.temperatureActual}
-                        onChangeText={(value) => updateStepField(index, "temperatureActual", value)}
-                        keyboardType="numeric"
-                        placeholder="Temp"
-                        editable={isEditable}
-                    />
+                    
+                    {allowUnrestrictedInput ? (
+                        <FlexibleNumericInput
+                            value={step.temperatureActual}
+                            onChangeText={(value) => updateStepField(index, "temperatureActual", value)}
+                            placeholder="Temp"
+                            minRange={parseFloat(step.temperatureSetpointMin)}
+                            maxRange={parseFloat(step.temperatureSetpointMax)}
+                            unit="°C"
+                            style={styles.smallInput}
+                            editable={isEditable}
+                        />
+                    ) : (
+                        <TextInput
+                            style={[styles.input, styles.smallInput]}
+                            value={step.temperatureActual}
+                            onChangeText={(value) => updateStepField(index, "temperatureActual", value)}
+                            keyboardType="numeric"
+                            placeholder="Temp"
+                            editable={isEditable}
+                        />
+                    )}
+                    
                     {(step.stepName === "ALKALI" || step.stepName === "ACID") && (
                         <>
                             <Text style={styles.separator}>|</Text>
-                            <TextInput
-                                style={[styles.input, styles.smallInput]}
-                                value={step.concentrationActual}
-                                onChangeText={(value) => updateStepField(index, "concentrationActual", value)}
-                                keyboardType="numeric"
-                                placeholder="Conc"
-                                editable={isEditable}
-                            />
+                            {allowUnrestrictedInput ? (
+                                <FlexibleNumericInput
+                                    value={step.concentrationActual}
+                                    onChangeText={(value) => updateStepField(index, "concentrationActual", value)}
+                                    placeholder="Conc"
+                                    minRange={step.stepName === "ALKALI" ? 1.5 : 0.5}
+                                    maxRange={step.stepName === "ALKALI" ? 2.0 : 1.0}
+                                    unit="%"
+                                    style={styles.smallInput}
+                                    editable={isEditable}
+                                />
+                            ) : (
+                                <TextInput
+                                    style={[styles.input, styles.smallInput]}
+                                    value={step.concentrationActual}
+                                    onChangeText={(value) => updateStepField(index, "concentrationActual", value)}
+                                    keyboardType="numeric"
+                                    placeholder="Conc"
+                                    editable={isEditable}
+                                />
+                            )}
                         </>
                     )}
                 </View>
-                {temperatureErrors[index] && (
-                    <Text style={styles.errorText}>{temperatureErrors[index]}</Text>
-                )}
             </View>
 
             <View style={styles.timeCell}>
                 <Text style={styles.cellLabel}>Time (Min)</Text>
-                <TextInput
-                    style={[styles.input, styles.timeActualInput]}
-                    value={step.timeActual}
-                    onChangeText={(value) => updateStepField(index, "timeActual", value)}
-                    keyboardType="numeric"
-                    placeholder={step.timeSetpoint}
-                    editable={isEditable}
-                />
+                {allowUnrestrictedInput ? (
+                    <FlexibleNumericInput
+                        value={step.timeActual}
+                        onChangeText={(value) => updateStepField(index, "timeActual", value)}
+                        placeholder={step.timeSetpoint}
+                        minRange={parseFloat(step.timeSetpoint) * 0.8} // 20% tolerance
+                        maxRange={parseFloat(step.timeSetpoint) * 1.2}
+                        unit=" min"
+                        style={styles.timeActualInput}
+                        editable={isEditable}
+                    />
+                ) : (
+                    <TextInput
+                        style={[styles.input, styles.timeActualInput]}
+                        value={step.timeActual}
+                        onChangeText={(value) => updateStepField(index, "timeActual", value)}
+                        keyboardType="numeric"
+                        placeholder={step.timeSetpoint}
+                        editable={isEditable}
+                    />
+                )}
             </View>
 
             <View style={styles.durationCell}>
@@ -658,56 +644,105 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
                 {cop.stepType === "COP" && (
                     <View style={styles.copTimeItem}>
                         <Text style={styles.copTimeLabel}>67 Menit</Text>
-                        <TextInput
-                            style={[styles.input, styles.copTimeInput]}
-                            value={cop.time67Min}
-                            onChangeText={(value) => updateCopField(index, "time67Min", value)}
-                            keyboardType="numeric"
-                            placeholder="67"
-                            editable={isEditable}
-                        />
+                        {allowUnrestrictedInput ? (
+                            <FlexibleNumericInput
+                                value={cop.time67Min}
+                                onChangeText={(value) => updateCopField(index, "time67Min", value)}
+                                placeholder="67"
+                                minRange={60}
+                                maxRange={75}
+                                unit=" min"
+                                style={styles.copTimeInput}
+                                editable={isEditable}
+                            />
+                        ) : (
+                            <TextInput
+                                style={[styles.input, styles.copTimeInput]}
+                                value={cop.time67Min}
+                                onChangeText={(value) => updateCopField(index, "time67Min", value)}
+                                keyboardType="numeric"
+                                placeholder="67"
+                                editable={isEditable}
+                            />
+                        )}
                     </View>
                 )}
                 {cop.stepType === "SOP" && (
                     <View style={styles.copTimeItem}>
                         <Text style={styles.copTimeLabel}>45 Menit</Text>
-                        <TextInput
-                            style={[styles.input, styles.copTimeInput]}
-                            value={cop.time45Min}
-                            onChangeText={(value) => updateCopField(index, "time45Min", value)}
-                            keyboardType="numeric"
-                            placeholder="45"
-                            editable={isEditable}
-                        />
+                        {allowUnrestrictedInput ? (
+                            <FlexibleNumericInput
+                                value={cop.time45Min}
+                                onChangeText={(value) => updateCopField(index, "time45Min", value)}
+                                placeholder="45"
+                                minRange={40}
+                                maxRange={50}
+                                unit=" min"
+                                style={styles.copTimeInput}
+                                editable={isEditable}
+                            />
+                        ) : (
+                            <TextInput
+                                style={[styles.input, styles.copTimeInput]}
+                                value={cop.time45Min}
+                                onChangeText={(value) => updateCopField(index, "time45Min", value)}
+                                keyboardType="numeric"
+                                placeholder="45"
+                                editable={isEditable}
+                            />
+                        )}
                     </View>
                 )}
                 {cop.stepType === "SIP" && (
                     <View style={styles.copTimeItem}>
                         <Text style={styles.copTimeLabel}>60 Menit</Text>
-                        <TextInput
-                            style={[styles.input, styles.copTimeInput]}
-                            value={cop.time60Min}
-                            onChangeText={(value) => updateCopField(index, "time60Min", value)}
-                            keyboardType="numeric"
-                            placeholder="60"
-                            editable={isEditable}
-                        />
+                        {allowUnrestrictedInput ? (
+                            <FlexibleNumericInput
+                                value={cop.time60Min}
+                                onChangeText={(value) => updateCopField(index, "time60Min", value)}
+                                placeholder="60"
+                                minRange={55}
+                                maxRange={65}
+                                unit=" min"
+                                style={styles.copTimeInput}
+                                editable={isEditable}
+                            />
+                        ) : (
+                            <TextInput
+                                style={[styles.input, styles.copTimeInput]}
+                                value={cop.time60Min}
+                                onChangeText={(value) => updateCopField(index, "time60Min", value)}
+                                keyboardType="numeric"
+                                placeholder="60"
+                                editable={isEditable}
+                            />
+                        )}
                     </View>
                 )}
             </View>
 
             <View style={styles.copTempSection}>
                 <Text style={styles.copTempLabel}>Temp ({cop.tempMin}-{cop.tempMax}°C)</Text>
-                <TextInput
-                    style={getCopTemperatureInputStyle(index)}
-                    value={cop.tempActual}
-                    onChangeText={(value) => updateCopField(index, "tempActual", value)}
-                    keyboardType="numeric"
-                    placeholder="Actual"
-                    editable={isEditable}
-                />
-                {copTemperatureErrors[index] && (
-                    <Text style={styles.errorText}>{copTemperatureErrors[index]}</Text>
+                {allowUnrestrictedInput ? (
+                    <FlexibleNumericInput
+                        value={cop.tempActual}
+                        onChangeText={(value) => updateCopField(index, "tempActual", value)}
+                        placeholder="Actual"
+                        minRange={parseFloat(cop.tempMin)}
+                        maxRange={parseFloat(cop.tempMax)}
+                        unit="°C"
+                        style={styles.copTempInput}
+                        editable={isEditable}
+                    />
+                ) : (
+                    <TextInput
+                        style={[styles.input, styles.copTempInput]}
+                        value={cop.tempActual}
+                        onChangeText={(value) => updateCopField(index, "tempActual", value)}
+                        keyboardType="numeric"
+                        placeholder="Actual"
+                        editable={isEditable}
+                    />
                 )}
             </View>
 
@@ -792,7 +827,15 @@ const ReportCIPInspectionTable = ({ cipData, onSave, isEditable = true }) => {
 
             {/* Save Button */}
             {isEditable && (
-                <TouchableOpacity style={styles.saveButton} onPress={validateAndSave}>
+                <TouchableOpacity
+                    style={styles.saveButton}
+                    onPress={() => {
+                        const data = validateAndSave();
+                        if (data && onSave) {
+                            onSave(data);
+                        }
+                    }}
+                >
                     <Icon name="save" size={24} color="#fff" />
                     <Text style={styles.saveButtonText}>Save CIP Report</Text>
                 </TouchableOpacity>
@@ -808,6 +851,31 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: "#f5f5f5",
     },
+    
+    // Fixed Flexible Input Styles
+    flexibleInputContainer: {
+        marginBottom: 8, // Increased from 4
+        width: "100%",
+    },
+    focusedInput: {
+        borderColor: COLORS.blue,
+        borderWidth: 2,
+    },
+    warningInput: {
+        borderColor: COLORS.warningOrange,
+        backgroundColor: COLORS.warningYellow,
+        borderWidth: 2,
+    },
+    warningText: {
+        fontSize: 9,
+        color: COLORS.warningText,
+        marginTop: 2, // Increased from 1
+        fontStyle: 'italic',
+        textAlign: 'center',
+        lineHeight: 11, // Added
+        paddingHorizontal: 2, // Added
+    },
+    
     section: {
         margin: 16,
         backgroundColor: "#fff",
@@ -932,16 +1000,13 @@ const styles = StyleSheet.create({
         fontSize: 11,
         backgroundColor: "#fff",
     },
-    inputError: {
-        borderColor: COLORS.red,
-        borderWidth: 2,
-    },
     smallInput: {
-        width: 45,
+        width: 48, // Increased from 45
         textAlign: "center",
+        marginHorizontal: 1, // Added
     },
     timeActualInput: {
-        width: 50,
+        width: 52, // Slightly increased
         textAlign: "center",
     },
     setpointText: {
@@ -992,12 +1057,6 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: COLORS.darkGray,
     },
-    errorText: {
-        fontSize: 10,
-        color: COLORS.red,
-        marginTop: 2,
-        textAlign: "center",
-    },
     copRow: {
         borderWidth: 1,
         borderColor: "#ddd",
@@ -1029,7 +1088,7 @@ const styles = StyleSheet.create({
         marginBottom: 4,
     },
     copTimeInput: {
-        width: 60,
+        width: 62, // Slightly increased
         textAlign: "center",
     },
     copTempSection: {
@@ -1041,33 +1100,11 @@ const styles = StyleSheet.create({
         marginBottom: 4,
     },
     copTempInput: {
-        width: 80,
+        width: 82, // Slightly increased
         textAlign: "center",
     },
     copTimeRangeSection: {
         marginBottom: 8,
-    },
-    copDetailsSection: {
-        borderTopWidth: 1,
-        borderTopColor: "#e0e0e0",
-        paddingTop: 8,
-    },
-    copDetailItem: {
-        flexDirection: "row",
-        alignItems: "center",
-        marginBottom: 8,
-    },
-    copDetailLabel: {
-        fontSize: 12,
-        fontWeight: "bold",
-        color: COLORS.darkGray,
-        marginRight: 8,
-        minWidth: 60,
-    },
-    copDetailInput: {
-        flex: 1,
-        marginHorizontal: 4,
-        textAlign: "left",
     },
     kodeSection: {
         flexDirection: "row",
