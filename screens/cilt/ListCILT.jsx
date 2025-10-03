@@ -40,22 +40,38 @@ const COLOR_N = "#FFE9B0";
 const COLOR_R = "#F8C9CC";
 const COLOR_EMPTY = "#F4F6F8";
 
-// Normalisasi value, lalu tentukan warna BG berdasarkan huruf G/N/R
-function getResultColor(value /* string? */, goodRef, rejectRef) {
-  if (value === null || value === undefined) return COLOR_EMPTY;
-  const v = String(value).trim().toUpperCase();
+/**
+ * Normalisasi class hasil menjadi: "good" | "need" | "reject" | "default"
+ * - dukung literal: G/N/R, OK/NOT OK, GOOD/PASS, BAD/FAIL/NG
+ * - dukung angka: pakai evaluateValue(goodRef, rejectRef)
+ */
+function classifyResult(value, goodRef, rejectRef) {
+  if (value === null || value === undefined) return "default";
+  const raw = String(value).trim();
+  if (raw === "" || raw === "-") return "default";
 
-  // nilai langsung G/N/R
-  if (v === "G") return COLOR_G;
-  if (v === "N") return COLOR_N;
-  if (v === "R") return COLOR_R;
-  if (v === "-") return COLOR_EMPTY;
+  const v = raw.toUpperCase();
 
-  // fallback: jika value berisi teks lain (mis. "ok", "not ok")
-  if (["OK", "GOOD", "PASS"].includes(v)) return COLOR_G;
-  if (["BAD", "FAIL", "NOT OK", "NG"].includes(v)) return COLOR_R;
+  // Literal huruf
+  if (v === "G") return "good";
+  if (v === "N") return "need";
+  if (v === "R") return "reject";
 
-  // else: netral
+  // Literal teks
+  if (["OK", "GOOD", "PASS"].includes(v)) return "good";
+  if (["BAD", "FAIL", "NOT OK", "NG"].includes(v)) return "reject";
+
+  // Angka → pakai evaluator range
+  const st = evaluateValue(raw, goodRef, rejectRef); // "good" | "need" | "reject" | "default"
+  return st;
+}
+
+// REPLACE isi fungsi getResultColor lama Anda dengan versi ini
+function getResultColor(value, goodRef, rejectRef) {
+  const st = classifyResult(value, goodRef, rejectRef);
+  if (st === "good") return COLOR_G;
+  if (st === "reject") return COLOR_R;
+  if (st === "need") return COLOR_N;
   return COLOR_EMPTY;
 }
 
@@ -622,9 +638,10 @@ const htmlScrewCap = (item) => {
     `).join("");
 
   return `
-    <section class="report-section">
+    <section class="report-section screwcap-section">
+      ${renderPDFHeader('PEMAKAIAN SCREW CAP', item.line, 'PEMAKAIAN SCREW CAP')}
       <div class="report-date">${formatDDMonYY(item.date)}</div>
-      <h2 style="fontWeight: 'bold', textAlign: 'center', fontSize: 18, marginVertical: 8">PEMAKAIAN SCREW CAP</h2>
+      <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">PEMAKAIAN SCREW CAP</h2>
       <table>
         <thead>
           <tr>
@@ -656,9 +673,10 @@ const htmlPaperUsage = (item) => {
     `).join("");
 
   return `
-    <section class="report-section">
+    <section class="report-section paper-section">
+      ${renderPDFHeader('PEMAKAIAN PAPER', item.line, 'PEMAKAIAN PAPER')}
       <div class="report-date">${formatDDMonYY(item.date)}</div>
-      <h2 style="fontWeight: 'bold', textAlign: 'center', fontSize: 18, marginVertical: 8">PEMAKAIAN PAPER</h2>
+      <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">PEMAKAIAN PAPER</h2>
       <table>
         <thead>
           <tr>
@@ -690,9 +708,10 @@ const htmlH2O2 = (item) => {
     `).join("");
 
   return `
-    <section class="report-section">
+    <section class="report-section h2o2-section">
+      ${renderPDFHeader('PENGECEKAN H2O2 ( SPRAY )', item.line, 'PENGECEKAN H2O2 (SPRAY)')}
       <div class="report-date">${formatDDMonYY(item.date)}</div>
-      <h2 style="fontWeight: 'bold', textAlign: 'center', fontSize: 18, marginVertical: 8">PENGECEKAN H2O2 (SPRAY)</h2>
+      <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">PENGECEKAN H2O2 (SPRAY)</h2>
       <table>
         <thead>
           <tr>
@@ -705,7 +724,7 @@ const htmlH2O2 = (item) => {
   `;
 };
 
-/** =======================
+/** =========================
  * 5) PERFORMA RED & GREEN 
  * ========================
  */
@@ -969,13 +988,11 @@ const htmlChecklist = (item) => {
     Array.from({ length: end - start + 1 }, (_, i) => `<th>${start + i}</th>`).join("");
 
   // helper untuk klasifikasi tampilan “OK/NOT OK/Need”
-  const getResultClass = (raw) => {
-    const r = String(raw || "").trim().toLowerCase();
-    const isNotOk = r === "not ok" || r.includes("not ok") || r === "ng" || r === "bad" || r.includes("fail");
-    if (!r) return "result-default";
-    if (!isNotOk && (r === "ok" || r.includes("good") || r.includes("pass"))) return "result-good";
-    if (isNotOk) return "result-bad";
-    if (r.includes("need") || r.includes("perlu")) return "result-need";
+  const getResultClass = (raw, goodRef, rejectRef) => {
+    const st = classifyResult(raw, goodRef, rejectRef);
+    if (st === "good") return "result-good";   // hijau
+    if (st === "reject") return "result-bad";  // merah
+    if (st === "need") return "result-need";   // kuning
     return "result-default";
   };
 
@@ -1064,7 +1081,7 @@ const htmlChecklist = (item) => {
         // builder box per shift
         const renderSlot = (s) => {
           const val = latest[s]?.result;
-          const cls = !val ? "result-default" : getResultClass(val);
+          const cls = !val ? "result-default" : getResultClass(val, r.good, r.reject);
           const on = val ? "on" : "";
           const label = (cls === "result-good") ? "OK" : (cls === "result-bad") ? "NOT OK" : (val ? String(val) : "");
           return `<div class="shift-slot ${on} ${cls}"><span class="slot-num">${s}</span>${esc(label)}</div>`;
@@ -1171,9 +1188,10 @@ const htmlCILTGIGR = (item) => {
     `).join("");
 
   return `
-    <section class="report-section">
+    <section class="report-section ciltgigr-section">
+      ${renderPDFHeader('CILTGIGR', item.line, 'CILT GIGR')}
       <div class="report-date">${formatDDMonYY(item.date)}</div>
-      <h2 style="fontWeight: 'bold', textAlign: 'center', fontSize: 18, marginVertical: 8">CILT GIGR</h2>
+      <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">CILT GIGR</h2>
       <table>
         <thead>
           <tr><th>No</th><th>No Palet</th><th>No Carton</th><th>Jumlah Carton</th><th>Waktu</th><th>User</th><th>Time</th></tr>
@@ -1218,7 +1236,6 @@ const htmlCIP = async (cipSummary) => {
     (String(header.line || "").toUpperCase() === "LINE A")
       ? "LAPORAN CIP MESIN GALDI RG 280 UCS (LINE A)"
       : "LAPORAN CIP MESIN GALDI (LINE B,C,D)";
-  const headerHtml = renderPDFHeader("CIP", header.line, cipHeaderTitle);
 
   // --- 3) MAIN INFO (sama seperti layar Detail) ---
   const mainInfoSection = `
@@ -1379,14 +1396,12 @@ const htmlCIP = async (cipSummary) => {
 
   // --- 7) Susun halaman CIP ---
   return `
-    ${headerHtml}
     <section class="report-section cip-section-main">
+      ${renderPDFHeader("CIP", header.line, cipHeaderTitle)}
       <div class="report-date">${formatDDMonYY(header.date || new Date())}</div>
       <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">
         CIP REPORT
       </h2>
-
-      
       ${stepsSection}
       ${copSection}
       ${specialSection}
@@ -1411,7 +1426,6 @@ const htmlByPackage = async (item) => {
 const globalPdfCss = `
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; font-size: 12px; }
-    /* aktifkan counter halaman untuk PDF/print */
     @page { size: A4 landscape; margin: 12mm; }
     @media print {
       html, body { counter-reset: page 1; }
@@ -1422,7 +1436,7 @@ const globalPdfCss = `
     .pkg-root { counter-reset: page 1; }
     h1, h2 { color: #1d4ed8; margin: 15px 0 8px; text-align: center; }
     h3 { margin: 12px 0 6px; }
-    .header-container { border: 2px solid #d7d7d7; border-radius: 8px; background: #fff; margin-bottom: 12px; overflow: hidden; }
+    .header-container { border: 2px solid #d7d7d7; border-radius: 8px; background: #fff; margin-bottom: 12px; overflow: hidden; page-break-after: avoid; }
     .segregasi-section .header-container,
     .performa-section  .header-container,
     .checklist-section .header-container { margin-bottom: 10px; }
@@ -1447,28 +1461,35 @@ const globalPdfCss = `
     .general-info-table td { border: 1px solid black; padding: 6px; text-align: left; vertical-align: top; }
     .general-info-table td:first-child { width: 35%; }
     .general-info-table td:last-child { width: 65%; }
-    
-    /* Table styling */
+    .report-section.cip-section-main,
+    .report-section.segregasi-section,
+    .report-section.performa-section,
+    .report-section.checklist-section,
+    .report-section.screwcap-section,
+    .report-section.paper-section,
+    .report-section.h2o2-section,
+    .report-section.ciltgigr-section {
+      page-break-before: always;
+    }
     table { width: 100%; border-collapse: collapse; margin-top: 10px; }
     th, td { border: 1px solid black; padding: 6px; text-align: center; font-size: 11px; }
     th { background-color: #f2f2f2; font-weight: bold; }
-    
-    /* PERFORMA specific table styling */
     .performa-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
     .performa-table th, .performa-table td { border: 1px solid black; padding: 4px; font-size: 10px; }
     .performa-table th { background-color: #3bcd6b; color: white; font-weight: bold; text-align: center; }
     .actual-time-row td { background-color: #f8f9fa !important; font-weight: bold; }
-    
-    .report-section { margin-bottom: 25px; page-break-inside: avoid; }
+    .report-section { margin-bottom: 25px; }
+    .header-container { page-break-after: avoid; }
+    .report-date { page-break-after: avoid; }
+    h1, h2, h3 { page-break-after: avoid; }
+    .cip-steps-container .cip-step-row { page-break-inside: avoid; }
+    .cip-cop-row, .cip-special-row { page-break-inside: avoid; }
     .report-section.performa-section { page-break-before: always; margin-bottom: 30px; }
-    .report-section.cip-section { page-break-before: always; margin-bottom: 30px; }
     .section-title { background-color: #e8f4fd; padding: 8px; margin: 15px 0 10px 0; text-align: center; font-weight: bold; font-size: 16px; border-radius: 6px; border: 1px solid #1d4ed8; color: #333; }
     .section-description { text-align: center; margin-bottom: 10px; font-style: italic; color: #666; font-size: 11px; line-height: 14px; }
     img { display: block; margin: auto; }
     .cover { margin-bottom: 20px; text-align: center; page-break-after: avoid; }
     .footer { margin-top: 30px; text-align: center; font-size: 10px; color: #666; }
-    
-    /* Date grouping styles - FIXED: Reduced spacing for single package */
     .date-group-header { 
       background-color: #e3f2fd; 
       padding: 8px; 
@@ -1482,22 +1503,14 @@ const globalPdfCss = `
       page-break-before: always;
     }
     .date-group-header:first-child { page-break-before: avoid; }
-    
-    /* Single package styling - no extra margin */
     .single-package-section { margin-bottom: 5px; }
     .multiple-package-section { margin-bottom: 20px; }
-
     .slot-cell { padding:0; }
     .slot-wrap { display:flex; width:100%; height:100%; border-left:1px solid #ddd; border-right:1px solid #ddd; }
     .slot-half {
       flex:1; text-align:center; padding:6px 0;
-      border-top:1px solid #ddd; border-bottom:1px solid #ddd;
     }
-    .slot-half.left  { border-right:1px solid #ddd; }
-    .legend { display:flex; gap:12px; align-items:center; font-size:12px; margin:6px 0 12px 0; }
-    .legend .dot { width:14px; height:14px; border-radius:3px; display:inline-block; border:1px solid #c7c7c7; vertical-align:middle; margin-right:6px; }
-    .report-date { font-size: 8px; text-align: left; color: #555; margin-bottom: 4px; }
-  </style>
+</style>
 `;
 
 /* ===== Segregasi-specific styles ===== */
@@ -1966,7 +1979,7 @@ const performaPdfStyles = `
     background-color: #3bcd6b; 
     color: white; 
     font-weight: bold; 
-    text-align: center; 
+    text-align: center !important; /* FIXED: Center align header text */
   }
   
   /* Column width specifications matching DetailLaporanShiftly */
