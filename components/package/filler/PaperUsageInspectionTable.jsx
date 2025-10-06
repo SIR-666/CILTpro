@@ -16,6 +16,9 @@ const PaperUsageInspectionTable = ({
   processOrder,
   product,
 }) => {
+  // === Checkbox "Cek Alergen Kemasan" ===
+  const [cekAlergenKemasan, setCekAlergenKemasan] = useState(false);
+
   const [tableData, setTableData] = useState(
     Array(20)
       .fill()
@@ -43,18 +46,22 @@ const PaperUsageInspectionTable = ({
   };
 
   // Storage key spesifik untuk paper usage dengan processOrder dan product
-  const getStorageKey = () => 
+  const getStorageKey = () =>
     `paper_usage_${processOrder || 'default'}_${product || 'no_product'}`;
+  const getFlagKey = () =>
+    `${getStorageKey()}_cekAlergen`;
 
   // Load data from AsyncStorage
   const loadDataFromStorage = async () => {
     try {
       const storageKey = getStorageKey();
       const storedData = await AsyncStorage.getItem(storageKey);
+      const storedFlag = await AsyncStorage.getItem(getFlagKey());
       if (storedData) {
         const parsedData = JSON.parse(storedData);
         setTableData(parsedData);
-        onDataChange(parsedData);
+        setCekAlergenKemasan(storedFlag === "true");
+        onDataChange(parsedData.map(r => ({ ...r, cekAlergenKemasan: storedFlag === "true" })));
         console.log(`Loaded paper data for key: ${storageKey}`);
       } else {
         // Jika tidak ada data tersimpan, set ke default empty
@@ -71,7 +78,8 @@ const PaperUsageInspectionTable = ({
             saved: false,
           }));
         setTableData(emptyData);
-        onDataChange(emptyData);
+        setCekAlergenKemasan(false);
+        onDataChange(emptyData.map(r => ({ ...r, cekAlergenKemasan: false })));
         console.log(`No stored data found for key: ${storageKey}, using empty data`);
       }
     } catch (error) {
@@ -90,11 +98,20 @@ const PaperUsageInspectionTable = ({
     }
   };
 
+  const saveFlagToStorage = async (flag) => {
+    try {
+      await AsyncStorage.setItem(getFlagKey(), flag ? "true" : "false");
+    } catch (e) {
+      console.error("Error saving flag:", e);
+    }
+  };
+
   // Clear data from AsyncStorage (dipanggil setelah submit berhasil)
   const clearStorageData = async () => {
     try {
       const storageKey = getStorageKey();
       await AsyncStorage.removeItem(storageKey);
+      await AsyncStorage.removeItem(getFlagKey());
       console.log(`Paper data cleared for key: ${storageKey}`);
     } catch (error) {
       console.error('Error clearing paper data from storage:', error);
@@ -113,13 +130,22 @@ const PaperUsageInspectionTable = ({
     }
   }, [processOrder, product]);
 
-  // Handle initialData dari parent (jika ada)
+  // Handle initialData dari parent (hanya sekali saat mount)
   useEffect(() => {
-    if (initialData.length > 0) {
+    if (initialData && initialData.length > 0) {
       setTableData(initialData);
-      onDataChange(initialData);
+      const flag = !!initialData[0]?.cekAlergenKemasan;
+      setCekAlergenKemasan(flag);
+    } else {
+      loadDataFromStorage(); // panggil load async sekali
     }
-  }, [initialData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // kosong → dijalankan sekali saja
+
+  // Emit ke parent setiap tableData atau cekAlergenKemasan berubah
+  useEffect(() => {
+    onDataChange(tableData.map(r => ({ ...r, cekAlergenKemasan })));
+  }, [tableData, cekAlergenKemasan]);
 
   const handleInputChange = (text, index, field) => {
     const now = new Date();
@@ -135,7 +161,7 @@ const PaperUsageInspectionTable = ({
     // Jika field yang diubah adalah qtyLabel dan sudah diisi, auto save
     if (field === 'qtyLabel' && text.trim() !== '') {
       updated[index].saved = true;
-      
+
       // Auto save setelah delay singkat untuk memastikan input selesai
       setTimeout(() => {
         saveDataToStorage(updated);
@@ -150,7 +176,7 @@ const PaperUsageInspectionTable = ({
     }
 
     setTableData(updated);
-    onDataChange(updated);
+    onDataChange(updated.map(r => ({ ...r, cekAlergenKemasan })));
   };
 
   // Function untuk mendapatkan style row berdasarkan status saved
@@ -163,6 +189,22 @@ const PaperUsageInspectionTable = ({
 
   return (
     <View style={styles.table}>
+      {/* === Baris Checkbox Alergen === */}
+      <View style={styles.alergenRow}>
+        <TouchableOpacity
+          onPress={() => {
+            const next = !cekAlergenKemasan;
+            setCekAlergenKemasan(next);
+            saveFlagToStorage(next);
+            onDataChange(tableData.map(r => ({ ...r, cekAlergenKemasan: next })));
+          }}
+          style={[styles.checkbox, cekAlergenKemasan && styles.checkboxChecked]}
+        >
+          {cekAlergenKemasan && <Text style={styles.checkboxTick}>✓</Text>}
+        </TouchableOpacity>
+        <Text style={styles.alergenLabel}>CEK LABEL ALERGEN KEMASAN</Text>
+      </View>
+
       <View style={styles.headerRow}>
         <Text style={styles.headerCell}>Jam</Text>
         <Text style={styles.headerCell}>Box No.</Text>
@@ -206,7 +248,7 @@ const PaperUsageInspectionTable = ({
             placeholder="Box No."
             onChangeText={(text) => handleInputChange(text, index, "boxNo")}
           />
-          
+
           {/* PD. Paper dengan Date Picker */}
           <TouchableOpacity
             style={styles.cell}
@@ -230,7 +272,7 @@ const PaperUsageInspectionTable = ({
               }}
             />
           )}
-          
+
           {/* QTY Label - Numeric Input */}
           <TextInput
             style={[
@@ -246,7 +288,7 @@ const PaperUsageInspectionTable = ({
           />
         </View>
       ))}
-      
+
       {/* Indikator status */}
       <View style={styles.statusContainer}>
         <View style={styles.statusIndicator}>
@@ -321,6 +363,22 @@ const styles = StyleSheet.create({
     color: "#666",
     fontStyle: "italic",
   },
+  alergenRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 8,
+    borderBottomWidth: 1,
+    borderColor: "#ccc",
+    backgroundColor: "#fafafa",
+  },
+  alergenLabel: { fontWeight: "700" },
+  checkbox: {
+    width: 20, height: 20, borderWidth: 2, borderColor: "#333",
+    alignItems: "center", justifyContent: "center",
+  },
+  checkboxChecked: { backgroundColor: "#e6ffe6", borderColor: "#22c55e" },
+  checkboxTick: { fontSize: 14, fontWeight: "900" },
 });
 
 export default PaperUsageInspectionTable;
