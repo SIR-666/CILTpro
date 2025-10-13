@@ -25,6 +25,7 @@ const DetailLaporanPaperUsage = ({ route, navigation }) => {
 
   // Parse the inspection data (string to object)
   const inspectionData = JSON.parse(item.inspectionData);
+  const cekAlergenKemasan = Array.isArray(inspectionData) && !!inspectionData[0]?.cekAlergenKemasan;
 
   const handleLanjutkanDraft = (item) => {
     navigation.navigate("EditCilt", { item });
@@ -37,9 +38,9 @@ const DetailLaporanPaperUsage = ({ route, navigation }) => {
       <table class="general-info-table">
         <tr>
           <td><strong>Date:</strong> ${moment(
-            item.date,
-            "YYYY-MM-DD HH:mm:ss.SSS"
-          ).format("DD/MM/YY HH:mm:ss")}</td>
+      item.date,
+      "YYYY-MM-DD HH:mm:ss.SSS"
+    ).format("DD/MM/YY HH:mm:ss")}</td>
           <td><strong>Product:</strong> ${item.product}</td>
         </tr>
         <tr>
@@ -55,6 +56,16 @@ const DetailLaporanPaperUsage = ({ route, navigation }) => {
           <td><strong>Group:</strong>  </td>
         </tr>
       </table>
+    `;
+
+    // Badge/box "Cek Alergen"
+    const alergenBox = `
+      <div style="display:flex;align-items:center;gap:8px;margin:4px 0 8px 0;">
+        <div style="width:14px;height:14px;border:2px solid #111;display:flex;align-items:center;justify-content:center;">
+          ${cekAlergenKemasan ? "✓" : ""}
+        </div>
+        <span style="font-weight:700;">CEK LABEL ALERGEN KEMASAN</span>
+      </div>
     `;
 
     // Mapping inspectionData ke dalam tabel
@@ -133,6 +144,7 @@ const DetailLaporanPaperUsage = ({ route, navigation }) => {
           <h2>PT. GREENFIELDS INDONESIA</h2>
           <div class="report-info">
             ${formattedData}
+            ${alergenBox}
           </div>
           <table>
             <thead>
@@ -222,6 +234,10 @@ const DetailLaporanPaperUsage = ({ route, navigation }) => {
                 "DD/MM/YY HH:mm:ss"
               )}
             </Text>
+          </Text>
+          <Text style={styles.infoTextBold}>
+            Cek Alergen:{"  "}
+            <Text style={styles.infoText}>{cekAlergenKemasan ? "✓ (Dicek)" : "Tidak"}</Text>
           </Text>
         </View>
 

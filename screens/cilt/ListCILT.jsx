@@ -93,8 +93,8 @@ const fmtDT = (d) =>
 
 const formatDDMonYY = (dateLike) => {
   const monthsShort = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
   ];
   const d = dateLike instanceof Date ? dateLike : new Date(dateLike || Date.now());
   const pad2 = (n) => String(n).padStart(2, "0");
@@ -659,7 +659,9 @@ const htmlScrewCap = (item) => {
  * =========================
  */
 const htmlPaperUsage = (item) => {
-  const rows = parseInspection(item.inspectionData)
+  const parsed = parseInspection(item.inspectionData);
+  const cekAlergenKemasan = Array.isArray(parsed) && !!parsed[0]?.cekAlergenKemasan;
+  const rows = parsed
     .map((r, i) => `
       <tr>
         <td>${i + 1}</td>
@@ -676,7 +678,16 @@ const htmlPaperUsage = (item) => {
     <section class="report-section paper-section">
       ${renderPDFHeader('PEMAKAIAN PAPER', item.line, 'PEMAKAIAN PAPER')}
       <div class="report-date">${formatDDMonYY(item.date)}</div>
-      <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">PEMAKAIAN PAPER</h2>
+      <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;margin:8px 0;">
+        <div></div>
+        <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 0;">PEMAKAIAN PAPER</h2>
+        <div style="justify-self:end;display:flex;align-items:center;gap:8px;">
+          <div style="width:14px;height:14px;border:2px solid #111;display:flex;align-items:center;justify-content:center;">
+            ${cekAlergenKemasan ? "✓" : ""}
+          </div>
+          <span style="font-weight:700;">CEK LABEL ALERGEN KEMASAN</span>
+        </div>
+      </div>
       <table>
         <thead>
           <tr>
@@ -1419,7 +1430,7 @@ const htmlByPackage = async (item) => {
   if (t === "PERFORMA RED AND GREEN") return await htmlShiftly(item);
   if (t === "CHECKLIST CILT") return htmlChecklist(item);
   if (t === "CILTGIGR") return htmlCILTGIGR(item);
-  return htmlChecklist(item);
+  return "";
 };
 
 /* ===== Global CSS untuk PDF - base (tetap) ===== */
@@ -1427,12 +1438,11 @@ const globalPdfCss = `
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; font-size: 12px; }
     @page { size: A4 landscape; margin: 12mm; }
-    @media print {
-      html, body { counter-reset: page 1; }
-    }
-    .page-num::after   { content: counter(page); }
-    .page-total::after { content: counter(pages); }
-    .page-xofn::after  { content: counter(page) " dari " counter(pages); }
+    /* Matikan footer page counter supaya tidak tampil di kanan bawah */
+    @page { @bottom-right { content: none; } }
+    @media print { html, body { counter-reset: page 1; } }
+    /* Biarkan counter tampil di sel FRM → Hal */
+    .meta-value .page-xofn::after { content: counter(page) " dari " counter(pages); }
     .pkg-root { counter-reset: page 1; }
     h1, h2 { color: #1d4ed8; margin: 15px 0 8px; text-align: center; }
     h3 { margin: 12px 0 6px; }
@@ -2439,6 +2449,9 @@ const ListCILT = ({ navigation }) => {
 
   const fetchCIPForFilters = async () => {
     try {
+      if (selectedPackage && selectedPackage !== "REPORT CIP" && selectedPackage !== "CIP") {
+        return [];
+      }
       const params = {};
       if (selectedDate) params.date = moment(selectedDate).format("YYYY-MM-DD");
       if (selectedShift && selectedShift.trim() !== "") params.shift = selectedShift.trim();
@@ -2486,9 +2499,13 @@ const ListCILT = ({ navigation }) => {
     setIsDownloading(true);
     try {
       const shiftData = dataGreentag.filter((item) => {
-        const matchesShift = selectedShift ? item.shift === selectedShift : false;
+        const matchesShift = selectedShift ? item.shift === selectedShift : true;
         const matchesSearch = item.processOrder.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesDate = selectedDate ? moment(item.date).isSame(moment(selectedDate), "day") : true;
+        const matchesDate = selectedDate
+          ? (item.packageType === "CHECKLIST CILT"
+            ? moment(item.date).isSame(moment(selectedDate), "month")
+            : moment(item.date).isSame(moment(selectedDate), "day"))
+          : true;
         const matchesPlant = selectedPlant ? item.plant === selectedPlant : true;
         const matchesLine = selectedLine ? item.line === selectedLine : true;
         const matchesPackage = selectedPackage ? item.packageType === selectedPackage : true;
@@ -2502,7 +2519,8 @@ const ListCILT = ({ navigation }) => {
         );
       });
 
-      const cipList = await fetchCIPForFilters();
+      const includeCIP = !selectedPackage || selectedPackage === "REPORT CIP" || selectedPackage === "CIP";
+      const cipList = includeCIP ? await fetchCIPForFilters() : [];
 
       if (shiftData.length === 0 && cipList.length === 0) {
         Alert.alert("Info", "Tidak ada data untuk filter yang dipilih");
@@ -2540,9 +2558,8 @@ const ListCILT = ({ navigation }) => {
       // data utama sesuai filter aktif pada List (sudah dihitung oleh useMemo filteredData)
       const rawData = filteredData;
 
-      // Jika kamu sudah punya util untuk ambil CIP by filter, pakai itu.
-      // Kalau belum ada, kosongkan saja (PDF tetap dibuat dari rawData).
-      const cipList = typeof fetchCIPForFilters === "function"
+      const includeCIP = !selectedPackage || selectedPackage === "REPORT CIP" || selectedPackage === "CIP";
+      const cipList = includeCIP && typeof fetchCIPForFilters === "function"
         ? await fetchCIPForFilters()
         : [];
 
@@ -2746,6 +2763,9 @@ const ListCILT = ({ navigation }) => {
   };
 
   /* ---------- List & Filter ---------- */
+  // helper: deteksi package CILT (aman terhadap null / variasi kapital)
+  const isChecklistCILT = (pkg) => String(pkg || "").toUpperCase().includes("CHECKLIST CILT");
+
   // --- REPLACE: cara menyiapkan baris untuk tabel
   const baseRows = dataGreentag; // baris paket-paket CILT existing (CHECKLIST CILT, SEGREGASI, dll.)
   let rowsForTable;
@@ -2765,7 +2785,11 @@ const ListCILT = ({ navigation }) => {
     return rowsForTable
       .filter((item) => {
         const matchesSearch = item.processOrder?.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesDate = selectedDate ? moment(item.date).isSame(moment(selectedDate), "day") : true;
+        const matchesDate = selectedDate
+          ? (item.packageType === "CHECKLIST CILT"
+            ? moment(item.date).isSame(moment(selectedDate), "month")
+            : moment(item.date).isSame(moment(selectedDate), "day"))
+          : true;
         const matchesPlant = selectedPlant ? item.plant === selectedPlant : true;
         const matchesLine = selectedLine ? item.line === selectedLine : true;
         const matchesPackage = selectedPackage ? item.packageType === selectedPackage : true;
@@ -3057,6 +3081,12 @@ const ListCILT = ({ navigation }) => {
               : "Pilih minimal satu filter untuk mengaktifkan download"}
           </Text>
         </View>
+        {/* Notifikasi kecil di UI jika package = CHECKLIST CILT dan tanggal dipilih */}
+        {selectedDate && selectedPackage === "CHECKLIST CILT" && (
+          <Text style={{ textAlign: "center", fontSize: 12, opacity: 0.7, marginTop: 6 }}>
+            Catatan: Saat package = CHECKLIST CILT, tombol Download akan mengambil data untuk 1 bulan penuh.
+          </Text>
+        )}
         <TouchableOpacity
           style={[
             styles.downloadButton,

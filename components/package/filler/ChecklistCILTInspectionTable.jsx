@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   Platform,
   StyleSheet,
@@ -9,6 +9,7 @@ import {
 
 import { api } from "../../../utils/axiosInstance";
 import ReusableOfflineUploadImage from "../../Reusable/ReusableOfflineUploadImage";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const ChecklistCILTInspectionTable = ({
   username,
@@ -21,6 +22,75 @@ const ChecklistCILTInspectionTable = ({
 }) => {
   const [inspectionData, setInspectionData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+
+  // ===== Storage key generation (standardized with username) =====
+  const getStorageKey = useCallback(() => {
+    const pl = (plant || "plant").replace(/\s+/g, "_");
+    const ln = (line || "line").replace(/\s+/g, "_");
+    const mc = (machine || "machine").replace(/\s+/g, "_");
+    const tp = (type || "type").replace(/\s+/g, "_");
+    const usr = (username || "user").replace(/\s+/g, "_");
+    return `checklist_cilt_${pl}_${ln}_${mc}_${tp}__${usr}`;
+  }, [plant, line, machine, type, username]);
+
+  // ===== Save to AsyncStorage =====
+  const saveToStorage = useCallback(async (data) => {
+    try {
+      await AsyncStorage.setItem(getStorageKey(), JSON.stringify(data));
+    } catch (error) {
+      console.error("[ChecklistCILT] Error saving to storage:", error);
+    }
+  }, [getStorageKey]);
+
+  // ===== Load from AsyncStorage =====
+  const loadFromStorage = useCallback(async () => {
+    try {
+      const stored = await AsyncStorage.getItem(getStorageKey());
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setInspectionData(parsed);
+        onDataChange(parsed);
+        console.log(`[ChecklistCILT] Loaded from storage`);
+        return true;
+      }
+    } catch (error) {
+      console.error("[ChecklistCILT] Error loading from storage:", error);
+    }
+    return false;
+  }, [getStorageKey, onDataChange]);
+
+  // ===== Clear storage =====
+  const clearChecklistStorage = useCallback(async () => {
+    try {
+      await AsyncStorage.removeItem(getStorageKey());
+      console.log(`[ChecklistCILT] Storage cleared`);
+    } catch (error) {
+      console.error("[ChecklistCILT] Error clearing storage:", error);
+    }
+  }, [getStorageKey]);
+
+  useEffect(() => {
+    window.clearChecklistStorage = clearChecklistStorage;
+    global.clearChecklistStorage = clearChecklistStorage;
+    return () => {
+      delete window.clearChecklistStorage;
+      delete global.clearChecklistStorage;
+    };
+  }, [clearChecklistStorage]);
+
+  // ===== Flush on unmount =====
+  useEffect(() => {
+    return () => {
+      if (inspectionData.length > 0) {
+        try {
+          AsyncStorage.setItem(getStorageKey(), JSON.stringify(inspectionData));
+          console.log(`[ChecklistCILT] Flushed on unmount`);
+        } catch (error) {
+          console.error("[ChecklistCILT] Error flushing:", error);
+        }
+      }
+    };
+  }, [getStorageKey, inspectionData]);
 
   const uploadImageToServer = async (uri) => {
     const formData = new FormData();
@@ -59,6 +129,7 @@ const ChecklistCILTInspectionTable = ({
     const data = [...inspectionData];
     data[index].picture = uri;
     setInspectionData(data);
+    saveToStorage(data);
   };
 
   const fetchInspection = async (plant, line, machine, type) => {
@@ -86,6 +157,7 @@ const ChecklistCILTInspectionTable = ({
       }));
 
       setInspectionData(formattedData);
+      saveToStorage(formattedData);
     } catch (error) {
       console.error("Error fetching data:", error);
     } finally {
@@ -94,11 +166,17 @@ const ChecklistCILTInspectionTable = ({
   };
 
   useEffect(() => {
-    if (initialData.length > 0) {
+    // Priority: initialData > storage > fetch from API
+    if (initialData && initialData.length > 0) {
       setInspectionData(initialData);
       onDataChange(initialData);
-    } else if (plant && line && machine && type) {
-      fetchInspection(plant, line, machine, type);
+    } else {
+      loadFromStorage().then((hasStoredData) => {
+        if (!hasStoredData && plant && line && machine && type) {
+          // No stored data, fetch from API
+          fetchInspection(plant, line, machine, type);
+        }
+      });
     }
   }, [plant, line, machine, type, initialData]);
 
@@ -119,6 +197,7 @@ const ChecklistCILTInspectionTable = ({
 
     setInspectionData(updated);
     onDataChange(updated);
+    saveToStorage(updated);
   };
 
   const renderResultButtons = (item, index) => {
