@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   StyleSheet,
   Text,
@@ -33,53 +33,32 @@ const ScrewCapInspectionTable = ({
 
   const [showTimePickerIndex, setShowTimePickerIndex] = useState(null);
 
-  // Storage key spesifik untuk screw cap usage dengan processOrder dan product
-  const getStorageKey = () => 
-    `screwcap_usage_${processOrder || 'default'}_${product || 'no_product'}`;
+  // Storage key spesifik untuk screw cap usage dengan processOrder, product, dan username
+  const getStorageKey = () =>
+    `screwcap_usage_${processOrder || "default"}_${product || "no_product"}__${(username || "user").replace(/\s+/g, "_")}`;
 
   // Load data from AsyncStorage
-  const loadDataFromStorage = async () => {
-    try {
-      const storageKey = getStorageKey();
-      const storedData = await AsyncStorage.getItem(storageKey);
-      if (storedData) {
-        const parsedData = JSON.parse(storedData);
-        setTableData(parsedData);
-        onDataChange(parsedData);
-        console.log(`Loaded screw cap data for key: ${storageKey}`);
-      } else {
-        // Jika tidak ada data tersimpan, set ke default empty
-        const emptyData = Array(10)
-          .fill()
-          .map((_, index) => ({
-            id: index + 1,
-            jam: "",
-            ofNo: "",
-            boxNo: "",
-            qtyLabel: "",
-            user: "",
-            time: "",
-            saved: false,
-          }));
-        setTableData(emptyData);
-        onDataChange(emptyData);
-        console.log(`No stored data found for key: ${storageKey}, using empty data`);
+  useEffect(() => {
+    if (!processOrder || !product) return;
+    (async () => {
+      const stored = await AsyncStorage.getItem(getStorageKey());
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setTableData(parsed);
+      } else if (initialData.length) {
+        setTableData(initialData);
       }
-    } catch (error) {
-      console.error('Error loading screw cap data from storage:', error);
-    }
-  };
+    })();
+  }, [processOrder, product, username]);
 
   // Save data to AsyncStorage
-  const saveDataToStorage = async (data) => {
+  const saveDataToStorage = useCallback(async (data) => {
     try {
-      const storageKey = getStorageKey();
-      await AsyncStorage.setItem(storageKey, JSON.stringify(data));
-      console.log(`Screw cap data saved with key: ${storageKey}`);
-    } catch (error) {
-      console.error('Error saving screw cap data to storage:', error);
+      await AsyncStorage.setItem(getStorageKey(), JSON.stringify(data));
+    } catch (e) {
+      console.error(e);
     }
-  };
+  }, [processOrder, product, username]);
 
   // Clear data from AsyncStorage (dipanggil setelah submit berhasil)
   const clearStorageData = async () => {
@@ -97,20 +76,16 @@ const ScrewCapInspectionTable = ({
     window.clearScrewCapStorage = clearStorageData;
   }, [processOrder, product]);
 
-  // Load data ketika processOrder atau product berubah
+  // flush on unmount
   useEffect(() => {
-    if (processOrder && product) {
-      loadDataFromStorage();
-    }
-  }, [processOrder, product]);
-
-  // Handle initialData dari parent (jika ada)
-  useEffect(() => {
-    if (initialData.length > 0) {
-      setTableData(initialData);
-      onDataChange(initialData);
-    }
-  }, [initialData]);
+    return () => {
+      try {
+        AsyncStorage.setItem(getStorageKey(), JSON.stringify(tableData));
+      } catch (e) {
+        console.error(e);
+      }
+    };
+  }, [processOrder, product, username, tableData]);
 
   const handleInputChange = (text, index, field) => {
     const now = new Date();
@@ -118,7 +93,7 @@ const ScrewCapInspectionTable = ({
       now.getMinutes()
     ).padStart(2, "0")}`;
 
-    const updated = [...tableData];
+    let updated = [...tableData];
     updated[index][field] = text;
     updated[index].user = username;
     updated[index].time = formattedTime;
@@ -126,22 +101,56 @@ const ScrewCapInspectionTable = ({
     // Jika field yang diubah adalah qtyLabel dan sudah diisi, auto save
     if (field === 'qtyLabel' && text.trim() !== '') {
       updated[index].saved = true;
-      
-      // Auto save setelah delay singkat untuk memastikan input selesai
       setTimeout(() => {
         saveDataToStorage(updated);
       }, 500);
     } else if (field === 'qtyLabel' && text.trim() === '') {
-      // Reset saved status jika qtyLabel dikosongkan
       updated[index].saved = false;
-      // Juga save perubahan ini
       setTimeout(() => {
         saveDataToStorage(updated);
       }, 500);
     }
 
+    // Tambah baris baru jika inputan terakhir diisi
+    if (
+      index === updated.length - 1 &&
+      field !== 'saved' &&
+      text.trim() !== '' &&
+      updated.length < 100 // batas maksimal baris
+    ) {
+      updated.push({
+        id: updated.length + 1,
+        jam: "",
+        ofNo: "",
+        boxNo: "",
+        qtyLabel: "",
+        user: "",
+        time: "",
+        saved: false,
+      });
+    }
+
     setTableData(updated);
     onDataChange(updated);
+  };
+
+  /** ====== HAPUS ROW ====== */
+  const removeRow = (index) => {
+    if (showTimePickerIndex === index) setShowTimePickerIndex(null);
+
+    let updated = [...tableData];
+    updated.splice(index, 1);
+
+    if (updated.length === 0) {
+      updated = [
+        { id: 1, jam: "", ofNo: "", boxNo: "", qtyLabel: "", user: "", time: "", saved: false },
+      ];
+    }
+    updated = updated.map((r, i) => ({ ...r, id: i + 1 }));
+
+    setTableData(updated);
+    onDataChange(updated);
+    saveDataToStorage(updated);
   };
 
   // Function untuk mendapatkan style row berdasarkan status saved
@@ -159,6 +168,7 @@ const ScrewCapInspectionTable = ({
         <Text style={styles.headerCell}>Of No.</Text>
         <Text style={styles.headerCell}>Box No.</Text>
         <Text style={styles.headerCell}>Qty Label</Text>
+        <Text style={[styles.headerCell, styles.actionsHead]}></Text>
       </View>
 
       {tableData.map((item, index) => (
@@ -190,17 +200,19 @@ const ScrewCapInspectionTable = ({
             />
           )}
 
-          {/* Kolom lainnya tetap */}
+          {/* Kolom lainnya */}
           <TextInput
             style={styles.cell}
             value={item.ofNo}
             placeholder="Of No."
+            keyboardType="numeric"
             onChangeText={(text) => handleInputChange(text, index, "ofNo")}
           />
           <TextInput
             style={styles.cell}
             value={item.boxNo}
             placeholder="Box No."
+            keyboardType="numeric"
             onChangeText={(text) => handleInputChange(text, index, "boxNo")}
           />
           <TextInput
@@ -215,9 +227,14 @@ const ScrewCapInspectionTable = ({
               handleInputChange(text, index, "qtyLabel")
             }
           />
+
+          {/* HAPUS (X) */}
+          <TouchableOpacity style={[styles.cell, styles.actionsCell]} onPress={() => removeRow(index)}>
+            <Text style={styles.xText}>×</Text>
+          </TouchableOpacity>
         </View>
       ))}
-      
+
       {/* Indikator status */}
       <View style={styles.statusContainer}>
         <View style={styles.statusIndicator}>
@@ -247,6 +264,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     textAlign: "center",
   },
+  actionsHead: { maxWidth: 40, flexBasis: 40, flexGrow: 0 },
   row: {
     flexDirection: "row",
     borderBottomWidth: 1,
@@ -263,6 +281,15 @@ const styles = StyleSheet.create({
     borderColor: "#ccc",
     backgroundColor: "transparent",
   },
+  actionsCell: {
+    maxWidth: 40,
+    flexBasis: 40,
+    flexGrow: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 0,
+  },
+  xText: { fontSize: 18, lineHeight: 18, fontWeight: "800" },
   savedCell: {
     backgroundColor: "#e8f5e8",
     borderColor: "#4CAF50",

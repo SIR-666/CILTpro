@@ -1,34 +1,23 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  TextInput,
-  Pressable,
-  Image,
-  ScrollView,
+  View, Text, StyleSheet, TouchableOpacity, TextInput,
+  Pressable, Image, ScrollView
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import moment from "moment-timezone";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 /* ========== Utils ========== */
 const pad2 = (n) => String(n).padStart(2, "0");
-const formatDMY = (d) =>
-  `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
+const formatDMY = (d) => `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
 const toDate = (val) => {
   const m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(val || "");
-  if (m) {
-    const [, dd, mm, yyyy] = m;
-    return new Date(Number(yyyy), Number(mm) - 1, Number(dd));
-  }
+  if (m) { const [, dd, mm, yyyy] = m; return new Date(Number(yyyy), Number(mm) - 1, Number(dd)); }
   return new Date();
 };
 const formatHM = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-const monthsShort = [
-  "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-];
+const monthsShort = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const formatDDMonYY = (dateLike) => {
   const d = dateLike instanceof Date ? dateLike : new Date(dateLike || Date.now());
   return `${pad2(d.getDate())}-${monthsShort[d.getMonth()]}-${String(d.getFullYear()).slice(-2)}`;
@@ -39,7 +28,7 @@ const getLineLetter = (lineName) => {
   return m ? m[1] : "";
 };
 
-/* ========== Field Components ========== */
+/* ========== Reusable date/time input ========== */
 const DateField = ({ value, onChange, placeholder = "dd/mm/yyyy" }) => {
   const openPicker = () => {
     const initial = value ? toDate(value) : new Date();
@@ -63,8 +52,7 @@ const TimeField = ({ value, onChange, placeholder = "HH:MM" }) => {
     const initial = new Date();
     if (value && /^(\d{2}):(\d{2})$/.test(value)) {
       const [h, m] = value.split(":").map((x) => parseInt(x, 10));
-      initial.setHours(h);
-      initial.setMinutes(m);
+      initial.setHours(h); initial.setMinutes(m);
     }
     DateTimePickerAndroid.open({
       value: initial,
@@ -86,434 +74,464 @@ const TimeField = ({ value, onChange, placeholder = "HH:MM" }) => {
 const ReportHeader = ({
   companyName = "PT. GREENFIELDS INDONESIA",
   title = "LAPORAN PRODUKSI MESIN  GALDI 280 UCS",
-  headerMeta = {
-    frm: "FIL - 010 - 02",
-    rev: "",
-    berlaku: formatDDMonYY(new Date()),
-    hal: "1 dari 3",
-  },
-}) => {
-  return (
-    <View style={styles.headerWrap}>
-      <View style={styles.headerRowTop}>
-        <View style={styles.headerLogoBox}>
-          <Image
-            source={require("../../../assets/GreenfieldsLogo_Green.png")}
-            style={styles.headerLogoImg}
-            resizeMode="contain"
-          />
-        </View>
-        <View style={styles.headerCompanyBox}>
-          <Text style={styles.headerCompanyText}>{companyName}</Text>
-        </View>
-        <View style={styles.headerMetaBox}>
-          <View style={styles.metaRow}><Text style={styles.metaKey}>FRM</Text><Text style={styles.metaVal}>{headerMeta.frm}</Text></View>
-          <View style={styles.metaRow}><Text style={styles.metaKey}>Rev</Text><Text style={styles.metaVal}>{headerMeta.rev || "-"}</Text></View>
-          <View style={styles.metaRow}><Text style={styles.metaKey}>Berlaku</Text><Text style={styles.metaVal}>{headerMeta.berlaku}</Text></View>
-          <View style={styles.metaRow}><Text style={styles.metaKey}>Hal</Text><Text style={styles.metaVal}>{headerMeta.hal}</Text></View>
-        </View>
+  headerMeta = { frm: "FIL - 010 - 02", rev: "", berlaku: formatDDMonYY(new Date()), hal: "1 dari 3" },
+}) => (
+  <View style={styles.headerWrap}>
+    <View style={styles.headerRowTop}>
+      <View style={styles.headerLogoBox}>
+        <Image source={require("../../../assets/GreenfieldsLogo_Green.png")} style={styles.headerLogoImg} resizeMode="contain" />
       </View>
-      <View style={styles.headerRowBottom}>
-        <Text style={styles.headerLeftCell}>JUDUL</Text>
-        <Text style={styles.headerTitleCell}>{title}</Text>
+      <View style={styles.headerCompanyBox}>
+        <Text style={styles.headerCompanyText}>{companyName}</Text>
+      </View>
+      <View style={styles.headerMetaBox}>
+        <View style={styles.metaRow}><Text style={styles.metaKey}>FRM</Text><Text style={styles.metaVal}>{headerMeta.frm}</Text></View>
+        <View style={styles.metaRow}><Text style={styles.metaKey}>Rev</Text><Text style={styles.metaVal}>{headerMeta.rev || "-"}</Text></View>
+        <View style={styles.metaRow}><Text style={styles.metaKey}>Berlaku</Text><Text style={styles.metaVal}>{headerMeta.berlaku}</Text></View>
+        <View style={styles.metaRow}><Text style={styles.metaKey}>Hal</Text><Text style={styles.metaVal}>{headerMeta.hal}</Text></View>
       </View>
     </View>
-  );
-};
+    <View style={styles.headerRowBottom}>
+      <Text style={styles.headerLeftCell}>JUDUL</Text>
+      <Text style={styles.headerTitleCell}>{title}</Text>
+    </View>
+  </View>
+);
 
-/* ========== Main Component ========== */
+/* ========== Main (merged) ========== */
 const SegregasiInspectionTable = ({
   username,
-  onDataChange,            // function from parent
+  onDataChange,
   initialData = [],
-  product,                 // selected product from parent
+  product,
   productOptions = [],
-  onDescriptionChange,     // function from parent
-  initialDescription = [],
   headerMeta,
   lineName,
+  packageType,
+  shift,
+  processOrder,
+  onEffectiveProductChange,
 }) => {
   const isInitializingRef = useRef(false);
-  const lastProductRef = useRef(product);
+  const hadInitialDataRef = useRef(false);
+  const isLoadingRef = useRef(false);
   const lastLineNameRef = useRef(lineName);
 
-  // signatures to prevent infinite loops when syncing to parent
-  const lastDescSigRef = useRef("");
-  const lastInsSigRef = useRef("");
+  // >>> PATCH: base product penentu FLAVOUR (tetap mengikuti START)
+  const baseProductRef = useRef(product || "");
 
-  /* ===== Segregasi state ===== */
-  const [segregasiData, setSegregasiData] = useState(() => {
+  // debounce
+  const saveTimerRef = useRef(null);
+  const debounce = (fn, delay = 250) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(fn, delay);
+  };
+
+  // ===== state rows
+  const makeEmptyRow = (i) => ({
+    id: i,
+    // DESCRIPTION
+    flavour: "", prodTypeStatus: "", kodeProd: "", kodeExp: "",
+    startTime: "", stopTime: "", startNum: "", stopNum: "",
+    counterOutfeed: "", totalOutfeed: "", waste: "",
+    lastModifiedBy: "", lastModifiedTime: "",
+    // SEGREGASI
+    type: "", prodType: "", to: "", magazine: false, wastafel: false, palletPm: false, conveyor: false,
+    user: "", time: "",
+  });
+
+  const [rows, setRows] = useState(() => {
     if (Array.isArray(initialData) && initialData.length > 0) {
-      return initialData.map((item) => ({
-        id: item.id,
-        type: item.type || "",
-        prodType: item.prodType || "",
-        to: item.to || "",
-        magazine: item.magazine || false,
-        wastafel: item.wastafel || false,
-        palletPm: item.palletPm || false,
-        conveyor: item.conveyor || false,
-        user: item.user || "",
-        time: item.time || "",
-      }));
+      return [0, 1, 2].map((i) => ({ ...makeEmptyRow(i + 1), ...(initialData[i] || {}) }));
     }
-    return [1, 2, 3].map((i) => ({
-      id: i, type: "", prodType: "", to: "",
-      magazine: false, wastafel: false, palletPm: false, conveyor: false,
-      user: "", time: "",
-    }));
+    return [makeEmptyRow(1), makeEmptyRow(2), makeEmptyRow(3)];
   });
 
-  /* ===== Description state ===== */
-  const [descriptionData, setDescriptionData] = useState(() => {
-    if (Array.isArray(initialDescription) && initialDescription.length > 0) {
-      return initialDescription;
-    }
-    if (Array.isArray(initialData) && initialData.length > 0 && initialData[0]?.descriptionData) {
-      return initialData[0].descriptionData;
-    }
-    return Array(3).fill().map(() => ({
-      flavour: "", prodTypeStatus: "", kodeProd: "", kodeExp: "",
-      startTime: "", stopTime: "", startNum: "", stopNum: "",
-      counterOutfeed: "", totalOutfeed: "", waste: "",
-      lastModifiedBy: "", lastModifiedTime: "",
-    }));
-  });
+  const [manualTotalOutfeed, setManualTotalOutfeed] = useState({});
 
-  /* ===== Init once from props ===== */
+  // ===== effectiveProduct untuk tujuan CV (hanya mempengaruhi prodType)
+  const effectiveProduct = useMemo(() => {
+    let chosen = null;
+    const toMinutes = (hhmm) =>
+      (/^\d{2}:\d{2}$/.test(hhmm || "")
+        ? (() => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; })()
+        : -1);
+    rows.forEach((r, idx) => {
+      if (r?.type === "Change Variant" && r?.to) {
+        const minutes = toMinutes(r.time);
+        if (!chosen || minutes > chosen.timeMin || (minutes === chosen.timeMin && idx > chosen.idx)) {
+          chosen = { to: r.to, timeMin: minutes, idx };
+        }
+      }
+    });
+    return chosen?.to || product;
+  }, [rows, product]);
+
+  const isVariantActive = effectiveProduct !== product;
+  useEffect(() => {
+    if (typeof onEffectiveProductChange === "function") onEffectiveProductChange(effectiveProduct);
+  }, [effectiveProduct, onEffectiveProductChange]);
+
+  // >>> PATCH: pastikan baseProductRef terisi dari prop product pertama kali
+  useEffect(() => {
+    if (!baseProductRef.current && product) baseProductRef.current = product;
+  }, [product]);
+
+  // >>> PATCH: jika ada baris START, tetapkan baseProduct dari situ (sekali saat muncul)
+  useEffect(() => {
+    const firstStart = rows.find(r => r.type === "Start" && (r.prodType || product));
+    if (firstStart && firstStart.prodType && baseProductRef.current !== firstStart.prodType) {
+      baseProductRef.current = firstStart.prodType;
+    }
+  }, [rows, product]);
+
+  // KUNCI STORAGE (tanpa packageType)
+  const getStorageKey = (mode = "primary") => {
+    const ln = (lineName || "no_line").replace(/\s+/g, "_");
+    const po = (processOrder || "no_po").replace(/\s+/g, "_");
+    const base = (product || "default").replace(/\s+/g, "_");
+    const eff = (effectiveProduct || "default").replace(/\s+/g, "_");
+    const shf = (shift || "no_shift").replace(/\s+/g, "_");
+    const usr = (username || "").replace(/\s+/g, "_");
+    return mode === "primary"
+      ? `segregasi_temp_${ln}_${po}_${base}_${shf}__${usr}`
+      : `segregasi_temp_${ln}_${po}_${eff}_${shf}__${usr}`;
+  };
+
+  // ===== init once
   useEffect(() => {
     isInitializingRef.current = true;
-    if (Array.isArray(initialData) && initialData.length > 0) {
-      setSegregasiData(initialData.map((item) => ({
-        id: item.id, type: item.type || "", prodType: item.prodType || "",
-        to: item.to || "", magazine: item.magazine || false, wastafel: item.wastafel || false,
-        palletPm: item.palletPm || false, conveyor: item.conveyor || false,
-        user: item.user || "", time: item.time || "",
-      })));
+    hadInitialDataRef.current = Array.isArray(initialData) && initialData.length > 0;
+    if (hadInitialDataRef.current) {
+      setRows([0, 1, 2].map((i) => ({ ...makeEmptyRow(i + 1), ...(initialData[i] || {}) })));
     }
-    if (Array.isArray(initialDescription) && initialDescription.length > 0) {
-      setDescriptionData(initialDescription);
-    }
-    const t = setTimeout(() => { isInitializingRef.current = false; }, 50);
+    const t = setTimeout(async () => {
+      isInitializingRef.current = false;
+      if (!hadInitialDataRef.current) {
+        try {
+          const primaryKey = getStorageKey("primary");
+          const storedPrimary = await AsyncStorage.getItem(primaryKey);
+          if (storedPrimary) {
+            const parsed = JSON.parse(storedPrimary);
+            if (Array.isArray(parsed?.rows)) {
+              setRows([0, 1, 2].map(i => ({ ...makeEmptyRow(i + 1), ...(parsed.rows[i] || {}) })));
+              return;
+            }
+          }
+          const legacyKey = getStorageKey("legacy");
+          const storedLegacy = await AsyncStorage.getItem(legacyKey);
+          if (storedLegacy) {
+            const parsed = JSON.parse(storedLegacy);
+            if (Array.isArray(parsed?.rows)) {
+              const normalized = [0, 1, 2].map(i => ({ ...makeEmptyRow(i + 1), ...(parsed.rows[i] || {}) }));
+              setRows(normalized);
+              await AsyncStorage.setItem(primaryKey, JSON.stringify({
+                rows: normalized,
+                timestamp: moment().tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss"),
+              }));
+              await AsyncStorage.removeItem(legacyKey);
+              return;
+            }
+          }
+        } catch (e) {
+          console.error("init-load segregasi failed:", e);
+        }
+      }
+    }, 0);
     return () => clearTimeout(t);
   }, []);
 
-  /* ===== Sync to parent (safe, deduped) ===== */
+  // ===== load on key change
   useEffect(() => {
-    if (isInitializingRef.current) return;
-    const descSig = JSON.stringify(descriptionData);
-    if (descSig !== lastDescSigRef.current) {
-      lastDescSigRef.current = descSig;
-      if (typeof onDescriptionChange === "function") {
-        onDescriptionChange(descriptionData);
-      }
-    }
-  }, [descriptionData]); // intentionally NOT depending on function prop
-
-  useEffect(() => {
-    if (isInitializingRef.current) return;
-    const combined = segregasiData.map((it, i) => (i === 0 ? { ...it, descriptionData } : it));
-    const insSig = JSON.stringify(combined);
-    if (insSig !== lastInsSigRef.current) {
-      lastInsSigRef.current = insSig;
-      if (typeof onDataChange === "function") {
-        onDataChange(combined);
-      }
-    }
-  }, [segregasiData, descriptionData]); // intentionally NOT depending on function prop
-
-  /* ===== Auto-fill Flavour (only if kodeProd filled) ===== */
-  useEffect(() => {
-    if (!product || product === lastProductRef.current || isInitializingRef.current) return;
-    lastProductRef.current = product;
-
-    setDescriptionData((prev) => {
-      let changed = false;
-      const updated = prev.map((d) => {
-        if (d.kodeProd && d.kodeProd.trim() !== "" && d.flavour !== product) {
-          changed = true;
-          return {
-            ...d,
-            flavour: product,
-            lastModifiedBy: username,
-            lastModifiedTime: moment().tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss"),
-          };
+    const load = async () => {
+      if (!username || !lineName || !shift) return;
+      try {
+        isLoadingRef.current = true;
+        const primaryKey = getStorageKey("primary");
+        const storedPrimary = await AsyncStorage.getItem(primaryKey);
+        if (storedPrimary) {
+          const parsed = JSON.parse(storedPrimary);
+          if (Array.isArray(parsed?.rows)) {
+            setRows([0, 1, 2].map(i => ({ ...makeEmptyRow(i + 1), ...(parsed.rows[i] || {}) })));
+            return;
+          }
         }
-        return d;
-      });
-      return changed ? updated : prev;
-    });
-  }, [product, username]);
+        const legacyKey = getStorageKey("legacy");
+        const storedLegacy = await AsyncStorage.getItem(legacyKey);
+        if (storedLegacy) {
+          const parsed = JSON.parse(storedLegacy);
+          if (Array.isArray(parsed?.rows)) {
+            const normalized = [0, 1, 2].map(i => ({ ...makeEmptyRow(i + 1), ...(parsed.rows[i] || {}) }));
+            setRows(normalized);
+            await AsyncStorage.setItem(primaryKey, JSON.stringify({
+              rows: normalized,
+              timestamp: moment().tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss"),
+            }));
+            await AsyncStorage.removeItem(legacyKey);
+            return;
+          }
+        }
+        setRows([makeEmptyRow(1), makeEmptyRow(2), makeEmptyRow(3)]);
+        setManualTotalOutfeed({});
+      } catch (e) { console.error("load segregasi merged failed:", e); }
+      finally { setTimeout(() => { isLoadingRef.current = false; }, 80); }
+    };
+    load();
+  }, [lineName, shift, username, processOrder, product]);
 
-  /* ===== Append line suffix to Kode Prod on line change ===== */
+  // ===== autosave
   useEffect(() => {
-    if (!lineName || lineName === lastLineNameRef.current || isInitializingRef.current) return;
+    if (isInitializingRef.current || isLoadingRef.current) return;
+    if (!username || !lineName || !shift) return;
+    const key = getStorageKey("primary");
+    const doSave = async () => {
+      try {
+        await AsyncStorage.setItem(key, JSON.stringify({
+          rows,
+          timestamp: moment().tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss"),
+        }));
+      } catch (e) { console.error("save segregasi merged failed:", e); }
+    };
+    debounce(doSave, 250);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, lineName, shift, username, processOrder, product]);
+
+  // ===== save on unmount
+  useEffect(() => {
+    const key = getStorageKey("primary");
+    return () => {
+      try {
+        AsyncStorage.setItem(key, JSON.stringify({
+          rows,
+          timestamp: moment().tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss"),
+        }));
+      } catch {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lineName, shift, username, processOrder, product, rows]);
+
+  // ===== clear API
+  const clearSegregasiStorage = useCallback(async () => {
+    const key = getStorageKey("primary");
+    await AsyncStorage.removeItem(key);
+    setRows([makeEmptyRow(1), makeEmptyRow(2), makeEmptyRow(3)]);
+    setManualTotalOutfeed({});
+  }, [lineName, shift, username, processOrder, product]);
+  useEffect(() => {
+    if (typeof window !== "undefined") window.clearSegregasiStorage = clearSegregasiStorage;
+    global.clearSegregasiStorage = clearSegregasiStorage;
+    return () => { if (typeof window !== "undefined") delete window.clearSegregasiStorage; delete global.clearSegregasiStorage; };
+  }, [clearSegregasiStorage]);
+
+  // ===== sync to parent
+  const lastSigRef = useRef("");
+  useEffect(() => {
+    const sig = JSON.stringify(rows);
+    if (sig !== lastSigRef.current) {
+      lastSigRef.current = sig;
+      if (typeof onDataChange === "function") onDataChange(rows);
+    }
+  }, [rows, onDataChange]);
+
+  // >>> PATCH: Hapus efek yang mengubah flavour saat effectiveProduct berubah (DISABLED)
+  // (sengaja tidak ada useEffect yang menyentuh r.flavour berdasar effectiveProduct)
+
+  // ===== append line suffix ke kodeProd ketika line berubah
+  useEffect(() => {
+    if (!lineName || lineName === lastLineNameRef.current || isInitializingRef.current || isLoadingRef.current) return;
     lastLineNameRef.current = lineName;
     const suffix = getLineLetter(lineName);
     const regex = /^(\d{2}\/\d{2}\/\d{4})(?:\s+[A-Z])?$/;
-
-    setDescriptionData((prev) => {
-      let changed = false;
-      const updated = prev.map((desc) => {
-        if (regex.test(desc.kodeProd)) {
-          const datePart = desc.kodeProd.match(regex)[1];
-          const newVal = suffix ? `${datePart} ${suffix}` : datePart;
-          if (newVal !== desc.kodeProd) {
-            changed = true;
-            return {
-              ...desc,
-              kodeProd: newVal,
-              lastModifiedBy: username,
-              lastModifiedTime: moment().tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss"),
-            };
-          }
+    setRows(prev => prev.map(r => {
+      if (regex.test(r.kodeProd)) {
+        const datePart = r.kodeProd.match(regex)[1];
+        const newVal = suffix ? `${datePart} ${suffix}` : datePart;
+        if (newVal !== r.kodeProd) {
+          return { ...r, kodeProd: newVal, lastModifiedBy: username, lastModifiedTime: moment().tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss") };
         }
-        return desc;
-      });
-      return changed ? updated : prev;
-    });
+      }
+      return r;
+    }));
   }, [lineName, username]);
 
-  /* ===== Handlers ===== */
-  const handleDescChange = useCallback(
-    (idx, field, value) => {
-      if (isInitializingRef.current) return;
+  // ===== handlers unified
+  const handleChange = useCallback((idx, field, value) => {
+    if (isInitializingRef.current || isLoadingRef.current) return;
 
-      setDescriptionData((prev) => {
-        const next = [...prev];
-        const row = { ...next[idx] };
+    if (field === "totalOutfeed") setManualTotalOutfeed(prev => ({ ...prev, [idx]: true }));
 
-        if (field === "kodeProd") {
-          const suffix = getLineLetter(lineName);
-          const withSuffix = value ? (suffix ? `${value} ${suffix}` : value) : "";
-          row.kodeProd = withSuffix;
+    setRows(prev => {
+      const next = [...prev];
+      const row = { ...next[idx] };
 
-          // if kodeProd now exists and product exists, autofill flavour
-          if (withSuffix && product) row.flavour = product;
-          // if kodeProd cleared, clear flavour
-          if (!withSuffix) row.flavour = "";
-        } else {
-          row[field] = value;
+      if (field === "kodeProd") {
+        const suffix = getLineLetter(lineName);
+        const withSuffix = value ? (suffix ? `${value} ${suffix}` : value) : "";
+        row.kodeProd = withSuffix;
+
+        // >>> PATCH: flavour mengikuti base START product, bukan effectiveProduct
+        const base = baseProductRef.current || product || row.flavour;
+        row.flavour = withSuffix ? base : "";
+      } else if (field === "type") {
+        row.type = value;
+        row.user = username;
+        row.time = `${pad2(new Date().getHours())}:${pad2(new Date().getMinutes())}`;
+
+        if (value === "Start") {
+          // >>> PATCH: tetapkan base START product & flavour
+          const base = product || baseProductRef.current || row.prodType || row.flavour;
+          baseProductRef.current = base;
+          row.prodType = base;
+          if (row.kodeProd) row.flavour = base; // ikat flavour ke base
+          row.to = "";
+        } else if (value === "Change Variant") {
+          // saat CV, prodType default ke product/effective, tapi JANGAN ubah flavour
+          if (product) row.prodType = product;
+        } else if (value === "") {
+          row.prodType = "";
+          row.to = "";
         }
-
-        row.lastModifiedBy = username;
-        row.lastModifiedTime = moment().tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss");
-
-        next[idx] = row;
-        return next;
-      });
-    },
-    [lineName, username, product]
-  );
-
-  const handleSegregasiChange = useCallback(
-    (value, index, field) => {
-      if (isInitializingRef.current) return;
-      const now = new Date();
-      const t = `${pad2(now.getHours())}:${pad2(now.getMinutes())}`;
-
-      setSegregasiData((prev) => {
-        const next = [...prev];
-        const row = { ...next[index] };
-
+      } else if (field === "to") {
+        row.to = value;
+        if (row.type === "Change Variant") {
+          row.prodType = value || row.prodType; // >>> flavour tidak disentuh
+        }
+        row.user = username;
+        row.time = `${pad2(new Date().getHours())}:${pad2(new Date().getMinutes())}`;
+      } else if (["magazine", "wastafel", "palletPm", "conveyor"].includes(field)) {
         row[field] = value;
         row.user = username;
-        row.time = t;
+        row.time = `${pad2(new Date().getHours())}:${pad2(new Date().getMinutes())}`;
+      } else {
+        row[field] = value;
+      }
 
-        if (field === "type") {
-          if (value === "Start") row.to = "";
-          if (value === "") {
-            row.prodType = "";
-            row.to = "";
-          } else if (product) {
-            row.prodType = product;
-          }
-        }
+      row.lastModifiedBy = username;
+      row.lastModifiedTime = moment().tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss");
 
-        next[index] = row;
-        return next;
-      });
-    },
-    [username, product]
-  );
+      next[idx] = row;
+      return next;
+    });
+  }, [lineName, username, product]);
 
-  /* ===== Dropdown items ===== */
-  const dropdownItems = useMemo(
-    () => [
-      { label: "Start", value: "Start" },
-      { label: "Change Variant", value: "Change Variant" },
-    ],
-    []
-  );
-
-  /* ===== Guards ===== */
-  if (!Array.isArray(segregasiData) || !Array.isArray(descriptionData)) {
-    return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>Error loading data. Please try again.</Text>
-      </View>
-    );
-  }
+  // ===== autosum totalOutfeed
+  useEffect(() => {
+    if (isInitializingRef.current || isLoadingRef.current) return;
+    let changed = false;
+    const updated = rows.map((r, idx) => {
+      const outfeedRaw = String(r?.counterOutfeed ?? "").trim();
+      const wasteRaw = String(r?.waste ?? "").trim();
+      const outfeed = outfeedRaw === "" ? NaN : Number(outfeedRaw.replace(/[^0-9.-]/g, ""));
+      const waste = wasteRaw === "" ? NaN : Number(wasteRaw.replace(/[^0-9.-]/g, ""));
+      const bothHave = !Number.isNaN(outfeed) && !Number.isNaN(waste) && outfeedRaw !== "" && wasteRaw !== "";
+      const manual = !!manualTotalOutfeed[idx];
+      if (bothHave && !manual) {
+        const sum = (outfeed || 0) + (waste || 0);
+        if (String(r.totalOutfeed ?? "") !== String(sum)) { changed = true; return { ...r, totalOutfeed: String(sum) }; }
+      }
+      return r;
+    });
+    if (changed) setRows(updated);
+  }, [rows, manualTotalOutfeed]);
 
   /* ===== Render ===== */
   return (
     <View style={styles.container}>
-      <ReportHeader
-        headerMeta={{
-          frm: headerMeta?.frm || "FIL - 010 - 02",
-          rev: headerMeta?.rev ?? "",
-          berlaku: headerMeta?.berlaku || formatDDMonYY(new Date()),
-          hal: headerMeta?.hal || "1 dari 3",
-        }}
-      />
+      <ReportHeader headerMeta={{
+        frm: headerMeta?.frm || "FIL - 010 - 02",
+        rev: headerMeta?.rev ?? "",
+        berlaku: headerMeta?.berlaku || formatDDMonYY(new Date()),
+        hal: headerMeta?.hal || "1 dari 3",
+      }} />
 
       <Text style={styles.title}>SEGREGASI & DESCRIPTION</Text>
       <Text style={styles.description}>Pencatatan segregasi produk, status peralatan, dan data produksi.</Text>
 
-      {/* DESCRIPTION */}
-      <View style={styles.descContainer}>
-        <View style={styles.descHeaderBar}>
-          {/* <Text style={[styles.segHeaderCell, styles.segHeaderCellNarrow]}>Flavour</Text>
-          <Text style={styles.segHeaderCell}>Kode Prod</Text>
-          <Text style={styles.segHeaderCell}>Kode Exp</Text>
-          <Text style={[styles.segHeaderCell, styles.segHeaderCellWide]}>Detail</Text> */}
-        </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.segGrid}>
+        {[0, 1, 2].map((i) => {
+          const r = rows[i] || makeEmptyRow(i + 1);
+          return (
+            <View key={i} style={styles.segCol}>
+              <Text style={styles.segEntryTitle}>Kolom {i + 1}</Text>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.segGrid}>
-          {[0, 1, 2].map((descIndex) => {
-            const descData = descriptionData[descIndex] || {
-              flavour: "", kodeProd: "", kodeExp: "",
-              startTime: "", stopTime: "", counterOutfeed: "", totalOutfeed: "", waste: "",
-              startNum: "", stopNum: "", lastModifiedBy: "", lastModifiedTime: "",
-            };
-
-            return (
-              <View key={descIndex} style={styles.descCol}>
-                <Text style={styles.descEntryTitle}>Kolom {descIndex + 1}</Text>
-
-                {descData.lastModifiedBy ? (
-                  <View style={styles.auditTrail}>
-                    <Text style={styles.auditText}>User: {descData.lastModifiedBy}</Text>
-                    <Text style={styles.auditText}>Time: {descData.lastModifiedTime}</Text>
-                  </View>
-                ) : null}
-
-                <View style={styles.fieldGroup}>
-                  <Text style={styles.smallLabel}>Flavour</Text>
-                  <View style={[styles.autoShell, styles.inputDisabled]}>
-                    <Text style={styles.autoText}>{descData.flavour || "-"}</Text>
-                  </View>
+              {/* Audit trail */}
+              {r.lastModifiedBy ? (
+                <View style={styles.auditTrail}>
+                  <Text style={styles.auditText}>User: {r.lastModifiedBy}</Text>
+                  <Text style={styles.auditText}>Time: {r.lastModifiedTime}</Text>
                 </View>
+              ) : null}
 
-                <View style={styles.fieldGroup}>
-                  <Text style={styles.smallLabel}>Kode Prod.</Text>
-                  <DateField value={descData.kodeProd} onChange={(t) => handleDescChange(descIndex, "kodeProd", t)} />
-                </View>
-
-                <View style={styles.fieldGroup}>
-                  <Text style={styles.smallLabel}>Kode Exp</Text>
-                  <DateField value={descData.kodeExp} onChange={(t) => handleDescChange(descIndex, "kodeExp", t)} />
-                </View>
-
-                <View style={styles.fieldGroup}>
-                  <Text style={styles.smallLabel}>Start</Text>
-                  <TimeField value={descData.startTime} onChange={(t) => handleDescChange(descIndex, "startTime", t)} />
-                </View>
-
-                <View style={styles.fieldGroup}>
-                  <Text style={styles.smallLabel}>Stop</Text>
-                  <TimeField value={descData.stopTime} onChange={(t) => handleDescChange(descIndex, "stopTime", t)} />
-                </View>
-
-                <View style={styles.fieldGroup}>
-                  <Text style={styles.smallLabel}>Outfeed</Text>
-                  <TextInput
-                    style={styles.descriptionInput}
-                    value={descData.counterOutfeed}
-                    onChangeText={(t) => handleDescChange(descIndex, "counterOutfeed", t)}
-                    placeholder="Qty"
-                    keyboardType="number-pad"
-                  />
-                  <Text style={styles.helpText}>Auto/Manual per hitungan</Text>
-                </View>
-
-                <View style={styles.fieldGroup}>
-                  <Text style={styles.smallLabel}>Total Outfeed</Text>
-                  <TextInput
-                    style={styles.descriptionInput}
-                    value={descData.totalOutfeed}
-                    onChangeText={(t) => handleDescChange(descIndex, "totalOutfeed", t)}
-                    placeholder="Qty"
-                    keyboardType="number-pad"
-                  />
-                </View>
-
-                <View style={styles.fieldGroup}>
-                  <Text style={styles.smallLabel}>Waste</Text>
-                  <TextInput
-                    style={styles.descriptionInput}
-                    value={descData.waste}
-                    onChangeText={(t) => handleDescChange(descIndex, "waste", t)}
-                    placeholder="Jumlah waste"
-                    keyboardType="number-pad"
-                  />
-                </View>
-
-                <View style={styles.fieldGroup}>
-                  <Text style={styles.smallLabel}>Start (Numeric)</Text>
-                  <TextInput
-                    style={styles.descriptionInput}
-                    value={descData.startNum}
-                    onChangeText={(t) => handleDescChange(descIndex, "startNum", t)}
-                    placeholder="Input number"
-                    keyboardType="number-pad"
-                    maxLength={8}
-                  />
-                </View>
-
-                <View style={styles.fieldGroup}>
-                  <Text style={styles.smallLabel}>Stop (Numeric)</Text>
-                  <TextInput
-                    style={styles.descriptionInput}
-                    value={descData.stopNum}
-                    onChangeText={(t) => handleDescChange(descIndex, "stopNum", t)}
-                    placeholder="Input number"
-                    keyboardType="number-pad"
-                    maxLength={8}
-                  />
+              {/* ===== Description block ===== */}
+              <View style={styles.fieldGroup}>
+                <Text style={styles.smallLabel}>Flavour</Text>
+                <View style={[styles.autoShell, styles.inputDisabled]}>
+                  <Text style={styles.autoText}>{r.flavour || "-"}</Text>
                 </View>
               </View>
-            );
-          })}
-        </ScrollView>
-      </View>
 
-      {/* SEGREGASI */}
-      <View style={styles.segregasiContainer}>
-        <View style={styles.segHeaderBar}>
-          {/* <Text style={[styles.segHeaderCell, styles.segHeaderCellNarrow]}>Type</Text>
-          <Text style={styles.segHeaderCell}>Prod Type</Text>
-          <Text style={styles.segHeaderCell}>TO</Text>
-          <Text style={[styles.segHeaderCell, styles.segHeaderCellWide]}>Equipment Status</Text> */}
-        </View>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.smallLabel}>Kode Prod.</Text>
+                <DateField value={r.kodeProd} onChange={(t) => handleChange(i, "kodeProd", t)} />
+              </View>
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.segGrid}>
-          {segregasiData.map((item, segIndex) => (
-            <View key={segIndex} style={styles.segCol}>
-              <Text style={styles.segEntryTitle}>Entry {segIndex + 1}</Text>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.smallLabel}>Kode Exp</Text>
+                <DateField value={r.kodeExp} onChange={(t) => handleChange(i, "kodeExp", t)} />
+              </View>
 
+              <View style={styles.fieldGroup}>
+                <Text style={styles.smallLabel}>Start</Text>
+                <TimeField value={r.startTime} onChange={(t) => handleChange(i, "startTime", t)} />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.smallLabel}>Stop</Text>
+                <TimeField value={r.stopTime} onChange={(t) => handleChange(i, "stopTime", t)} />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.smallLabel}>Outfeed</Text>
+                <TextInput style={styles.descriptionInput} value={r.counterOutfeed} onChangeText={(t) => handleChange(i, "counterOutfeed", t)} placeholder="Qty" keyboardType="number-pad" />
+                <Text style={styles.helpText}>Auto/Manual per hitungan</Text>
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.smallLabel}>Total Outfeed</Text>
+                <TextInput
+                  style={[styles.descriptionInput, (!manualTotalOutfeed[i] && r.counterOutfeed && r.waste) ? { opacity: 0.6 } : null]}
+                  value={r.totalOutfeed}
+                  onChangeText={(t) => handleChange(i, "totalOutfeed", t)}
+                  placeholder="Qty" keyboardType="number-pad"
+                />
+                {(!manualTotalOutfeed[i] && r.counterOutfeed && r.waste) ? (
+                  <Text style={styles.helpText}>Auto input setelah Outfeed & Waste terisi — masih bisa diganti.</Text>
+                ) : null}
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.smallLabel}>Waste</Text>
+                <TextInput style={styles.descriptionInput} value={r.waste} onChangeText={(t) => handleChange(i, "waste", t)} placeholder="Jumlah waste" keyboardType="number-pad" />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.smallLabel}>Start (Hours)</Text>
+                <TextInput style={styles.descriptionInput} value={r.startNum} onChangeText={(t) => handleChange(i, "startNum", t)} placeholder="Input number" keyboardType="number-pad" maxLength={8} />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.smallLabel}>Stop (Hours)</Text>
+                <TextInput style={styles.descriptionInput} value={r.stopNum} onChangeText={(t) => handleChange(i, "stopNum", t)} placeholder="Input number" keyboardType="number-pad" maxLength={8} />
+              </View>
+
+              {/* ===== Segregasi block ===== */}
               <View style={styles.fieldGroup}>
                 <Text style={styles.smallLabel}>Type</Text>
                 <View style={styles.pickerShell}>
-                  <Picker
-                    selectedValue={item.type}
-                    style={[styles.picker, { textAlign: "center" }]}
-                    onValueChange={(v) => handleSegregasiChange(v, segIndex, "type")}
-                  >
+                  <Picker selectedValue={r.type} style={[styles.picker, { textAlign: "center" }]} onValueChange={(v) => handleChange(i, "type", v)}>
                     <Picker.Item label="Select Type" value="" />
-                    {[{ label: "Start", value: "Start" }, { label: "Change Variant", value: "Change Variant" }].map(op => (
-                      <Picker.Item key={op.value} label={op.label} value={op.value} />
-                    ))}
+                    <Picker.Item label="Start" value="Start" />
+                    <Picker.Item label="Change Variant" value="Change Variant" />
                   </Picker>
                 </View>
               </View>
@@ -521,23 +539,19 @@ const SegregasiInspectionTable = ({
               <View style={styles.fieldGroup}>
                 <Text style={styles.smallLabel}>Prod Type</Text>
                 <View style={styles.autoShell}>
-                  <Text style={styles.autoText}>{item.prodType || "No product selected"}</Text>
-                  <Text style={styles.helpText}>Auto-filled from product selection</Text>
+                  <Text style={styles.autoText}>{r.prodType || "No product selected"}</Text>
+                  <Text style={styles.helpText}>Auto-filled from product / TO</Text>
                 </View>
               </View>
 
-              {item.type === "Change Variant" ? (
+              {r.type === "Change Variant" ? (
                 <View style={styles.fieldGroup}>
                   <Text style={styles.smallLabel}>TO</Text>
                   <View style={styles.pickerShell}>
-                    <Picker
-                      selectedValue={item.to}
-                      style={[styles.picker, { textAlign: "center" }]}
-                      onValueChange={(v) => handleSegregasiChange(v, segIndex, "to")}
-                    >
+                    <Picker selectedValue={r.to} style={[styles.picker, { textAlign: "center" }]} onValueChange={(v) => handleChange(i, "to", v)}>
                       <Picker.Item label="Select destination product" value="" />
-                      {(productOptions || []).map((op, i) => (
-                        <Picker.Item key={`${op.value}-${i}`} label={op.label || op.value} value={op.value} />
+                      {(productOptions || []).map((op, idx2) => (
+                        <Picker.Item key={`${op.value}-${idx2}`} label={op.label || op.value} value={op.value} />
                       ))}
                     </Picker>
                   </View>
@@ -545,38 +559,40 @@ const SegregasiInspectionTable = ({
               ) : (
                 <View style={styles.fieldGroup}>
                   <Text style={styles.smallLabel}>TO</Text>
-                  <View style={[styles.autoShell, styles.autoShellDisabled]}>
-                    <Text style={styles.autoTextMuted}>—</Text>
-                  </View>
+                  <View style={[styles.autoShell, styles.autoShellDisabled]}><Text style={styles.autoTextMuted}>—</Text></View>
                 </View>
               )}
 
               <View style={styles.eqBox}>
                 <Text style={styles.eqTitle}>Equipment Status</Text>
-                {[{ label: "Magazine", key: "magazine" }, { label: "Wastafel", key: "wastafel" }, { label: "Pallet PM", key: "palletPm" }, { label: "Conveyor", key: "conveyor" }].map(({ label, key }) => (
+                {[
+                  { label: "Magazine", key: "magazine" },
+                  { label: "Wastafel", key: "wastafel" },
+                  { label: "Pallet PM", key: "palletPm" },
+                  { label: "Conveyor", key: "conveyor" },
+                ].map(({ label, key }) => (
                   <View key={key} style={styles.eqRow}>
                     <Text style={styles.eqLabel}>{label}</Text>
                     <TouchableOpacity
-                      style={[styles.checkBox, item[key] && styles.checkBoxChecked]}
-                      onPress={() => handleSegregasiChange(!item[key], segIndex, key)}
-                      activeOpacity={0.7}
+                      style={[styles.checkBox, r[key] && styles.checkBoxChecked]}
+                      onPress={() => handleChange(i, key, !r[key])} activeOpacity={0.7}
                     >
-                      {item[key] ? <Text style={styles.checkMark}>✔</Text> : null}
+                      {r[key] ? <Text style={styles.checkMark}>✔</Text> : null}
                     </TouchableOpacity>
                   </View>
                 ))}
               </View>
 
-              {item.user && item.time ? (
+              {r.user && r.time ? (
                 <View style={styles.auditTrail}>
-                  <Text style={styles.auditText}>User: {item.user}</Text>
-                  <Text style={styles.auditText}>Time: {item.time}</Text>
+                  <Text style={styles.auditText}>User: {r.user}</Text>
+                  <Text style={styles.auditText}>Time: {r.time}</Text>
                 </View>
               ) : null}
             </View>
-          ))}
-        </ScrollView>
-      </View>
+          );
+        })}
+      </ScrollView>
     </View>
   );
 };
@@ -584,31 +600,10 @@ const SegregasiInspectionTable = ({
 export default SegregasiInspectionTable;
 
 /* ========== Styles ========== */
-const cardShadow = {
-  shadowColor: "#000",
-  shadowOpacity: 0.05,
-  shadowRadius: 3,
-  shadowOffset: { width: 0, height: 2 },
-  elevation: 2,
-};
-
+const cardShadow = { shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 3, shadowOffset: { width: 0, height: 2 }, elevation: 2 };
 const styles = StyleSheet.create({
-  container: {
-    marginTop: 16,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    backgroundColor: "#f9f9f9",
-    padding: 12,
-  },
-  headerWrap: {
-    borderWidth: 1,
-    borderColor: "#d7d7d7",
-    borderRadius: 8,
-    backgroundColor: "#fff",
-    marginBottom: 14,
-    overflow: "hidden",
-  },
+  container: { marginTop: 16, borderWidth: 1, borderColor: "#ccc", borderRadius: 8, backgroundColor: "#f9f9f9", padding: 12 },
+  headerWrap: { borderWidth: 1, borderColor: "#d7d7d7", borderRadius: 8, backgroundColor: "#fff", marginBottom: 14, overflow: "hidden" },
   headerRowTop: { flexDirection: "row", alignItems: "center", padding: 8, gap: 8 },
   headerLogoBox: { width: 130, height: 60, alignItems: "center", justifyContent: "center" },
   headerLogoImg: { width: "100%", height: "100%" },
@@ -623,14 +618,9 @@ const styles = StyleSheet.create({
   headerTitleCell: { flex: 1, paddingVertical: 6, textAlign: "center", fontWeight: "bold", fontSize: 12, color: "#333" },
   title: { fontWeight: "bold", fontSize: 18, marginBottom: 8, textAlign: "center", color: "#333", backgroundColor: "#e8f4fd", padding: 10, borderRadius: 6 },
   description: { fontSize: 12, textAlign: "center", marginBottom: 16, color: "#666", fontStyle: "italic", lineHeight: 16 },
-  descContainer: { marginBottom: 16, padding: 12, backgroundColor: "#fff", borderWidth: 1, borderColor: "#E2E8F0", borderRadius: 8 },
-  descHeaderBar: { flexDirection: "row", alignItems: "center", backgroundColor: "#DDF5E4", borderWidth: 1, borderColor: "#B6E3C5", borderRadius: 6, paddingVertical: 8, paddingHorizontal: 10, marginBottom: 10, gap: 8 },
-  segHeaderCell: { flex: 1, textAlign: "center", fontWeight: "700", fontSize: 12, color: "#2E6B3E" },
-  segHeaderCellNarrow: { flex: 0.9 },
-  segHeaderCellWide: { flex: 1.4 },
   segGrid: { gap: 10, paddingRight: 6 },
-  descCol: { width: 300, backgroundColor: "#fff", borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 8, padding: 10, ...cardShadow, marginRight: 4 },
-  descEntryTitle: { fontSize: 12, fontWeight: "700", textAlign: "center", paddingVertical: 6, marginBottom: 8 },
+  segCol: { width: 300, backgroundColor: "#fff", borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 8, padding: 10, ...cardShadow, marginRight: 4 },
+  segEntryTitle: { fontSize: 12, fontWeight: "700", textAlign: "center", paddingVertical: 6, marginBottom: 8 },
   fieldGroup: { marginBottom: 8 },
   smallLabel: { fontSize: 12, fontWeight: "600", marginBottom: 4 },
   descriptionInput: { borderWidth: 1, borderColor: "#D1D5DB", borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, fontSize: 13, color: "#333" },
@@ -648,13 +638,6 @@ const styles = StyleSheet.create({
   checkBox: { width: 35, height: 35, borderWidth: 1, borderColor: "#999", borderRadius: 4, alignItems: "center", justifyContent: "center" },
   checkBoxChecked: { backgroundColor: "#2E6B3E", borderColor: "#2E6B3E" },
   checkMark: { color: "#fff", fontWeight: "bold", fontSize: 12 },
-  segCol: { width: 300, backgroundColor: "#fff", borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 8, padding: 10, ...cardShadow, marginRight: 4 },
-  segEntryTitle: { fontSize: 12, fontWeight: "700", textAlign: "center", paddingVertical: 6, marginBottom: 8 },
   auditTrail: { marginTop: 6, padding: 4, borderTopWidth: 1, borderColor: "#eee" },
   auditText: { fontSize: 10, color: "#555" },
-  errorContainer: { padding: 12 },
-  errorText: { color: "red", fontWeight: "bold" },
-  inputDisabled: { backgroundColor: "#F3F4F6" },
-  segHeaderBar: { flexDirection: "row", alignItems: "center", backgroundColor: "#E8F5E9", borderWidth: 1, borderColor: "#C8E6C9", borderRadius: 6, paddingVertical: 8, paddingHorizontal: 10, marginBottom: 10, gap: 8 },
-  segregasiContainer: { marginTop: 10, padding: 12, backgroundColor: "#fff", borderWidth: 1, borderColor: "#E2E8F0", borderRadius: 8 },
 });

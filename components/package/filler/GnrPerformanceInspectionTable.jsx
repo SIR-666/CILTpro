@@ -10,9 +10,10 @@ const isNumericItem = (item) =>
 
 const sanitizeDecimal = (txt) =>
   txt
-    .replace(",", ".")        // koma → titik
-    .replace(/[^0-9.]/g, "")  // hanya digit & titik
-    .replace(/(\..*?)\./g, "$1"); // maksimal 1 titik
+    .replace(",", ".")
+    .replace(/[^0-9.]/g, "")
+    .replace(/(\..*?)\./g, "$1")
+    .replace(/^0+(?=\d)/, ""); // buang leading zero berlebih (bukan "0.xxx")
 
 const defaultTemplate = [
   // Cek parameter mesin per jam
@@ -390,8 +391,8 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
     setLastActivityTime(Date.now());
 
     // Set inactive after 5 minutes of no activity
-    clearTimeout(window.inactivityTimer);
-    window.inactivityTimer = setTimeout(() => {
+    if (globalThis.inactivityTimer) clearTimeout(globalThis.inactivityTimer);
+    globalThis.inactivityTimer = setTimeout(() => {
       setIsUserActive(false);
     }, 5 * 60 * 1000); // 5 minutes
   };
@@ -408,9 +409,16 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
 
   // Generate storage key based on plant, line, machine, type, and date
   const getStorageKey = (type) => {
-    const date = moment().tz("Asia/Jakarta").format("YYYY-MM-DD");
+    const now = moment().tz("Asia/Jakarta");
     const currentShift = shift || getCurrentShift();
-    return `gnr_${plant}_${line}_${machine}_${date}_${currentShift}_${type}`;
+    // Shift 3 antara 00:00–06:00 → pakai tanggal kemarin (shiftDate)
+    const shiftDate =
+      currentShift === "Shift 3" && now.hour() < 6
+        ? now.clone().subtract(1, "day").format("YYYY-MM-DD")
+        : now.format("YYYY-MM-DD");
+    // IMPORTANT: kunci penyimpanan harus unique per user
+    const userKey = username || "anon";
+    return `gnr_${plant}_${line}_${machine}_${shiftDate}_${currentShift}_${type}_${userKey}`;
   };
 
   // Helper untuk parsing slot 30 menit
@@ -420,6 +428,31 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
     const [start] = slot.split("-").map(s => s.trim());
     const [HH, MM] = start.split(":");
     return { hour: HH, mmStart: MM };
+  };
+
+  // === NEW: pilih default 30-menit yang paling relevan untuk suatu jam ===
+  const getDefault30MinSlot = (hourSlot) => {
+    const slots = generate30MinSlots(hourSlot);
+    if (!slots.length) return "";
+    const now = moment().tz("Asia/Jakarta");
+
+    // 1) kalau sedang berada di salah satu sub-slot → pilih itu
+    for (const s of slots) {
+      const [startStr, endStr] = s.split("-").map(x => x.trim());
+      const [sh, sm] = startStr.split(":").map(Number);
+      const [eh, em] = endStr.split(":").map(Number);
+      const start = now.clone().hour(sh).minute(sm).second(0).millisecond(0);
+      const end = now.clone().hour(eh).minute(em).second(0).millisecond(0);
+      if (now.isSameOrAfter(start) && now.isBefore(end)) return s;
+    }
+
+    // 2) kalau jamnya sudah lewat → ambil sub-slot terakhir yang accessible
+    for (let i = slots.length - 1; i >= 0; i--) {
+      if (is30SlotAccessible(slots[i])) return slots[i];
+    }
+
+    // 3) kalau jamnya di masa depan → fallback ke sub-slot pertama
+    return slots[0];
   };
 
   // PERBAIKAN: Handler khusus untuk hourly slot selection
@@ -435,6 +468,11 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
       }
 
       setSelectedHourlySlot(slot);
+      // Auto tentukan 30-menit yg relevan utk jam terpilih
+      const auto30 = getDefault30MinSlot(slot);
+      setSelected30MinSlot(auto30);
+      // Force render data sesuai kombinasi jam + 30-menit yg baru
+      setTimeout(() => loadSavedDataFor(slot, auto30), 0);
       updateUserActivity(); // Keep user active
     }
   };
@@ -444,6 +482,8 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
     setIsManualSelection(true);
     setLastManualSelectionTime(Date.now());
     setSelected30MinSlot(slot);
+    // Force refresh konten untuk slot 30 menit yang baru
+    setTimeout(() => loadSavedDataFor(selectedHourlySlot, slot), 0);
     updateUserActivity(); // Keep user active
   };
 
@@ -467,6 +507,73 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
       console.error("Error loading saved data from storage:", error);
     }
   };
+
+  // Loader berbasis parameter agar bisa force refresh saat user ganti jam/slot
+  const loadSavedDataFor = (hourSlot, thirtySlot) => {
+    setInspectionData((current) => {
+      return current.map(item => {
+        // Per JAM → render strictly dari slot yang dipilih
+        if (item.periode === "Tiap Jam" && hourSlot) {
+          const savedSlotData = savedHourlyData[hourSlot];
+          if (savedSlotData) {
+            const saved = savedSlotData.find(s => s.activity === item.activity);
+            if (saved) {
+              return {
+                ...item,
+                results: String(saved.results || ""),
+                user: saved.user || "",
+                time: saved.time || "",
+                done: saved.done || false,
+                hourSlot: hourSlot,
+                evaluatedResult: saved.evaluatedResult || ""
+              };
+            }
+          }
+          // Clear results if no saved data for this slot
+          return {
+            ...item,
+            results: "",
+            user: "",
+            time: "",
+            done: false,
+            hourSlot: "",
+            evaluatedResult: ""
+          };
+        }
+
+        // Per 30 MENIT → render strictly dari slot yang dipilih
+        if (item.periode === "30 menit" && thirtySlot) {
+          const savedSlotData = saved30MinData[thirtySlot];
+          if (savedSlotData) {
+            const saved = savedSlotData.find(s => s.activity === item.activity);
+            if (saved) {
+              return {
+                ...item,
+                results: saved.results || "",
+                user: saved.user || "",
+                time: saved.time || "",
+                done: saved.done || false,
+                timeSlot: thirtySlot
+              };
+            }
+          }
+          // Clear results if no saved data for this slot
+          return {
+            ...item,
+            results: "",
+            user: "",
+            time: "",
+            done: false,
+            timeSlot: ""
+          };
+        }
+
+        return item;
+      });
+    });
+  };
+  // Wrapper kompatibel lama
+  const loadSavedData = () => loadSavedDataFor(selectedHourlySlot, selected30MinSlot);
 
   // Save data to AsyncStorage
   const saveDataToStorage = async () => {
@@ -505,73 +612,6 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
 
     return () => clearInterval(interval);
   }, []);
-
-  const loadSavedData = () => {
-    const now = new Date().getTime();
-
-    // Clear previous results first for current slot
-    setInspectionData(current => {
-      return current.map(item => {
-        // For hourly items, only show results for selected slot
-        if (item.periode === "Tiap Jam" && selectedHourlySlot) {
-          const savedSlotData = savedHourlyData[selectedHourlySlot];
-          if (savedSlotData) {
-            const saved = savedSlotData.find(s => s.activity === item.activity);
-            if (saved) {
-              return {
-                ...item,
-                results: String(saved.results || ""),
-                user: saved.user || "",
-                time: saved.time || "",
-                done: saved.done || false,
-                hourSlot: selectedHourlySlot,
-                evaluatedResult: saved.evaluatedResult || ""
-              };
-            }
-          }
-          // Clear results if no saved data for this slot
-          return {
-            ...item,
-            results: "",
-            user: "",
-            time: "",
-            done: false,
-            hourSlot: "",
-            evaluatedResult: ""
-          };
-        }
-
-        // For 30-min items, only show results for selected slot
-        if (item.periode === "30 menit" && selected30MinSlot) {
-          const savedSlotData = saved30MinData[selected30MinSlot];
-          if (savedSlotData) {
-            const saved = savedSlotData.find(s => s.activity === item.activity);
-            if (saved) {
-              return {
-                ...item,
-                results: saved.results || "",
-                user: saved.user || "",
-                time: saved.time || "",
-                done: saved.done || false,
-                timeSlot: selected30MinSlot
-              };
-            }
-          }
-          // Clear results if no saved data for this slot
-          return {
-            ...item,
-            results: "",
-            user: "",
-            time: "",
-            done: false,
-            timeSlot: ""
-          };
-        }
-
-        return item;
-      });
-    });
-  };
 
   const cleanExpiredData = async () => {
     const now = new Date().getTime();
@@ -631,7 +671,7 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
     }
   };
 
-  // Save ALL data before submit with proper expiry times - FIXED VERSION
+  // Save ALL data before submit with proper expiry times
   const saveDataBeforeSubmit = useCallback(() => {
     const now = new Date().getTime();
 
@@ -644,6 +684,8 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
       // For hourly data
       if (item.periode === "Tiap Jam" && item.results) {
         const slot = item.hourSlot || selectedHourlySlot;
+        // ⛔ Pastikan HANYA slot jam yang sedang dipilih yang disimpan
+        if (!slot || slot !== selectedHourlySlot) return;
         if (slot) {
           if (!allHourlyData[slot]) {
             allHourlyData[slot] = [];
@@ -663,6 +705,8 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
       // For 30-min data
       if (item.periode === "30 menit" && item.results) {
         const slot = item.timeSlot || selected30MinSlot;
+        // ⛔ Pastikan HANYA slot 30-menit yang sedang dipilih yang disimpan
+        if (!slot || slot !== selected30MinSlot) return;
         if (slot) {
           if (!all30MinData[slot]) {
             all30MinData[slot] = [];
@@ -679,8 +723,8 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
           // NEW: mirror minute key agar nanti CombinedInspectionData mudah bikin results[HH][MM]
           const p = parse30MinSlot(slot);
           if (p) {
-            payload._hourKey = p.hour;     // NEW
-            payload._minuteKey = p.mmStart; // NEW: "00" atau "30"
+            payload._hourKey = p.hour;
+            payload._minuteKey = p.mmStart;
           }
           all30MinData[slot].push(payload);
         }
@@ -707,9 +751,9 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
       incoming.forEach(payload => {
         const idx = existing.findIndex(x => x.activity === payload.activity);
         if (idx >= 0) {
-          existing[idx] = payload;   // edit nilai di activity yang sama -> replace
+          existing[idx] = payload;
         } else {
-          existing.push(payload);     // pertama kali isi activity tsb di slot ini
+          existing.push(payload);
         }
       });
       updated30MinData[slot] = existing;
@@ -734,6 +778,41 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
     // Return the inspection data for parent to use
     return inspectionData;
   }, [inspectionData, savedHourlyData, saved30MinData, dataExpiryTimes, selectedHourlySlot, selected30MinSlot, username]);
+
+  // =========================================================
+  // CLEAR cache & input SETELAH SUBMIT BERHASIL (dipanggil parent)
+  // =========================================================
+  const clearAllSavedData = useCallback(async () => {
+    try {
+      setSavedHourlyData({});
+      setSaved30MinData({});
+      setDataExpiryTimes({});
+      setHasUnsavedData(false);
+
+      // kosongkan nilai input pada tabel agar tidak "nyangkut" ke jam lain
+      setInspectionData(prev =>
+        prev.map(it => ({
+          ...it,
+          results: "",
+          user: "",
+          time: "",
+          done: false,
+          evaluatedResult: "",
+          hourSlot: it.periode === "Tiap Jam" ? "" : it.hourSlot,
+          timeSlot: it.periode === "30 menit" ? "" : it.timeSlot,
+        }))
+      );
+
+      const hourlyKey = getStorageKey('hourly');
+      const thirtyMinKey = getStorageKey('30min');
+      const expiryKey = getStorageKey('expiry');
+      await AsyncStorage.removeItem(hourlyKey);
+      await AsyncStorage.removeItem(thirtyMinKey);
+      await AsyncStorage.removeItem(expiryKey);
+    } catch (e) {
+      console.error("Error clearing saved data after submit:", e);
+    }
+  }, [getStorageKey]);
 
   // Generate hourly slots based on shift
   const generateHourlySlots = () => {
@@ -877,17 +956,11 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
         setSelectedHourlySlot(slot);
       }
 
-      // Similar logic for 30-min slot
+      // Auto-pick 30-menit yg relevan untuk jam tersebut
       if (slot) {
-        const nextHour = (hour + 1) % 24;
-        let slot30 = "";
-        if (minute < 30) {
-          slot30 = `${hour.toString().padStart(2, '0')}:00 - ${hour.toString().padStart(2, '0')}:30`;
-        } else {
-          slot30 = `${hour.toString().padStart(2, '0')}:30 - ${nextHour.toString().padStart(2, '0')}:00`;
-        }
-        if (slot30 && slot30 !== selected30MinSlot) {
-          setSelected30MinSlot(slot30);
+        const auto30 = getDefault30MinSlot(slot);
+        if (auto30 && auto30 !== selected30MinSlot) {
+          setSelected30MinSlot(auto30);
         }
       }
     }
@@ -913,6 +986,17 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
 
     return () => clearInterval(interval);
   }, [lastHourCheck, last30MinCheck, parentShift, isUserActive, hasUnsavedData, selectedHourlySlot, selected30MinSlot, isManualSelection, lastManualSelectionTime]);
+
+  // === NEW: sinkronkan 30-menit saat selectedHourlySlot berubah dari tempat lain (auto-pick) ===
+  useEffect(() => {
+    if (!selectedHourlySlot) return;
+    const auto30 = getDefault30MinSlot(selectedHourlySlot);
+    if (auto30 && auto30 !== selected30MinSlot) {
+      setSelected30MinSlot(auto30);
+      // Segarkan data utk kombinasi baru
+      setTimeout(() => loadSavedDataFor(selectedHourlySlot, auto30), 0);
+    }
+  }, [selectedHourlySlot]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const checkTimeAlerts = () => {
     const now = moment().tz("Asia/Jakarta");
@@ -1067,13 +1151,12 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
   const parseRange = (rangeStr) => {
     if (!rangeStr || rangeStr === "-") return null;
 
-    if (rangeStr.includes("< ") || rangeStr.includes(">= ")) {
-      const match = rangeStr.match(/([<>=]+)\s*(\d+)/);
-      if (match) {
-        const operator = match[1];
-        const value = parseFloat(match[2]);
-        return { type: "single", operator, value };
-      }
+    // dukung operator single threshold: "< 4", ">= 20", dll (angka bisa desimal)
+    const single = rangeStr.match(/([<>=]+)\s*(\d+(?:\.\d+)?)/);
+    if (single) {
+      const operator = single[1];        // "<" atau ">="
+      const value = parseFloat(single[2]);
+      return { type: "single", operator, value };
     }
 
     if (rangeStr.includes(" - ")) {
@@ -1099,7 +1182,12 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
 
       parts.forEach(part => {
         const trimmed = part.trim();
-        if (trimmed.startsWith("<")) {
+        if (trimmed.startsWith(">=")) {
+          const value = parseFloat(trimmed.substring(2));
+          if (!isNaN(value)) {
+            conditions.push({ operator: ">=", value });
+          }
+        } else if (trimmed.startsWith("<")) {
           const value = parseFloat(trimmed.substring(1));
           if (!isNaN(value)) {
             conditions.push({ operator: "<", value });
@@ -1108,11 +1196,6 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
           const value = parseFloat(trimmed.substring(1));
           if (!isNaN(value)) {
             conditions.push({ operator: ">", value });
-          }
-        } else if (trimmed.startsWith(">=")) {
-          const value = parseFloat(trimmed.substring(2));
-          if (!isNaN(value)) {
-            conditions.push({ operator: ">=", value });
           }
         }
       });
@@ -1147,8 +1230,8 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
       if (goodRange.type === "range") {
         if (numValue >= goodRange.min && numValue <= goodRange.max) return "good";
       } else if (goodRange.type === "single") {
-        if (goodRange.operator === "< " && numValue < goodRange.value) return "good";
-        if (goodRange.operator === ">= " && numValue >= goodRange.value) return "good";
+        if (goodRange.operator === "<" && numValue < goodRange.value) return "good";
+        if (goodRange.operator === ">=" && numValue >= goodRange.value) return "good";
       }
     }
 
@@ -1237,15 +1320,7 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
   const debounceTimeouts = useRef({});
 
   const handleInputChange = useCallback((text, index) => {
-    // Track user activity
-    updateUserActivity();
-
-    // Clear existing timeout for this index
-    if (debounceTimeouts.current[index]) {
-      clearTimeout(debounceTimeouts.current[index]);
-    }
-
-    // Update immediately with local state
+    // Update immediately with local state (ikat ke slot saat ini)
     setInspectionData(prevData => {
       const updated = [...prevData];
       const item = updated[index];
@@ -1257,65 +1332,36 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
       // Mark that we have unsaved data
       setHasUnsavedData(true);
 
-      // Update only the results field to preserve the input
-      updated[index] = {
-        ...item,
-        results: text
-      };
+      // Ikat hasil ke slot yang aktif SEKARANG (tanpa nunggu debounce)
+      const nextItem = { ...item, results: text };
+      if (item.periode === "Tiap Jam") {
+        nextItem.hourSlot = selectedHourlySlot;
+        if (!item.useButtons) {
+          const ev = evaluateValue(text, item.good, item.reject);
+          nextItem.evaluatedResult =
+            ev === "good" ? "G" : ev === "reject" ? "R" : ev === "need" ? "N" : "";
+        } else {
+          nextItem.evaluatedResult = text === "OK" ? "G" : text === "NOT OK" ? "R" : "";
+        }
+      } else {
+        // 30-menit
+        nextItem.timeSlot = selected30MinSlot;
+      }
+      updated[index] = nextItem;
 
       return updated;
     });
-
-    // Debounce the full update
-    debounceTimeouts.current[index] = setTimeout(() => {
-      setInspectionData(prevData => {
-        const updated = [...prevData];
-        const now = new Date();
-        const item = updated[index];
-
-        // Full update with metadata
-        updated[index] = {
-          ...item,
-          results: text,
-          user: username,
-          time: now.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" }),
-          done: !!text
-        };
-
-        // Assign time slot and evaluation
-        if (item.periode === "Tiap Jam") {
-          updated[index].hourSlot = selectedHourlySlot;
-          if (!item.useButtons) {
-            const evalResult = evaluateValue(text, item.good, item.reject);
-            updated[index].evaluatedResult = evalResult === "good" ? "G" : evalResult === "reject" ? "R" : evalResult === "need" ? "N" : "";
-          } else {
-            updated[index].evaluatedResult = text === "OK" ? "G" : text === "NOT OK" ? "R" : "";
-          }
-        } else if (item.periode === "30 menit") {
-          updated[index].timeSlot = selected30MinSlot;
-        }
-
-        // Delay onDataChange to prevent rendering warning
-        setTimeout(() => {
-          onDataChange(updated);
-        }, 0);
-
-        // Save data immediately after change
-        setTimeout(() => {
-          saveDataBeforeSubmit();
-          setHasUnsavedData(false); // Reset after saving
-        }, 100);
-
-        return updated;
-      });
-    }, 300); // 300ms debounce
-  }, [selectedHourlySlot, selected30MinSlot, username, onDataChange, saveDataBeforeSubmit]);
+  });
 
   // Hook to handle data persistence after parent submit - FIXED VERSION
   useEffect(() => {
-    // Expose save function to parent
-    if (window.gnrBeforeSubmit !== saveDataBeforeSubmit) {
-      window.gnrBeforeSubmit = saveDataBeforeSubmit;
+    // Expose save function to parent (hindari window di RN)
+    if (globalThis.gnrBeforeSubmit !== saveDataBeforeSubmit) {
+      globalThis.gnrBeforeSubmit = saveDataBeforeSubmit;
+    }
+    // Expose clear-after-submit untuk dipanggil parent sesudah submit sukses
+    if (globalThis.gnrAfterSubmitClear !== clearAllSavedData) {
+      globalThis.gnrAfterSubmitClear = clearAllSavedData;
     }
 
     // Auto-save every 30 seconds
@@ -1323,12 +1369,12 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
       if (inspectionData.some(item => item.results)) {
         saveDataBeforeSubmit();
       }
-    }, 30000);
+    }, 3);
 
     return () => {
       clearInterval(autoSaveInterval);
     };
-  }, [saveDataBeforeSubmit]);
+  }, [saveDataBeforeSubmit, clearAllSavedData, inspectionData]);
 
   // Load all saved data when component mounts or storage changes
   useEffect(() => {
@@ -1339,10 +1385,13 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
 
   // Load saved data when slot changes
   useEffect(() => {
+    // Tunda load saat user aktif / ada data belum tersimpan untuk cegah overwrite "22 jadi 2"
     if (inspectionData.length > 0 && (selectedHourlySlot || selected30MinSlot)) {
-      loadSavedData();
+      if (!isUserActive && !hasUnsavedData) {
+        loadSavedData();
+      }
     }
-  }, [selectedHourlySlot, selected30MinSlot]);
+  }, [selectedHourlySlot, selected30MinSlot, isUserActive, hasUnsavedData]);
 
   if (loading) {
     return (
@@ -1546,7 +1595,7 @@ const GnrPerformanceInspectionTable = ({ username, onDataChange, initialData, pl
           <Text style={styles.sectionTitle}>PEMERIKSAAN PER 30 MENIT</Text>
           {/* 30-Min Time Slot Selector */}
           <View style={styles.timeSlotContainer}>
-            <Text style={styles.timeSlotLabel}>Pilih Slot 30 Menit {selectedHourlySlot && `(untuk jam ${selectedHourlySlot.split(' - ')[0]})`}:</Text>
+            <Text style={styles.timeSlotLabel}>Pilih Slot 30 Menit {selectedHourlySlot && `(untuk jam ${selectedHourlySlot})`}:</Text>
             <View style={styles.timeSlotButtons}>
               {generate30MinSlots(selectedHourlySlot || getCurrentHourSlot()).map((slot) => {
                 const canUse = is30SlotAccessible(slot);          // NEW

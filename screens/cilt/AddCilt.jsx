@@ -106,6 +106,7 @@ const CILTinspection = ({ route, navigation }) => {
   );
 
   const [productOptions, setProductOptions] = useState([]);
+  const [baseProduct, setBaseProduct] = useState("");
   const [product, setProduct] = useState("");
 
   const [machine, setMachine] = useState("");
@@ -161,7 +162,10 @@ const CILTinspection = ({ route, navigation }) => {
       const savedMachine = await AsyncStorage.getItem("machine");
       if (savedMachine) setMachine(savedMachine);
       const savedProduct = await AsyncStorage.getItem("product");
-      if (savedProduct) setProduct(savedProduct);
+      if (savedProduct) {
+        setBaseProduct(savedProduct);
+        setProduct(savedProduct);
+      }
     };
     loadDate();
   }, []);
@@ -213,6 +217,9 @@ const CILTinspection = ({ route, navigation }) => {
       } else if (packageType === "PEMAKAIAN SCREW CAP" && window.clearScrewCapStorage) {
         await window.clearScrewCapStorage();
         console.log("Cleared screw cap storage after submit");
+      } else if (packageType === "SEGREGASI" && window.clearSegregasiStorage) {
+        await window.clearSegregasiStorage();
+        console.log("Cleared segregasi storage after submit");
       }
       // Tambahkan untuk package type lainnya jika diperlukan
     } catch (error) {
@@ -231,9 +238,14 @@ const CILTinspection = ({ route, navigation }) => {
         type: item.material,
       }));
 
+      setBaseProduct("");
       setProduct("");
       setProductOptions(options);
-      setProduct(await AsyncStorage.getItem("product"));
+      const saved = await AsyncStorage.getItem("product");
+      if (saved) {
+        setBaseProduct(saved);
+        setProduct(saved);
+      }
     } catch (error) {
       console.error("Error fetching product options:", error);
       Alert.alert("Error", "Failed to fetch product options.");
@@ -350,7 +362,7 @@ const CILTinspection = ({ route, navigation }) => {
                   .format("YYYY-MM-DD HH:mm:ss.SSS"),
               };
 
-              // FIXED: Always save description data for SEGREGASI package, even if partially filled
+              // Always save description data for SEGREGASI package, even if partially filled
               if (packageType === "SEGREGASI") {
                 console.log("=== SAVING DESCRIPTION DATA ===");
                 console.log("segregationDescriptionData:", segregationDescriptionData);
@@ -385,6 +397,7 @@ const CILTinspection = ({ route, navigation }) => {
 
                 // Reset inspection data setelah submit berhasil
                 setInspectionData([]);
+                setSegregationDescriptionData([]);
 
                 setTimeout(() => {
                   navigation.goBack();
@@ -451,7 +464,7 @@ const CILTinspection = ({ route, navigation }) => {
       setDate(now);
       setShift(getShiftByHour(moment(now).tz("Asia/Jakarta").format("HH")));
       setProduct("");
-      setProductOptions([]); // kosongkan opsi agar refres ulang setelah pilih plant lagi
+      setProductOptions([]);
       setMachine("");
       setBatch("");
       setRemarks("");
@@ -565,7 +578,7 @@ const CILTinspection = ({ route, navigation }) => {
                 </View>
               </View>
 
-              <View className="halfInputGroup" style={styles.halfInputGroup}>
+              <View style={styles.halfInputGroup}>
                 <Text style={styles.label}>Line *</Text>
                 <View style={styles.dropdownContainer}>
                   <MaterialCommunityIcons
@@ -652,6 +665,7 @@ const CILTinspection = ({ route, navigation }) => {
                     selectedValue={product}
                     style={styles.dropdown}
                     onValueChange={async (itemValue) => {
+                      setBaseProduct(itemValue);
                       setProduct(itemValue);
                       await AsyncStorage.setItem("product", itemValue);
                     }}
@@ -793,22 +807,28 @@ const CILTinspection = ({ route, navigation }) => {
               )}
               {machine === "FILLER" && packageType === "SEGREGASI" && (
                 <SegregasiInspectionTable
-                  key={`segregasi-${processOrder}-${product}`}
+                  key={`segregasi-${processOrder}`}
                   username={username}
                   onDataChange={(data) => setInspectionData(data)}
                   onDescriptionChange={(data) => setSegregationDescriptionData(data)}
                   initialData={inspectionData}
                   initialDescription={segregationDescriptionData}
-                  product={product}
+                  product={baseProduct}
                   productOptions={productOptions}
                   lineName={line}
+                  packageType={packageType}
+                  shift={shift}
+                  onEffectiveProductChange={(eff) => {
+                    // eff bisa sama (tanpa variant) atau beda (ada Change Variant)
+                    setProduct(eff || baseProduct);
+                  }}
                 />
               )}
             </View>
           </>
         )}
 
-        <View className="checkboxContainer" style={styles.checkboxContainer}>
+        <View style={styles.checkboxContainer}>
           <Checkbox
             status={agreed ? "checked" : "unchecked"}
             onPress={() => setAgreed(!agreed)}
