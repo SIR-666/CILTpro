@@ -1,6 +1,6 @@
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { Picker } from "@react-native-picker/picker";
-import moment from "moment";
+import moment from "moment-timezone";
 import { useEffect, useMemo, useState, useCallback } from "react";
 import {
   ActivityIndicator,
@@ -21,6 +21,7 @@ import { api } from "../../utils/axiosInstance";
 import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import * as Print from "expo-print";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 /* =========================================
  * ========== PDF HELPERS & TEMPLATES ======
@@ -40,11 +41,6 @@ const COLOR_N = "#FFE9B0";
 const COLOR_R = "#F8C9CC";
 const COLOR_EMPTY = "#F4F6F8";
 
-/**
- * Normalisasi class hasil menjadi: "good" | "need" | "reject" | "default"
- * - dukung literal: G/N/R, OK/NOT OK, GOOD/PASS, BAD/FAIL/NG
- * - dukung angka: pakai evaluateValue(goodRef, rejectRef)
- */
 function classifyResult(value, goodRef, rejectRef) {
   if (value === null || value === undefined) return "default";
   const raw = String(value).trim();
@@ -62,11 +58,10 @@ function classifyResult(value, goodRef, rejectRef) {
   if (["BAD", "FAIL", "NOT OK", "NG"].includes(v)) return "reject";
 
   // Angka → pakai evaluator range
-  const st = evaluateValue(raw, goodRef, rejectRef); // "good" | "need" | "reject" | "default"
+  const st = evaluateValue(raw, goodRef, rejectRef);
   return st;
 }
 
-// REPLACE isi fungsi getResultColor lama Anda dengan versi ini
 function getResultColor(value, goodRef, rejectRef) {
   const st = classifyResult(value, goodRef, rejectRef);
   if (st === "good") return COLOR_G;
@@ -83,18 +78,39 @@ function getTextColor(bg) {
   const g = parseInt(hex.substring(2, 4), 16);
   const b = parseInt(hex.substring(4, 6), 16);
   // formula luminance approx
-  const lum = (0.299 * r + 0.587 * g + 0.114 * b);
+  const lum = 0.299 * r + 0.587 * g + 0.114 * b;
   // threshold ~ 150 → teks hitam; selain itu teks gelap
   return lum > 150 ? "#1F2937" : "#111827";
 }
 
-const fmtDT = (d) =>
-  moment(d, "YYYY-MM-DD HH:mm:ss.SSS").format("DD/MM/YY HH:mm:ss");
+const _stripTZ = (s) => String(s ?? "").replace(/([Zz]|[+-]\d{2}:?\d{2})$/, "");
+const parseWIBNaive = (ts) => {
+  if (ts == null) return moment.invalid();
+  if (typeof ts === "number") return moment(ts).tz("Asia/Jakarta");
+  const raw = _stripTZ(ts);
+  const m = raw.match(/(\d{4}-\d{2}-\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (m) {
+    const [, d, HH, MM, SS = "00"] = m;
+    return moment.tz(`${d} ${HH}:${MM}:${SS}`, "YYYY-MM-DD HH:mm:ss", "Asia/Jakarta");
+  }
+  return moment.tz(raw, "Asia/Jakarta");
+};
 
+const fmtDT = (d) => parseWIBNaive(d).format("DD/MM/YY HH:mm:ss");
 const formatDDMonYY = (dateLike) => {
   const monthsShort = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
   ];
   const d = dateLike instanceof Date ? dateLike : new Date(dateLike || Date.now());
   const pad2 = (n) => String(n).padStart(2, "0");
@@ -103,7 +119,7 @@ const formatDDMonYY = (dateLike) => {
 
 /* FRM/Rev mapping per package */
 const FRM_REV_MAP = {
-  "SEGREGASI": { frm: "FIL - 010 - 02", rev: "-", berlaku: "11-Jun-25", hal: "1 dari 3" },
+  SEGREGASI: { frm: "FIL - 010 - 02", rev: "-", berlaku: "11-Jun-25", hal: "1 dari 3" },
   "PEMAKAIAN SCREW CAP": { frm: "FIL - 010 - 02", rev: "-", berlaku: "11-Jun-25", hal: "1 dari 3" },
   "PEMAKAIAN PAPER": { frm: "FIL - 010 - 02", rev: "-", berlaku: "11-Jun-25", hal: "1 dari 3" },
   "PENGECEKAN H2O2 ( SPRAY )": { frm: "FIL - 010 - 02", rev: "-", berlaku: "11-Jun-25", hal: "1 dari 3" },
@@ -120,14 +136,16 @@ const FRM_REV_MAP = {
   "CIP|LINE D": { frm: "FIL - 075", rev: "05", berlaku: "10-Februari-2025", hal: "1 dari 3" },
   // fallback jika LINE tidak cocok/ kosong
   "CHECKLIST CILT": { frm: "FIL - 014", rev: "00", berlaku: "01-April-2025", hal: "1 dari 5" },
-  "CILTGIGR": { frm: "FIL - 015 - 01", rev: "-", berlaku: "11-Jun-25", hal: "1 dari 3" },
-  "CIP": { frm: "FIL - 009", rev: "00", berlaku: "21-Juli-2023", hal: "1 dari 3" },
+  CILTGIGR: { frm: "FIL - 015 - 01", rev: "-", berlaku: "11-Jun-25", hal: "1 dari 3" },
+  CIP: { frm: "FIL - 009", rev: "00", berlaku: "21-Juli-2023", hal: "1 dari 3" },
 };
 
 // Helper untuk memilih meta berdasar package + LINE
 const getFrmMeta = (pkg, line) => {
   const keyByLine = `${pkg}|${(line || "").toUpperCase()}`;
-  return FRM_REV_MAP[keyByLine] || FRM_REV_MAP[pkg] || { frm: "FIL - 010 - 02", rev: "-", berlaku: "11-Jun-25", hal: "1 dari 3" };
+  return (
+    FRM_REV_MAP[keyByLine] || FRM_REV_MAP[pkg] || { frm: "FIL - 010 - 02", rev: "-", berlaku: "11-Jun-25", hal: "1 dari 3" }
+  );
 };
 
 // Perbarui renderPDFHeader agar terima pkg, line, dan title
@@ -201,13 +219,15 @@ const evaluateValue = (inputValue, goodCriteria, rejectCriteria) => {
     if (!rejectStr || rejectStr === "-") return null;
     if (rejectStr.includes(" / ")) {
       const parts = rejectStr.split(" / ");
-      return parts.map(part => {
-        const trimmed = part.trim();
-        if (trimmed.startsWith("<")) return { operator: "<", value: parseFloat(trimmed.slice(1)) };
-        if (trimmed.startsWith(">")) return { operator: ">", value: parseFloat(trimmed.slice(1)) };
-        if (trimmed.startsWith(">=")) return { operator: ">=", value: parseFloat(trimmed.slice(2)) };
-        return null;
-      }).filter(Boolean);
+      return parts
+        .map((part) => {
+          const trimmed = part.trim();
+          if (trimmed.startsWith("<")) return { operator: "<", value: parseFloat(trimmed.slice(1)) };
+          if (trimmed.startsWith(">")) return { operator: ">", value: parseFloat(trimmed.slice(1)) };
+          if (trimmed.startsWith(">=")) return { operator: ">=", value: parseFloat(trimmed.slice(2)) };
+          return null;
+        })
+        .filter(Boolean);
     }
     return null;
   };
@@ -230,16 +250,163 @@ const evaluateValue = (inputValue, goodCriteria, rejectCriteria) => {
   return "need";
 };
 
+const _parseHourLoose = (s) => {
+  const m = String(s ?? "").match(/\b(\d{1,2})(?::\d{2})?\b/);
+  if (!m) return undefined;
+  const h = Number(m[1]);
+  return Number.isFinite(h) ? h : undefined;
+};
+const selectedHourFromInspection = (ins) => {
+  const candidates = [ins?.hourSlot, ins?.hour_slot, ins?.timeSlot, ins?.time_slot, ins?.hour, ins?.selectedHour, ins?.hourSelected];
+  for (const c of candidates) {
+    const h = _parseHourLoose(c);
+    if (h !== undefined) return h;
+  }
+  return undefined;
+};
+
+const selectedHourFromRecord = (rec) => {
+  const g = rec?.HourGroup ?? rec?.hourGroup ?? rec?.hour_slot ?? rec?.hourSlot ?? rec?.timeSlot ?? rec?.selectedHour ?? rec?.hour;
+  const rg = String(g ?? "");
+  const mRange = rg.match(/(\d{1,2})(?::\d{2})?\s*[-–]\s*(\d{1,2})/);
+  if (mRange) return Number(mRange[1]);
+  return _parseHourLoose(rg);
+};
+
 // Function to get latest PERFORMA data for a specific item
+const parseCombinedInspections = (rec) => {
+  const chunks = String(rec?.CombinedInspectionData || "").match(/\[[\s\S]*?\]/g) || [];
+  const out = [];
+  for (const txt of chunks) {
+    try {
+      const arr = JSON.parse(txt);
+      if (Array.isArray(arr)) out.push(...arr);
+    } catch {}
+  }
+  return out;
+};
+
+const intendedHourForRecord = (rec) => {
+  const inspections = parseCombinedInspections(rec);
+  for (let i = inspections.length - 1; i >= 0; i--) {
+    const h = selectedHourFromInspection(inspections[i]);
+    if (h !== undefined) return h;
+  }
+  const h2 = selectedHourFromRecord(rec);
+  if (h2 !== undefined) return h2;
+  return undefined;
+};
+
+// === NEW: fungsi jam dari submitTime utk guard saat inisialisasi ===
+const hourFromSubmitTime = (rec, shiftHours) => {
+  const m = parseWIBNaive(rec?.submitTime || rec?.submit_time || rec?.createdAt || rec?.created_at);
+  if (!m || !m.isValid?.()) return undefined;
+  const H = m.hour();
+  return Array.isArray(shiftHours) && shiftHours.includes(H) ? H : undefined;
+};
+
+// === NEW: fungsi normalisasi jam agar selalu masuk range shift ===
+const nearestHourInShift = (H, hours) => {
+  if (hours.includes(H)) return H;
+  let best = hours[0],
+    bestD = 24;
+  for (const hh of hours) {
+    const d = Math.min((H - hh + 24) % 24, (hh - H + 24) % 24);
+    if (d < bestD) {
+      bestD = d;
+      best = hh;
+    }
+  }
+  return best;
+};
+
+// === NEW: key scope dan key record (sama dengan DetailLaporanShiftly) ===
+const scopeKeyForItem = (item) => {
+  const d = (item?.date || "").split("T")[0];
+  return `cilt_actual_locks:${item?.processOrder}|${d}|${item?.shift}|${item?.line}|${item?.machine}`;
+};
+
+const recordKey = (rec) =>
+  String(
+    rec?.id ??
+      rec?.ID ??
+      rec?.recordId ??
+      rec?.RecordID ??
+      rec?.InputID ??
+      rec?.input_id ??
+      rec?.cilt_id ??
+      `${rec?.submitBy || rec?.createdBy || rec?.user || "unknown"}|${rec?.submitTime || rec?.createdAt || "ts"}`
+  );
+
+// === NEW: baca & pastikan kunci (jika belum ada, tetapkan sekali) ===
+const loadAndEnsureLocks = async (scopeKey, records, shiftHours) => {
+  let locks = {};
+  try {
+    const raw = await AsyncStorage.getItem(scopeKey);
+    locks = raw ? JSON.parse(raw) : {};
+  } catch {
+    locks = {};
+  }
+
+  let changed = false;
+  const next = { ...locks };
+  for (const rec of records || []) {
+    const k = recordKey(rec);
+    if (next[k] == null) {
+      // tetapkan awal
+      let h = intendedHourForRecord(rec);
+      if (h == null) h = hourFromSubmitTime(rec, shiftHours);
+      if (h != null && Array.isArray(shiftHours) && shiftHours.length) {
+        h = nearestHourInShift(Number(h), shiftHours);
+        next[k] = Number(h);
+        changed = true;
+      }
+    }
+  }
+
+  if (changed) {
+    try {
+      await AsyncStorage.setItem(scopeKey, JSON.stringify(next));
+    } catch {}
+  }
+  return next;
+};
+
+// (Masih boleh dipakai utk fallback lain)
+const collectActualTimes = (records, shiftHours) => {
+  const map = {};
+  shiftHours.forEach((h) => {
+    map[h] = [];
+  });
+  for (const rec of records || []) {
+    const tsWIB = parseWIBNaive(rec?.submitTime || rec?.submit_time || rec?.createdAt || rec?.created_at || new Date());
+    const label = tsWIB.format("HH:mm");
+    const targetHour = intendedHourForRecord(rec);
+    if (targetHour !== undefined && shiftHours.includes(targetHour)) {
+      map[targetHour].push({ ts: tsWIB, label });
+    }
+  }
+
+  shiftHours.forEach((h) => map[h].sort((a, b) => a.ts.diff(b.ts)));
+  return map;
+};
+
+const normSlot = (s) => {
+  const m = String(s ?? "").match(/(\d{1,2}):?(\d{2})\s*-\s*(\d{1,2}):?(\d{2})/);
+  if (!m) return undefined;
+  const h1 = String(parseInt(m[1], 10)).padStart(2, "0");
+  const m1 = m[2];
+  const h2 = String(parseInt(m[3], 10)).padStart(2, "0");
+  const m2 = m[4];
+  return `${h1}:${m1} - ${h2}:${m2}`;
+};
 const getLatestPerformaData = async (item) => {
   try {
     const formattedDate = item.date.split("T")[0];
     const response = await api.get(
-      `/cilt/reportCILTAll/PERFORMA RED AND GREEN/${encodeURIComponent(
-        item.plant
-      )}/${encodeURIComponent(item.line)}/${encodeURIComponent(
-        item.shift
-      )}/${encodeURIComponent(item.machine)}/${formattedDate}`
+      `/cilt/reportCILTAll/PERFORMA RED AND GREEN/${encodeURIComponent(item.plant)}/${encodeURIComponent(
+        item.line
+      )}/${encodeURIComponent(item.shift)}/${encodeURIComponent(item.machine)}/${formattedDate}`
     );
 
     if (response.status === 200 && Array.isArray(response.data) && response.data.length > 0) {
@@ -247,56 +414,71 @@ const getLatestPerformaData = async (item) => {
     }
     return [];
   } catch (error) {
-    console.error("Error fetching PERFORMA data:", error);
+    console.error("Error fetching latest PERFORMA data:", error);
     return [];
   }
 };
 
-// Function to extract unique inspection data (same as DetailLaporanShiftly)
 const extractUniqueInspectionData = (records) => {
   const uniqueActivities = {};
+  const safe = Array.isArray(records) ? [...records] : [];
 
-  records.forEach((record) => {
+  // Urutkan berdasarkan submitTime supaya yang terbaru dieksekusi terakhir
+  safe.sort((a, b) => parseWIBNaive(a?.submitTime).diff(parseWIBNaive(b?.submitTime)));
+
+  const isNonEmpty = (v) => v !== undefined && v !== null && String(v).trim() !== "" && v !== "-";
+
+  for (const record of safe) {
     try {
-      const matches = record.CombinedInspectionData.match(/\[.*?\]/g);
+      // Ambil SEMUA snapshot array di CombinedInspectionData
+      const chunks = String(record?.CombinedInspectionData || "").match(/\[[\s\S]*?\]/g);
+      if (!chunks || chunks.length === 0) continue;
 
-      if (!matches || matches.length === 0) {
-        console.error("No valid JSON array found in:", record.CombinedInspectionData);
-        return;
+      for (const txt of chunks) {
+        let arr = [];
+        try {
+          arr = JSON.parse(txt);
+        } catch {
+          arr = [];
+        }
+
+        for (const inspection of arr) {
+          const key = `${inspection.id}|${inspection.activity}`;
+          if (!uniqueActivities[key]) {
+            uniqueActivities[key] = {
+              activity: inspection.activity,
+              standard: inspection.standard,
+              good: inspection.good ?? "-",
+              need: inspection.need ?? "-",
+              reject: inspection.reject ?? "-",
+              results: {},
+              results30: {},
+              picture: {},
+            };
+          }
+
+          // Tabel per JAM
+          {
+            const hKey = selectedHourFromInspection(inspection) ?? selectedHourFromRecord(record);
+            if (hKey !== undefined && isNonEmpty(inspection.results)) {
+              uniqueActivities[key].results[hKey] = inspection.results;
+              if (inspection.picture) uniqueActivities[key].picture[hKey] = inspection.picture;
+            }
+          }
+
+          // Tabel per 30 MENIT
+          if (inspection.periode && String(inspection.periode).toLowerCase().includes("30")) {
+            const sKey = normSlot(inspection.timeSlot);
+            if (sKey && isNonEmpty(inspection.results)) {
+              uniqueActivities[key].results30[sKey] = inspection.results;
+            }
+          }
+        }
       }
-
-      const lastInspectionData = JSON.parse(matches[matches.length - 1]);
-
-      lastInspectionData.forEach((inspection) => {
-        const key = `${inspection.id}|${inspection.activity}`;
-        if (!uniqueActivities[key]) {
-          uniqueActivities[key] = {
-            activity: inspection.activity,
-            standard: inspection.standard,
-            good: inspection.good ?? "-",
-            need: inspection.need ?? "-",
-            reject: inspection.reject ?? "-",
-            results: {},        // hasil per JAM (seperti sebelumnya)
-            results30: {},      // hasil per 30 MENIT
-            picture: {},
-          };
-        }
-        uniqueActivities[key].results[record.HourGroup] = inspection.results;
-        uniqueActivities[key].picture[record.HourGroup] = inspection.picture;
-        // jika entri ini adalah periode 30 menit dan ada timeSlot, simpan ke results30
-        if (
-          (inspection.periode && String(inspection.periode).toLowerCase().includes("30")) &&
-          inspection.timeSlot &&
-          inspection.results !== undefined
-        ) {
-          // contoh key: "16:00 - 16:30" atau "16:30 - 17:00"
-          uniqueActivities[key].results30[inspection.timeSlot] = inspection.results;
-        }
-      });
-    } catch (error) {
-      console.error("Error parsing JSON:", error);
+    } catch (e) {
+      console.error("Error parsing JSON:", e);
     }
-  });
+  }
 
   return Object.values(uniqueActivities);
 };
@@ -307,10 +489,10 @@ const extractUniqueInspectionData = (records) => {
 
 // Helper function to generate flow rate rows based on line type
 const generateFlowRateRows = (cip) => {
-  let flowRateRows = '';
+  let flowRateRows = "";
 
   // LINE A
-  if (cip.line === 'LINE A' && cip.flowRate) {
+  if (cip.line === "LINE A" && cip.flowRate) {
     flowRateRows += `
       <tr>
         <td class="cip-info-label">Flow Rate:</td>
@@ -320,7 +502,7 @@ const generateFlowRateRows = (cip) => {
   }
 
   // LINE B/C
-  if ((cip.line === 'LINE B' || cip.line === 'LINE C') && cip.flowRateBC) {
+  if ((cip.line === "LINE B" || cip.line === "LINE C") && cip.flowRateBC) {
     flowRateRows += `
       <tr>
         <td class="cip-info-label">Flow B,C:</td>
@@ -330,7 +512,7 @@ const generateFlowRateRows = (cip) => {
   }
 
   // LINE D
-  if (cip.line === 'LINE D' && cip.flowRateD) {
+  if (cip.line === "LINE D" && cip.flowRateD) {
     flowRateRows += `
       <tr>
         <td class="cip-info-label">Flow D:</td>
@@ -344,24 +526,24 @@ const generateFlowRateRows = (cip) => {
 
 // Helper function to generate valve positions rows for LINE B/C/D
 const generateValvePositionsRows = (cip) => {
-  if (['LINE B', 'LINE C', 'LINE D'].includes(cip.line) && cip.valvePositions) {
+  if (["LINE B", "LINE C", "LINE D"].includes(cip.line) && cip.valvePositions) {
     return `
       <tr>
         <td class="cip-info-label">Valve Positions:</td>
         <td class="cip-info-value cip-valve-positions">
-          A: ${cip.valvePositions.A ? 'Open' : 'Close'} | 
-          B: ${cip.valvePositions.B ? 'Open' : 'Close'} | 
-          C: ${cip.valvePositions.C ? 'Open' : 'Close'}
+          A: ${cip.valvePositions.A ? "Open" : "Close"} | 
+          B: ${cip.valvePositions.B ? "Open" : "Close"} | 
+          C: ${cip.valvePositions.C ? "Open" : "Close"}
         </td>
       </tr>
     `;
   }
-  return '';
+  return "";
 };
 
 // Helper function to generate kode operator & teknisi rows
 const generateKodeRows = (cip) => {
-  let kodeRows = '';
+  let kodeRows = "";
 
   if (cip.kodeOperator || cip.kodeTeknisi) {
     if (cip.kodeOperator) {
@@ -387,28 +569,28 @@ const generateKodeRows = (cip) => {
 
 // Helper function to generate special record details based on step type
 const generateSpecialRecordDetails = (record, line) => {
-  let details = '';
+  let details = "";
 
   // DRYING
-  if (record.stepType === 'DRYING') {
+  if (record.stepType === "DRYING") {
     details = `
       <div class="cip-special-detail-group">
         <span class="cip-special-label">Temp:</span>
-        <span class="cip-special-value">${record.tempActual || '-'}°C (${record.tempMin || '-'}-${record.tempMax || '-'}°C)</span>
+        <span class="cip-special-value">${record.tempActual || "-"}°C (${record.tempMin || "-"}-${record.tempMax || "-"}°C)</span>
       </div>
       <div class="cip-special-detail-group">
         <span class="cip-special-label">Time:</span>
-        <span class="cip-special-value">${record.time || '-'} min</span>
+        <span class="cip-special-value">${record.time || "-"} min</span>
       </div>
     `;
   }
 
   // FOAMING
-  else if (record.stepType === 'FOAMING') {
+  else if (record.stepType === "FOAMING") {
     details = `
       <div class="cip-special-detail-group">
         <span class="cip-special-label">Time:</span>
-        <span class="cip-special-value">${record.time || '-'} min</span>
+        <span class="cip-special-value">${record.time || "-"} min</span>
       </div>
       <div class="cip-special-detail-group">
         <span class="cip-special-note">(No Temperature)</span>
@@ -417,19 +599,20 @@ const generateSpecialRecordDetails = (record, line) => {
   }
 
   // DISINFECT/SANITASI
-  else if (record.stepType === 'DISINFECT/SANITASI') {
-    const tempDisplay = line === 'LINE D'
-      ? `${record.tempActual || '-'}°C (${record.tempDMin || '-'}-${record.tempDMax || '-'}°C)`
-      : `${record.tempActual || '-'}°C (${record.tempBC || '-'}°C)`;
+  else if (record.stepType === "DISINFECT/SANITASI") {
+    const tempDisplay =
+      line === "LINE D"
+        ? `${record.tempActual || "-"}°C (${record.tempDMin || "-"}-${record.tempDMax || "-"}°C)`
+        : `${record.tempActual || "-"}°C (${record.tempBC || "-"}°C)`;
 
     details = `
       <div class="cip-special-detail-group">
         <span class="cip-special-label">Conc:</span>
-        <span class="cip-special-value">${record.concActual || '-'}% (${record.concMin || '-'}-${record.concMax || '-'}%)</span>
+        <span class="cip-special-value">${record.concActual || "-"}% (${record.concMin || "-"}-${record.concMax || "-"}%)</span>
       </div>
       <div class="cip-special-detail-group">
         <span class="cip-special-label">Time:</span>
-        <span class="cip-special-value">${record.time || '-'} min</span>
+        <span class="cip-special-value">${record.time || "-"} min</span>
       </div>
       <div class="cip-special-detail-group">
         <span class="cip-special-label">Temp:</span>
@@ -453,30 +636,35 @@ const htmlSegregasi = (item) => {
   const inspectionData = parseInspection(item.inspectionData);
 
   // Extract description data (usually stored in the first entry)
-  const descriptionData = inspectionData[0]?.descriptionData && Array.isArray(inspectionData[0].descriptionData)
-    ? inspectionData[0].descriptionData
-    : [];
+  const descriptionData =
+    inspectionData[0]?.descriptionData && Array.isArray(inspectionData[0].descriptionData)
+      ? inspectionData[0].descriptionData
+      : [];
 
   // Check if description data has content
   const hasDescriptionContent = (descData) => {
     if (!descData || !Array.isArray(descData)) return false;
-    return descData.some((item) =>
-      item.flavour ||
-      item.kodeProd ||
-      item.kodeExp ||
-      item.startTime ||
-      item.stopTime ||
-      item.startNum ||
-      item.stopNum ||
-      item.counterOutfeed ||
-      item.totalOutfeed ||
-      item.waste
+    return descData.some(
+      (item) =>
+        item.flavour ||
+        item.kodeProd ||
+        item.kodeExp ||
+        item.startTime ||
+        item.stopTime ||
+        item.startNum ||
+        item.stopNum ||
+        item.counterOutfeed ||
+        item.totalOutfeed ||
+        item.waste
     );
   };
 
   // Generate description section HTML
   const descriptionSection = hasDescriptionContent(descriptionData)
-    ? descriptionData.slice(0, 3).map((desc, idx) => `
+    ? descriptionData
+        .slice(0, 3)
+        .map(
+          (desc, idx) => `
         <div class="desc-column">
           <div class="desc-column-header">Kolom ${idx + 1}</div>
           ${desc.lastModifiedBy ? `
@@ -484,72 +672,77 @@ const htmlSegregasi = (item) => {
               <div>User: ${esc(desc.lastModifiedBy)}</div>
               <div>Time: ${esc(desc.lastModifiedTime)}</div>
             </div>
-          ` : ''}
+          ` : '' }
           
           <table class="desc-detail-table">
             <tr>
               <td class="desc-label">Flavour</td>
-              <td class="desc-value">${esc(desc.flavour || '-')}</td>
+              <td class="desc-value">${esc(desc.flavour || "-")}</td>
             </tr>
             <tr>
               <td class="desc-label">Kode Prod.</td>
-              <td class="desc-value">${esc(desc.kodeProd || '-')}</td>
+              <td class="desc-value">${esc(desc.kodeProd || "-")}</td>
             </tr>
             <tr>
               <td class="desc-label">Kode Exp</td>
-              <td class="desc-value">${esc(desc.kodeExp || '-')}</td>
+              <td class="desc-value">${esc(desc.kodeExp || "-")}</td>
             </tr>
             <tr>
               <td class="desc-label">Start</td>
-              <td class="desc-value">${esc(desc.startTime || '-')}</td>
+              <td class="desc-value">${esc(desc.startTime || "-")}</td>
             </tr>
             <tr>
               <td class="desc-label">Stop</td>
-              <td class="desc-value">${esc(desc.stopTime || '-')}</td>
+              <td class="desc-value">${esc(desc.stopTime || "-")}</td>
             </tr>
             <tr>
               <td class="desc-label">Outfeed</td>
-              <td class="desc-value">${esc(desc.counterOutfeed || '-')}</td>
+              <td class="desc-value">${esc(desc.counterOutfeed || "-")}</td>
             </tr>
             <tr>
               <td class="desc-label-help">Total Outfeed</td>
-              <td class="desc-value">${esc(desc.totalOutfeed || '-')}</td>
+              <td class="desc-value">${esc(desc.totalOutfeed || "-")}</td>
             </tr>
             <tr>
               <td class="desc-label">Waste</td>
-              <td class="desc-value">${esc(desc.waste || '-')}</td>
+              <td class="desc-value">${esc(desc.waste || "-")}</td>
             </tr>
             <tr>
               <td class="desc-label">Start (Machine)</td>
-              <td class="desc-value">${esc(desc.startNum || '-')}</td>
+              <td class="desc-value">${esc(desc.startNum || "-")}</td>
             </tr>
             <tr>
               <td class="desc-label">Stop (Machine)</td>
-              <td class="desc-value">${esc(desc.stopNum || '-')}</td>
+              <td class="desc-value">${esc(desc.stopNum || "-")}</td>
             </tr>
           </table>
         </div>
-      `).join('')
+      `
+        )
+        .join("")
     : '<div class="no-description-data">No description data entered</div>';
 
-  // Generate segregasi section HTML  
-  const segregasiRows = inspectionData.map((entry, idx) => `
+  // Generate segregasi section HTML
+  const segregasiRows = inspectionData
+    .map(
+      (entry, idx) => `
     <div class="seg-column">
       <div class="seg-column-header">Entry ${idx + 1}</div>
       
       <table class="seg-detail-table">
         <tr>
           <td class="seg-label">Type</td>
-          <td class="seg-value">${esc(entry.type || entry.job_type || '-')}</td>
+          <td class="seg-value">${esc(entry.type || entry.job_type || "-")}</td>
         </tr>
         <tr>
           <td class="seg-label">Prod Type</td>
-          <td class="seg-value">${esc(entry.prodType || '-')}</td>
+          <td class="seg-value">${esc(entry.prodType || "-")}</td>
         </tr>
         <tr>
           <td class="seg-label">TO</td>
-          <td class="seg-value ${entry.type !== 'Change Variant' ? 'seg-value-disabled' : ''}">${entry.type === 'Change Variant' ? esc(entry.to || '-') : '—'
-    }</td>
+          <td class="seg-value ${entry.type !== "Change Variant" ? "seg-value-disabled" : ""}">${
+        entry.type === "Change Variant" ? esc(entry.to || "-") : "—"
+      }</td>
         </tr>
       </table>
 
@@ -558,19 +751,19 @@ const htmlSegregasi = (item) => {
         <table class="equipment-table">
           <tr>
             <td class="eq-label">Magazine</td>
-            <td class="eq-checkbox">${entry.magazine ? '✓' : ''}</td>
+            <td class="eq-checkbox">${entry.magazine ? "✓" : ""}</td>
           </tr>
           <tr>
             <td class="eq-label">Wastafel</td>
-            <td class="eq-checkbox">${entry.wastafel ? '✓' : ''}</td>
+            <td class="eq-checkbox">${entry.wastafel ? "✓" : ""}</td>
           </tr>
           <tr>
             <td class="eq-label">Pallet PM</td>
-            <td class="eq-checkbox">${entry.palletPm ? '✓' : ''}</td>
+            <td class="eq-checkbox">${entry.palletPm ? "✓" : ""}</td>
           </tr>
           <tr>
             <td class="eq-label">Conveyor</td>
-            <td class="eq-checkbox">${entry.conveyor ? '✓' : ''}</td>
+            <td class="eq-checkbox">${entry.conveyor ? "✓" : ""}</td>
           </tr>
         </table>
       </div>
@@ -580,14 +773,16 @@ const htmlSegregasi = (item) => {
           <div>User: ${esc(entry.user)}</div>
           <div>Time: ${esc(entry.time)}</div>
         </div>
-      ` : ''}
+      ` : '' }
     </div>
-  `).join('');
+  `
+    )
+    .join("");
 
   return `
     <section class="report-section segregasi-section">
       <div class="report-date">${formatDDMonYY(item.date)}</div>
-      ${renderPDFHeader('SEGREGASI', item.line, 'SEGREGASI & DESCRIPTION')}
+      ${renderPDFHeader("SEGREGASI", item.line, "SEGREGASI & DESCRIPTION")}
       <h2 style="fontWeight: 'bold', textAlign: 'center', fontSize: 18, marginVertical: 8">SEGREGASI & DESCRIPTION</h2>
       
       <!-- DESCRIPTION SECTION -->
@@ -625,7 +820,8 @@ const htmlSegregasi = (item) => {
  */
 const htmlScrewCap = (item) => {
   const rows = parseInspection(item.inspectionData)
-    .map((r, i) => `
+    .map(
+      (r, i) => `
       <tr>
         <td>${i + 1}</td>
         <td>${esc(r.jam)}</td>
@@ -635,11 +831,13 @@ const htmlScrewCap = (item) => {
         <td>${esc(r.user)}</td>
         <td>${esc(r.time)}</td>
       </tr>
-    `).join("");
+    `
+    )
+    .join("");
 
   return `
     <section class="report-section screwcap-section">
-      ${renderPDFHeader('PEMAKAIAN SCREW CAP', item.line, 'PEMAKAIAN SCREW CAP')}
+      ${renderPDFHeader("PEMAKAIAN SCREW CAP", item.line, "PEMAKAIAN SCREW CAP")}
       <div class="report-date">${formatDDMonYY(item.date)}</div>
       <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">PEMAKAIAN SCREW CAP</h2>
       <table>
@@ -654,15 +852,16 @@ const htmlScrewCap = (item) => {
   `;
 };
 
-/** =========================
+/** ===================
  * 3) PEMAKAIAN PAPER
- * =========================
+ * ====================
  */
 const htmlPaperUsage = (item) => {
   const parsed = parseInspection(item.inspectionData);
   const cekAlergenKemasan = Array.isArray(parsed) && !!parsed[0]?.cekAlergenKemasan;
   const rows = parsed
-    .map((r, i) => `
+    .map(
+      (r, i) => `
       <tr>
         <td>${i + 1}</td>
         <td>${esc(r.jam)}</td>
@@ -672,11 +871,13 @@ const htmlPaperUsage = (item) => {
         <td>${esc(r.user)}</td>
         <td>${esc(r.time)}</td>
       </tr>
-    `).join("");
+    `
+    )
+    .join("");
 
   return `
     <section class="report-section paper-section">
-      ${renderPDFHeader('PEMAKAIAN PAPER', item.line, 'PEMAKAIAN PAPER')}
+      ${renderPDFHeader("PEMAKAIAN PAPER", item.line, "PEMAKAIAN PAPER")}
       <div class="report-date">${formatDDMonYY(item.date)}</div>
       <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;margin:8px 0;">
         <div></div>
@@ -700,13 +901,14 @@ const htmlPaperUsage = (item) => {
   `;
 };
 
-/** =========================
+/** ==============
  * 4) H2O2 CHECK
- * =========================
+ * ===============
  */
 const htmlH2O2 = (item) => {
   const rows = parseInspection(item.inspectionData)
-    .map((r, i) => `
+    .map(
+      (r, i) => `
       <tr>
         <td>${i + 1}</td>
         <td>${esc(r.jam)}</td>
@@ -716,11 +918,13 @@ const htmlH2O2 = (item) => {
         <td>${esc(r.user)}</td>
         <td>${esc(r.time)}</td>
       </tr>
-    `).join("");
+    `
+    )
+    .join("");
 
   return `
     <section class="report-section h2o2-section">
-      ${renderPDFHeader('PENGECEKAN H2O2 ( SPRAY )', item.line, 'PENGECEKAN H2O2 (SPRAY)')}
+      ${renderPDFHeader("PENGECEKAN H2O2 ( SPRAY )", item.line, "PENGECEKAN H2O2 (SPRAY)")}
       <div class="report-date">${formatDDMonYY(item.date)}</div>
       <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">PENGECEKAN H2O2 (SPRAY)</h2>
       <table>
@@ -735,9 +939,14 @@ const htmlH2O2 = (item) => {
   `;
 };
 
-/** =========================
+/** =======================
  * 5) PERFORMA RED & GREEN 
  * ========================
+ * === UPDATE PENTING ===
+ * - Baris "Actual Time" kini memakai kunci jam dari AsyncStorage
+ *   dengan scope yang sama seperti DetailLaporanShiftly.
+ * - Jika kunci belum ada, ditetapkan sekali (berdasarkan intendedHour/submitTime)
+ *   lalu disimpan (dikunci).
  */
 const htmlShiftly = async (item) => {
   // Get latest PERFORMA data
@@ -745,7 +954,24 @@ const htmlShiftly = async (item) => {
   const uniqueData = extractUniqueInspectionData(latestData);
   const shiftHours = getShiftHours(item.shift);
 
-  const performaHeader = renderPDFHeader('PERFORMA RED AND GREEN', item.line, 'PERFORMA RED AND GREEN');
+  // === NEW: gunakan kunci yang sama dengan DetailLaporanShiftly
+  const scopeKey = scopeKeyForItem(item);
+  const actualLocks = await loadAndEnsureLocks(scopeKey, latestData, shiftHours);
+
+  // === NEW: kelompokan actual time berdasar JAM TERKUNCI
+  const actualByHour = {};
+  for (const rec of latestData) {
+    const k = recordKey(rec);
+    const h = actualLocks[k];
+    if (h == null) continue;
+    if (!actualByHour[h]) actualByHour[h] = [];
+    actualByHour[h].push(rec);
+  }
+  Object.keys(actualByHour).forEach((h) => {
+    actualByHour[h].sort((a, b) => parseWIBNaive(a.submitTime).diff(parseWIBNaive(b.submitTime)));
+  });
+
+  const performaHeader = renderPDFHeader("PERFORMA RED AND GREEN", item.line, "PERFORMA RED AND GREEN");
 
   // Item information section 
   const itemInfo = `
@@ -772,75 +998,79 @@ const htmlShiftly = async (item) => {
     </div>
   `;
 
-  // Actual Time Row - show all actual times for each hour, not just the latest
+  // === UPDATED: Actual Time Row memakai actualByHour (jam terkunci)
   const actualTimeRow = `
     <tr>
       <td colspan="5" style="font-weight: bold; text-align: center; background-color: #f8f9fa;">Actual Time</td>
-      ${shiftHours.map(hour => {
-    const relatedItems = latestData.filter(
-      rec => parseInt(moment.utc(rec.LastRecordTime).format("HH")) === hour
-    );
-    if (relatedItems.length === 0) {
-      return `<td style="text-align: center; background-color: #f8f9fa; padding: 4px;">-</td>`;
-    }
-    // Tampilkan semua actual time (jika lebih dari satu, tampilkan semuanya di atas sesuai urutan submitTime)
-    const sortedItems = relatedItems.sort((a, b) => moment.utc(a.submitTime).diff(moment.utc(b.submitTime)));
-    return `<td style=\"text-align: center; background-color: #f8f9fa; padding: 2px; vertical-align: top;\">${sortedItems.map(filteredItem => {
-      const lastRecordHour = parseInt(moment.utc(filteredItem.LastRecordTime).format("HH"));
-      const submitHour = parseInt(moment.utc(filteredItem.submitTime).format("HH"));
-      const submitMinutes = moment.utc(filteredItem.submitTime).format("mm");
-      const isMoreThanOneHour = Math.abs(lastRecordHour - submitHour) >= 1;
-      const bgColor = isMoreThanOneHour ? "#ffebee" : "#e8f5e9";
-      const textColor = isMoreThanOneHour ? "#d32f2f" : "#2e7d32";
-      return `<div style=\"background-color:${bgColor};color:${textColor};font-weight:bold;padding:2px;margin-bottom:2px;border-radius:3px;\">${submitHour.toString().padStart(2, '0')}:${submitMinutes}</div>`;
-    }).join("")}</td>`;
-  }).join("")}
+      ${shiftHours
+        .map((hour) => {
+          const list = actualByHour[hour] || [];
+          if (list.length === 0) {
+            return `<td style="text-align:center; background:#f8f9fa; padding:4px;">-</td>`;
+          }
+          const chips = list
+            .map((rec) => {
+              const ts = parseWIBNaive(rec.submitTime);
+              const label = ts.format("HH:mm");
+              // terlambat jika HH submit berbeda >= 1 jam dari slot kunci
+              const isLate = Math.abs(ts.hour() - Number(hour)) >= 1;
+              const bg = isLate ? "#ffebee" : "#e8f5e9";
+              const fg = isLate ? "#d32f2f" : "#2e7d32";
+              return `<div style="background:${bg};color:${fg};font-weight:bold;padding:2px;margin-bottom:2px;border-radius:3px;display:inline-block;">${label}</div>`;
+            })
+            .join("");
+          return `<td style="text-align:center; background:#f8f9fa; padding:2px; vertical-align:top;">${chips}</td>`;
+        })
+        .join("")}
     </tr>
   `;
 
   // Data rows
-  const inspectionRows = uniqueData.map((inspectionItem, index) => `
+  const inspectionRows = uniqueData
+    .map(
+      (inspectionItem, index) => `
     <tr>
       <td class="col-no" style="text-align: center; width: 5%;">${index + 1}</td>
       <td class="col-activity" style="padding: 8px; width: 20%;">${esc(inspectionItem.activity)}</td>
       <td class="col-good" style="text-align: center; width: 7%;">${esc(inspectionItem.good ?? "-")}</td>
       <td class="col-need" style="text-align: center; width: 7%;">${esc(inspectionItem.need ?? "-")}</td>
       <td class="col-red" style="text-align: center; width: 7%;">${esc(inspectionItem.reject ?? "-")}</td>
-      ${shiftHours.map(hour => {
-    const h = String(hour).padStart(2, "0");
-    const nextH = String((hour + 1) % 24).padStart(2, "0");
-    const slot1 = `${h}:00 - ${h}:30`;              // kiri
-    const slot2 = `${h}:30 - ${nextH}:00`;          // kanan
-    const v1 = (inspectionItem.results30 && inspectionItem.results30[slot1]) ?? "";
-    const v2 = (inspectionItem.results30 && inspectionItem.results30[slot2]) ?? "";
+      ${shiftHours
+        .map((hour) => {
+          const h = String(hour).padStart(2, "0");
+          const nextH = String((hour + 1) % 24).padStart(2, "0");
+          const slot1 = normSlot(`${h}:00 - ${h}:30`);
+          const slot2 = normSlot(`${h}:30 - ${nextH}:00`);
+          const v1 = slot1 ? inspectionItem.results30?.[slot1] ?? "" : "";
+          const v2 = slot2 ? inspectionItem.results30?.[slot2] ?? "" : "";
 
-    // fallback: jika belum ada data 30-menit, pakai hasil per jam lama (agar legacy tetap tampil)
-    const fallback = inspectionItem.results?.[hour] ?? "";
-    const showLeft = v1 !== "" || v2 !== "" || fallback !== "";
-    const leftVal = (v1 !== "" ? v1 : (fallback !== "" ? fallback : ""));
-    const rightVal = (v2 !== "" ? v2 : "");
+          const fallback =
+            inspectionItem.results?.[hour] ??
+            inspectionItem.results?.[Number(hour)] ??
+            inspectionItem.results?.[`${h}:00`] ??
+            "";
 
-    const c1 = getResultColor(leftVal, inspectionItem.good, inspectionItem.reject);
-    const c2 = getResultColor(rightVal, inspectionItem.good, inspectionItem.reject);
-    const cellWidth = `${(100 - (5 + 20 + 7 + 7 + 7)) / shiftHours.length}%`;
+          const leftVal = v1 !== "" ? v1 : fallback || "";
+          const rightVal = v2 !== "" ? v2 : "";
 
-    return `
+          const c1 = getResultColor(leftVal, inspectionItem.good, inspectionItem.reject);
+          const c2 = getResultColor(rightVal, inspectionItem.good, inspectionItem.reject);
+          const cellWidth = `${(100 - (5 + 20 + 7 + 7 + 7)) / shiftHours.length}%`;
+
+          return `
           <td class="col-shift slot-cell" style="width:${cellWidth};">
             <div class="slot-wrap">
-              <div class="slot-half left"
-                   style="background:${c1}; color:${getTextColor(c1)};">
-                ${leftVal || "-"}
-              </div>
-              <div class="slot-half"
-                   style="background:${c2}; color:${getTextColor(c2)};">
-                ${rightVal || "-"}
-              </div>
+              <div class="slot-half left" style="background:${c1}; color:${getTextColor(c1)};">${leftVal || "-"}</div>
+              <div class="slot-half" style="background:${c2}; color:${getTextColor(c2)};">${rightVal || "-"}</div>
             </div>
           </td>
         `;
-  }).join("")}
+        })
+        .join("")}
     </tr>
-  `).join("");
+  `
+    )
+    .join("");
 
   return `
     <section class="report-section performa-section">
@@ -862,10 +1092,12 @@ const htmlShiftly = async (item) => {
             <th class="col-good" style="width: 7%;">G</th>
             <th class="col-need" style="width: 7%;">N</th>
             <th class="col-red" style="width: 7%;">R</th>
-            ${shiftHours.map((hour) => {
-    const cellWidth = `${(100 - (5 + 20 + 7 + 7 + 7)) / shiftHours.length}%`;
-    return `<th class="col-shift" style="width: ${cellWidth};">${hour}:00</th>`;
-  }).join("")}
+            ${shiftHours
+              .map((hour) => {
+                const cellWidth = `${(100 - (5 + 20 + 7 + 7 + 7)) / shiftHours.length}%`;
+                return `<th class="col-shift" style="width: ${cellWidth};">${hour}:00</th>`;
+              })
+              .join("")}
           </tr>
         </thead>
         <tbody>
@@ -876,9 +1108,9 @@ const htmlShiftly = async (item) => {
   `;
 };
 
-/** ===================
- * 6) CHECKLIST CILT — LAYERED (1–15) / (16–end), cumulative, no "Result" column
- * =================== */
+/** ================
+ * 6 CHECKLIST CILT
+ * ================= */
 const checklistLayerCss = `
   <style>
     @page { size: A4 landscape; margin: 12mm; }
@@ -896,7 +1128,7 @@ const checklistLayerCss = `
     .day-cell{ padding:0 !important; }
     .shift-slot{
       position: relative;
-      height: 14px;                    /* << dipendekkan */
+      height: 14px;
       display:flex; align-items:center; justify-content:center;
       border-bottom:1px solid #bfbfbf;
       opacity:.35;
@@ -904,20 +1136,20 @@ const checklistLayerCss = `
     .shift-slot:last-child{ border-bottom:none; }
     .shift-slot.on{ opacity:1; }
     .slot-num{
-      position:absolute; left:2px; top:0px;  /* selaras meski lebih pendek */
+      position:absolute; left:2px; top:0px;
       font-size:8px; font-weight:700; color:#374151;
     }
 
     /* ==== KOLOM USER DENGAN 3 SHIFT ==== */
     .user-td{ padding:0; }
     .user-cell{ display:flex; align-items:stretch; height:100%; }
-    .user-name{ flex:1; padding:2px 4px; font-size:9px; text-align:left; } /* nama kecil selalu tampil */
+    .user-name{ flex:1; padding:2px 4px; font-size:9px; text-align:left; }
     .shift-badges{ width:56px; display:flex; flex-direction:column; border-left:1px solid #999; }
     .shift-badge{
       position:relative;
-      height:14px;                     /* << dipendekkan sama dengan .shift-slot */
+      height:14px;
       display:flex; align-items:center; justify-content:center;
-      border-bottom:1px solid #bfbfbf; /* garis sejajar dengan result */
+      border-bottom:1px solid #bfbfbf;
       color:#111; opacity:.35; font-weight:700;
     }
     .shift-badge:last-child{ border-bottom:none; }
@@ -929,11 +1161,8 @@ const checklistLayerCss = `
   </style>
 `;
 
-// Ambil "hari di bulan" dari satu entri Checklist CILT.
-// - Jika entry.time hanya "HH:mm", pakai tanggal dari item.date.
-// - Jika format lain tidak valid, fallback ke tanggal dari item.date.
 const getEntryDay = (entryTime, itemDate) => {
-  const base = moment(itemDate, "YYYY-MM-DD HH:mm:ss.SSS"); // anchor
+  const base = moment(itemDate, "YYYY-MM-DD HH:mm:ss.SSS");
   if (!entryTime) return base.date();
 
   // hanya jam-menit?
@@ -942,9 +1171,14 @@ const getEntryDay = (entryTime, itemDate) => {
   }
 
   const fmts = [
-    "YYYY-MM-DD HH:mm:ss.SSS", "YYYY-MM-DD HH:mm:ss",
-    "DD/MM/YY HH:mm:ss", "DD/MM/YYYY HH:mm:ss",
-    "YYYY-MM-DD", "YYYY/MM/DD", "DD/MM/YY", "DD/MM/YYYY",
+    "YYYY-MM-DD HH:mm:ss.SSS",
+    "YYYY-MM-DD HH:mm:ss",
+    "DD/MM/YY HH:mm:ss",
+    "DD/MM/YYYY HH:mm:ss",
+    "YYYY-MM-DD",
+    "YYYY/MM/DD",
+    "DD/MM/YY",
+    "DD/MM/YYYY",
   ];
   const m = moment(entryTime, fmts, true);
   return m.isValid() ? m.date() : base.date();
@@ -960,9 +1194,14 @@ const sameMonth = (ts, anchorDate) => {
   if (/^\d{1,2}:\d{2}$/.test(String(ts).trim())) return true;
 
   const fmts = [
-    "YYYY-MM-DD HH:mm:ss.SSS", "YYYY-MM-DD HH:mm:ss",
-    "DD/MM/YY HH:mm:ss", "DD/MM/YYYY HH:mm:ss",
-    "YYYY-MM-DD", "YYYY/MM/DD", "DD/MM/YY", "DD/MM/YYYY",
+    "YYYY-MM-DD HH:mm:ss.SSS",
+    "YYYY-MM-DD HH:mm:ss",
+    "DD/MM/YY HH:mm:ss",
+    "DD/MM/YYYY HH:mm:ss",
+    "YYYY-MM-DD",
+    "YYYY/MM/DD",
+    "DD/MM/YY",
+    "DD/MM/YYYY",
   ];
   const m = moment(ts, fmts, true);
   if (!m.isValid()) return true;
@@ -978,15 +1217,12 @@ const getShiftFromTime = (timeStr, fallbackShift) => {
     if (s.includes("3")) return 3;
   }
   if (!timeStr) return null;
-  const m = moment(String(timeStr).trim(),
-    ["YYYY-MM-DD HH:mm:ss.SSS", "YYYY-MM-DD HH:mm:ss", "DD/MM/YY HH:mm:ss", "DD/MM/YYYY HH:mm:ss", "HH:mm", "H:mm"],
-    true
-  );
+  const m = moment(String(timeStr).trim(), ["YYYY-MM-DD HH:mm:ss.SSS", "YYYY-MM-DD HH:mm:ss", "DD/MM/YY HH:mm:ss", "DD/MM/YYYY HH:mm:ss", "HH:mm", "H:mm"], true);
   if (!m.isValid()) return null;
   const h = m.hour();
   if (h >= 6 && h < 14) return 1;
   if (h >= 14 && h < 22) return 2;
-  return 3; // 22:00–06:00
+  return 3;
 };
 
 const htmlChecklist = (item) => {
@@ -995,15 +1231,14 @@ const htmlChecklist = (item) => {
   const monthLabel = baseMoment.format("MMM-YY");
   const daysInMonth = baseMoment.daysInMonth();
 
-  const buildHeaderDays = (start, end) =>
-    Array.from({ length: end - start + 1 }, (_, i) => `<th>${start + i}</th>`).join("");
+  const buildHeaderDays = (start, end) => Array.from({ length: end - start + 1 }, (_, i) => `<th>${start + i}</th>`).join("");
 
   // helper untuk klasifikasi tampilan “OK/NOT OK/Need”
   const getResultClass = (raw, goodRef, rejectRef) => {
     const st = classifyResult(raw, goodRef, rejectRef);
-    if (st === "good") return "result-good";   // hijau
-    if (st === "reject") return "result-bad";  // merah
-    if (st === "need") return "result-need";   // kuning
+    if (st === "good") return "result-good";
+    if (st === "reject") return "result-bad";
+    if (st === "need") return "result-need";
     return "result-default";
   };
 
@@ -1040,7 +1275,7 @@ const htmlChecklist = (item) => {
       row.cells[day].push({
         time: e.time || null,
         shift: effShift,
-        result: (e.results ?? e.result ?? "-"),
+        result: e.results ?? e.result ?? "-",
         user: e.user || "-",
       });
     });
@@ -1059,9 +1294,15 @@ const htmlChecklist = (item) => {
         const d = start + i;
         const cellItems = r.cells[d] || [];
         const fmts = [
-          "YYYY-MM-DD HH:mm:ss.SSS", "YYYY-MM-DD HH:mm:ss",
-          "DD/MM/YY HH:mm:ss", "DD/MM/YYYY HH:mm:ss",
-          "YYYY-MM-DD", "YYYY/MM/DD", "DD/MM/YY", "DD/MM/YYYY", "HH:mm"
+          "YYYY-MM-DD HH:mm:ss.SSS",
+          "YYYY-MM-DD HH:mm:ss",
+          "DD/MM/YY HH:mm:ss",
+          "DD/MM/YYYY HH:mm:ss",
+          "YYYY-MM-DD",
+          "YYYY/MM/DD",
+          "DD/MM/YY",
+          "DD/MM/YYYY",
+          "HH:mm",
         ];
         const sorted = [...cellItems].sort((a, b) => {
           const ma = a.time && moment(a.time, fmts, true).isValid() ? moment(a.time, fmts, true).valueOf() : -1;
@@ -1073,28 +1314,28 @@ const htmlChecklist = (item) => {
         sorted.forEach((it, idx) => {
           const s = getShiftFromTime(it.time, it.shift);
           if (!s) return;
-          const ts = it.time && moment(it.time, fmts, true).isValid()
-            ? moment(it.time, fmts, true).valueOf()
-            : idx;
+          const ts = it.time && moment(it.time, fmts, true).isValid() ? moment(it.time, fmts, true).valueOf() : idx;
           slot[s].push({ ts, result: it.result ?? it.results ?? "-", user: it.user || "-" });
           shiftsSeen[s] = true;
           if (it.user) shiftUsers[s].add(String(it.user));
         });
-        const pickLatest = (arr) => arr.length ? arr.reduce((a, b) => b.ts > a.ts ? b : a) : null;
+        const pickLatest = (arr) => (arr.length ? arr.reduce((a, b) => (b.ts > a.ts ? b : a)) : null);
         const latest = { 1: pickLatest(slot[1]), 2: pickLatest(slot[2]), 3: pickLatest(slot[3]) };
         // simpan user terakhir (berdasarkan waktu paling akhir)
         if (sorted.length > 0) {
           const last = sorted[sorted.length - 1];
-          const tsLast = last.time && moment(last.time, fmts, true).isValid()
-            ? moment(last.time, fmts, true).valueOf() : -1;
-          if (tsLast > latestTs) { latestTs = tsLast; latestUser = last.user || "-"; }
+          const tsLast = last.time && moment(last.time, fmts, true).isValid() ? moment(last.time, fmts, true).valueOf() : -1;
+          if (tsLast > latestTs) {
+            latestTs = tsLast;
+            latestUser = last.user || "-";
+          }
         }
         // builder box per shift
         const renderSlot = (s) => {
           const val = latest[s]?.result;
           const cls = !val ? "result-default" : getResultClass(val, r.good, r.reject);
           const on = val ? "on" : "";
-          const label = (cls === "result-good") ? "OK" : (cls === "result-bad") ? "NOT OK" : (val ? String(val) : "");
+          const label = cls === "result-good" ? "OK" : cls === "result-bad" ? "NOT OK" : val ? String(val) : "";
           return `<div class="shift-slot ${on} ${cls}"><span class="slot-num">${s}</span>${esc(label)}</div>`;
         };
         return `<td class="day-cell">${renderSlot(1)}${renderSlot(2)}${renderSlot(3)}</td>`;
@@ -1104,7 +1345,6 @@ const htmlChecklist = (item) => {
         `<div class="shift-badge s${s} ${shiftsSeen[s] ? "shift-active" : ""}">
            <div class="sb-num">${s}</div>
          </div>`;
-      const hasShiftSplit = shiftsSeen[1] || shiftsSeen[2] || shiftsSeen[3];
       rows.push(`
         <tr class="checklist-table-row">
           <td>${++idx}</td>
@@ -1134,7 +1374,7 @@ const htmlChecklist = (item) => {
   // Build satu tabel untuk layer tertentu
   const buildLayerTable = (start, end, label, align = "center") => {
     const rowsHtml = buildRows(inspectionData, start, end, item.date);
-    if (!rowsHtml) return ""; // Skip jika tidak ada data
+    if (!rowsHtml) return "";
 
     return `
       <div style="margin-bottom: 30px;">
@@ -1149,7 +1389,7 @@ const htmlChecklist = (item) => {
               <th style="width:14%;">Component</th>
               <th style="width:4%;">Picture</th>
               <th style="width:9%;">User</th>
-              <th style="width:6%;">Shift</th>        <!-- kolom baru -->
+              <th style="width:6%;">Shift</th>
               ${buildHeaderDays(start, end)}
             </tr>
           </thead>
@@ -1162,31 +1402,32 @@ const htmlChecklist = (item) => {
   };
 
   // Render KEDUA layer
-  const layer1Html = buildLayerTable(1, 15, "1–15", "center");  // << rata tengah
+  const layer1Html = buildLayerTable(1, 15, "1–15", "center"); // << rata tengah
   const layer2Html = buildLayerTable(16, daysInMonth, `16–${daysInMonth}`, "center");
 
   return `
     ${checklistLayerCss}
     <section class="report-section checklist-section">
-      ${renderPDFHeader('CHECKLIST CILT', item.line, `CHECKLIST CILT ${esc(item.machine || '')} ${esc(item.line || '')}`)}
+      ${renderPDFHeader("CHECKLIST CILT", item.line, `CHECKLIST CILT ${esc(item.machine || "")} ${esc(item.line || "")}`)}
       <div class="report-date">${formatDDMonYY(item.date)}</div>
       <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">
         CHECKLIST CILT
       </h2>
       ${layer1Html}
       ${layer2Html}
-      ${!layer1Html && !layer2Html ? '<p style="text-align: center; padding: 20px;">Belum ada data untuk bulan ini.</p>' : ''}
+      ${!layer1Html && !layer2Html ? '<p style="text-align: center; padding: 20px;">Belum ada data untuk bulan ini.</p>' : ""}
     </section>
   `;
 };
 
-/** =========================
+/** ============
  * 7) CILT GIGR
- * =========================
+ * =============
  */
 const htmlCILTGIGR = (item) => {
   const rows = parseInspection(item.inspectionData)
-    .map((r, i) => `
+    .map(
+      (r, i) => `
       <tr>
         <td>${i + 1}</td>
         <td>${esc(r.noPalet)}</td>
@@ -1196,11 +1437,13 @@ const htmlCILTGIGR = (item) => {
         <td>${esc(r.user)}</td>
         <td>${esc(r.time)}</td>
       </tr>
-    `).join("");
+    `
+    )
+    .join("");
 
   return `
     <section class="report-section ciltgigr-section">
-      ${renderPDFHeader('CILTGIGR', item.line, 'CILT GIGR')}
+      ${renderPDFHeader("CILTGIGR", item.line, "CILT GIGR")}
       <div class="report-date">${formatDDMonYY(item.date)}</div>
       <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">CILT GIGR</h2>
       <table>
@@ -1213,9 +1456,9 @@ const htmlCILTGIGR = (item) => {
   `;
 };
 
-/** =========================
- * 8) CIP — UPDATED
- * =========================
+/** ======
+ * 8) CIP
+ * =======
  */
 const htmlCIP = async (cipSummary) => {
   // --- 1) Pastikan data detail tersedia ---
@@ -1244,7 +1487,7 @@ const htmlCIP = async (cipSummary) => {
 
   // --- 2) Header PDF (judul berbeda untuk LINE A vs B/C/D) ---
   const cipHeaderTitle =
-    (String(header.line || "").toUpperCase() === "LINE A")
+    String(header.line || "").toUpperCase() === "LINE A"
       ? "LAPORAN CIP MESIN GALDI RG 280 UCS (LINE A)"
       : "LAPORAN CIP MESIN GALDI (LINE B,C,D)";
 
@@ -1255,7 +1498,7 @@ const htmlCIP = async (cipSummary) => {
       <table class="cip-info-table">
         <tr>
           <td class="cip-info-label">Process Order:</td>
-          <td class="cip-info-value">${esc(header.processOrder || header.process_order || "-")}</td>
+          <td class="cip-info-value">${esc(header.processOrder || header.process_order || header.poNo || header.po_no || "-")}</td>
         </tr>
         <tr>
           <td class="cip-info-label">Date:</td>
@@ -1289,27 +1532,30 @@ const htmlCIP = async (cipSummary) => {
   `;
 
   // --- 4) SECTION: CIP Steps (robust mapping) ---
-  const stepsSection = (steps && steps.length > 0) ? `
+  const stepsSection =
+    steps && steps.length > 0
+      ? `
     <div class="cip-section">
       <div class="cip-section-title">CIP Steps</div>
       <div class="cip-steps-container">
-        ${steps.map((s, idx) => {
-    const name = s.stepName ?? s.step_name ?? s.name ?? "-";
-    const n = s.stepNumber ?? s.step_number ?? (idx + 1);
+        ${steps
+          .map((s, idx) => {
+            const name = s.stepName ?? s.step_name ?? s.name ?? "-";
+            const n = s.stepNumber ?? s.step_number ?? idx + 1;
 
-    const tMin = s.temperature_setpoint_min ?? s.temperatureSetpointMin ?? s.tempMin ?? "-";
-    const tMax = s.temperature_setpoint_max ?? s.temperatureSetpointMax ?? s.tempMax ?? "-";
-    const tAct = s.temperature_actual ?? s.temperatureActual ?? s.temp_actual ?? "-";
+            const tMin = s.temperature_setpoint_min ?? s.temperatureSetpointMin ?? s.tempMin ?? "-";
+            const tMax = s.temperature_setpoint_max ?? s.temperatureSetpointMax ?? s.tempMax ?? "-";
+            const tAct = s.temperature_actual ?? s.temperatureActual ?? s.temp_actual ?? "-";
 
-    const timeSet = s.time_setpoint ?? s.timeSetpoint ?? s.time_set ?? s.time ?? "-";
-    const concSet = s.concentration_setpoint ?? s.concentrationSetpoint ?? s.conc_setpoint ?? s.concSetpoint;
-    const concAct = s.concentration_actual ?? s.concentrationActual ?? s.conc_actual ?? s.concActual;
+            const timeSet = s.time_setpoint ?? s.timeSetpoint ?? s.time_set ?? s.time ?? "-";
+            const concSet = s.concentration_setpoint ?? s.concentrationSetpoint ?? s.conc_setpoint ?? s.concSetpoint;
+            const concAct = s.concentration_actual ?? s.concentrationActual ?? s.conc_actual ?? s.concActual;
 
-    const start = (s.start_time || s.startTime || "").toString().slice(0, 5);
-    const end = (s.end_time || s.endTime || "").toString().slice(0, 5);
-    const duration = (start && end) ? `${start} - ${end}` : "-";
+            const start = (s.start_time || s.startTime || "").toString().slice(0, 5);
+            const end = (s.end_time || s.endTime || "").toString().slice(0, 5);
+            const duration = start && end ? `${start} - ${end}` : "-";
 
-    return `
+            return `
             <div class="cip-step-row">
               <div class="cip-step-number">${n}</div>
               <div class="cip-step-content">
@@ -1323,11 +1569,15 @@ const htmlCIP = async (cipSummary) => {
                     <span class="cip-step-label">Time:</span>
                     <span class="cip-step-value">${timeSet} min</span>
                   </div>
-                  ${(concSet != null || concAct != null) ? `
+                  ${
+                    concSet != null || concAct != null
+                      ? `
                     <div class="cip-step-detail-group">
                       <span class="cip-step-label">Conc:</span>
-                      <span class="cip-step-value">${(concSet ?? "-")}% / ${(concAct ?? "-")}%</span>
-                    </div>` : ""}
+                      <span class="cip-step-value">${concSet ?? "-"}% / ${concAct ?? "-"}%</span>
+                    </div>`
+                      : ""
+                  }
                   <div class="cip-step-detail-group">
                     <span class="cip-step-label">Duration:</span>
                     <span class="cip-step-value">${duration}</span>
@@ -1336,37 +1586,46 @@ const htmlCIP = async (cipSummary) => {
               </div>
             </div>
           `;
-  }).join("")}
+          })
+          .join("")}
       </div>
     </div>
-  ` : "";
+  `
+      : "";
 
   // --- 5) SECTION: COP/SOP/SIP (LINE A) ---
-  const copSection = (Array.isArray(header.copRecords) && header.copRecords.length > 0) ? `
+  const copSection =
+    Array.isArray(header.copRecords) && header.copRecords.length > 0
+      ? `
     <div class="cip-section">
       <div class="cip-section-title">COP/SOP/SIP Records</div>
       <div class="cip-cop-container">
-        ${header.copRecords.map((cop) => {
-    const tMin = cop.tempMin ?? cop.temp_min ?? "-";
-    const tMax = cop.tempMax ?? cop.temp_max ?? "-";
-    const tAct = cop.tempActual ?? cop.temp_actual ?? "-";
-    const cMin = cop.concMin ?? cop.conc_min;
-    const cMax = cop.concMax ?? cop.conc_max;
-    const cAct = cop.concActual ?? cop.conc_actual;
-    return `
+        ${header.copRecords
+          .map((cop) => {
+            const tMin = cop.tempMin ?? cop.temp_min ?? "-";
+            const tMax = cop.tempMax ?? cop.temp_max ?? "-";
+            const tAct = cop.tempActual ?? cop.temp_actual ?? "-";
+            const cMin = cop.concMin ?? cop.conc_min;
+            const cMax = cop.concMax ?? cop.conc_max;
+            const cAct = cop.concActual ?? cop.conc_actual;
+            return `
             <div class="cip-cop-row">
               <div class="cip-cop-header">
                 <div class="cip-cop-type">${esc(cop.stepType || cop.step_type || "-")}</div>
-                <div class="cip-cop-time">${(cop.startTime || cop.start_time || "-")} - ${(cop.endTime || cop.end_time || "-")}</div>
+                <div class="cip-cop-time">${cop.startTime || cop.start_time || "-"} - ${cop.endTime || cop.end_time || "-"}</div>
               </div>
               <div class="cip-cop-details">
                 <div class="cip-cop-detail-group"><span class="cip-cop-label">Temp:</span>
                   <span class="cip-cop-value">${tAct}°C (${tMin}-${tMax}°C)</span>
                 </div>
-                ${(cAct != null || cMin != null || cMax != null) ? `
+                ${
+                  cAct != null || cMin != null || cMax != null
+                    ? `
                   <div class="cip-cop-detail-group"><span class="cip-cop-label">Conc:</span>
-                    <span class="cip-cop-value">${(cAct ?? "-")}% (${(cMin ?? "-")}–${(cMax ?? "-")}%)</span>
-                  </div>` : ""}
+                    <span class="cip-cop-value">${cAct ?? "-"}% (${cMin ?? "-"}–${cMax ?? "-"}%)</span>
+                  </div>`
+                    : ""
+                }
                 ${cop.flowRate ? `<div class="cip-cop-detail-group"><span class="cip-cop-label">Flow:</span><span class="cip-cop-value">${cop.flowRate}</span></div>` : ""}
                 ${cop.time67Min ? `<div class="cip-cop-detail-group"><span class="cip-cop-label">67 min:</span><span class="cip-cop-value">${cop.time67Min}</span></div>` : ""}
                 ${cop.time45Min ? `<div class="cip-cop-detail-group"><span class="cip-cop-label">45 min:</span><span class="cip-cop-value">${cop.time45Min}</span></div>` : ""}
@@ -1374,24 +1633,29 @@ const htmlCIP = async (cipSummary) => {
               </div>
             </div>
           `;
-  }).join("")}
+          })
+          .join("")}
       </div>
     </div>
-  ` : "";
+  `
+      : "";
 
   // --- 6) SECTION: DRYING/FOAMING/DISINFECT (LINE B/C/D) ---
-  const specialSection = (
+  const specialSection =
     ["LINE B", "LINE C", "LINE D"].includes(String(header.line || "").toUpperCase()) &&
-    Array.isArray(specialRecords) && specialRecords.length > 0
-  ) ? `
+    Array.isArray(specialRecords) &&
+    specialRecords.length > 0
+      ? `
     <div class="cip-section">
       <div class="cip-section-title">DRYING, FOAMING, DISINFECT/SANITASI Records</div>
       <div class="cip-special-container">
-        ${specialRecords.map((rec) => `
+        ${specialRecords
+          .map(
+            (rec) => `
           <div class="cip-special-row">
             <div class="cip-special-header">
               <div class="cip-special-type">${esc(rec.stepType || rec.step_type || "-")}</div>
-              <div class="cip-special-time">${(rec.startTime || rec.start_time || "-")} - ${(rec.endTime || rec.end_time || "-")}</div>
+              <div class="cip-special-time">${rec.startTime || rec.start_time || "-"} - ${rec.endTime || rec.end_time || "-"}</div>
             </div>
             <div class="cip-special-details">
               ${generateSpecialRecordDetails(rec, header.line)}
@@ -1400,10 +1664,13 @@ const htmlCIP = async (cipSummary) => {
               <span class="cip-special-footer-text">Kode: ${esc(rec.kode || rec.code || "-")}</span>
             </div>
           </div>
-        `).join("")}
+        `
+          )
+          .join("")}
       </div>
     </div>
-  ` : "";
+  `
+      : "";
 
   // --- 7) Susun halaman CIP ---
   return `
@@ -1413,6 +1680,7 @@ const htmlCIP = async (cipSummary) => {
       <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">
         CIP REPORT
       </h2>
+      ${mainInfoSection}
       ${stepsSection}
       ${copSection}
       ${specialSection}
@@ -1427,7 +1695,7 @@ const htmlByPackage = async (item) => {
   if (t === "PEMAKAIAN SCREW CAP") return htmlScrewCap(item);
   if (t === "PEMAKAIAN PAPER") return htmlPaperUsage(item);
   if (t === "PENGECEKAN H2O2 ( SPRAY )") return htmlH2O2(item);
-  if (t === "PERFORMA RED AND GREEN") return await htmlShiftly(item);
+  if (t === "PERFORMA RED AND GREEN") return await htmlShiftly(item); // async
   if (t === "CHECKLIST CILT") return htmlChecklist(item);
   if (t === "CILTGIGR") return htmlCILTGIGR(item);
   return "";
@@ -2097,11 +2365,11 @@ const groupMonthlyChecklistCILT = (items) => {
   const groups = new Map(); // key: plant|line|machine|YYYY-MM
 
   items
-    .filter(it => (it.packageType || "") === "CHECKLIST CILT")
-    .forEach(it => {
+    .filter((it) => (it.packageType || "") === "CHECKLIST CILT")
+    .forEach((it) => {
       const m = moment(it.date, "YYYY-MM-DD HH:mm:ss.SSS");
       const yymm = m.format("YYYY-MM");
-      const key = [it.plant, it.line, it.machine, yymm].map(v => (v || "").trim()).join("|");
+      const key = [it.plant, it.line, it.machine, yymm].map((v) => (v || "").trim()).join("|");
 
       if (!groups.has(key)) {
         groups.set(key, {
@@ -2118,25 +2386,23 @@ const groupMonthlyChecklistCILT = (items) => {
       // Ambil array inspection dari item ini
       let arr;
       try {
-        arr = Array.isArray(it.inspectionData)
-          ? it.inspectionData
-          : JSON.parse(it.inspectionData || "[]");
+        arr = Array.isArray(it.inspectionData) ? it.inspectionData : JSON.parse(it.inspectionData || "[]");
       } catch {
         arr = [];
       }
 
       // Sisipkan _anchorDate utk setiap entri (supaya tahu “tanggal asli” entrinya)
-      arr.forEach(e => g.inspectionData.push({ ...e, _anchorDate: it.date }));
+      arr.forEach((e) => g.inspectionData.push({ ...e, _anchorDate: it.date }));
     });
 
   // Kembalikan daftar item agregat & sisakan item non-checklist seperti semula
-  const aggregated = Array.from(groups.values()).map(g => ({
+  const aggregated = Array.from(groups.values()).map((g) => ({
     ...g,
     // pastikan bentuknya string JSON jika kode lain mengharapkan string
     inspectionData: JSON.stringify(g.inspectionData),
   }));
 
-  const nonChecklist = items.filter(it => (it.packageType || "") !== "CHECKLIST CILT");
+  const nonChecklist = items.filter((it) => (it.packageType || "") !== "CHECKLIST CILT");
   return [...nonChecklist, ...aggregated];
 };
 
@@ -2153,13 +2419,7 @@ const mergeChecklistCILTMonthly = (items) => {
     if (it.packageType !== "CHECKLIST CILT") return;
 
     const m = moment(it.date, "YYYY-MM-DD HH:mm:ss.SSS");
-    const key = [
-      it.packageType,
-      it.plant || "",
-      it.line || "",
-      it.machine || "",
-      m.format("YYYY-MM"), // kunci per-bulan
-    ].join("|");
+    const key = [it.packageType, it.plant || "", it.line || "", it.machine || "", m.format("YYYY-MM")].join("|");
 
     if (!groups.has(key)) {
       groups.set(key, {
@@ -2176,19 +2436,16 @@ const mergeChecklistCILTMonthly = (items) => {
     // Ambil inspectionData dari item harian
     let src = [];
     try {
-      src = Array.isArray(it.inspectionData)
-        ? it.inspectionData
-        : JSON.parse(it.inspectionData || "[]");
+      src = Array.isArray(it.inspectionData) ? it.inspectionData : JSON.parse(it.inspectionData || "[]");
     } catch {
       src = [];
     }
 
-    // >>> KUNCI PERBAIKAN <<<
     // sisipkan _anchorDate = tanggal ASLI item harian ini
     src.forEach((e) => {
       holder.inspectionData.push({
         ...e,
-        _anchorDate: it.date, // <- inilah tanggal untuk mapping ke kolom 26/27/30, dst.
+        _anchorDate: it.date, // mapping kolom tanggal
       });
     });
   });
@@ -2204,16 +2461,8 @@ const mergeChecklistCILTMonthly = (items) => {
 
 const toMoment = (val) => {
   // Terima format date-only, datetime, ISO, dsb.
-  const tryFormats = [
-    "YYYY-MM-DD HH:mm:ss.SSS",
-    "YYYY-MM-DD HH:mm:ss",
-    "YYYY-MM-DD",
-    "DD/MM/YYYY HH:mm",
-    moment.ISO_8601
-  ];
-  return moment(val, tryFormats, true).isValid()
-    ? moment(val, tryFormats, true)
-    : moment(val); // fallback (biar tidak crash)
+  const tryFormats = ["YYYY-MM-DD HH:mm:ss.SSS", "YYYY-MM-DD HH:mm:ss", "YYYY-MM-DD", "DD/MM/YYYY HH:mm", moment.ISO_8601];
+  return moment(val, tryFormats, true).isValid() ? moment(val, tryFormats, true) : moment(val); // fallback
 };
 
 // Aturan shift baru:
@@ -2243,8 +2492,7 @@ const CIP_PRODUCT_LABELS = {
   CIP_KITCHEN_2: "CIP Kitchen 2",
   CIP_KITCHEN_3: "CIP Kitchen 3",
 };
-const labelCipProduct = (raw) =>
-  CIP_PRODUCT_LABELS[String(raw || "").toUpperCase()] || humanize(raw || "-");
+const labelCipProduct = (raw) => CIP_PRODUCT_LABELS[String(raw || "").toUpperCase()] || humanize(raw || "-");
 
 /* =========================================
  * ============== KOMPONEN LAYAR ===========
@@ -2278,8 +2526,8 @@ const ListCILT = ({ navigation }) => {
   const yearOptions = useMemo(() => {
     const years = new Set(
       dataGreentag
-        .filter(x => x.packageType === "CHECKLIST CILT" && x.date)
-        .map(x => moment(x.date).format("YYYY"))
+        .filter((x) => x.packageType === "CHECKLIST CILT" && x.date)
+        .map((x) => moment(x.date).format("YYYY"))
     );
     return Array.from(years).sort((a, b) => b.localeCompare(a)); // terbaru dulu
   }, [dataGreentag]);
@@ -2288,25 +2536,28 @@ const ListCILT = ({ navigation }) => {
   const [cipRows, setCipRows] = useState([]);
 
   // --- NEW: ubah data CIP dari API ke bentuk baris tabel List CILT
-  const mapCipToRow = useCallback((x) => ({
-    id: Number(x.id),                              // penting: numeric utk DetailReportCIP
-    date: x.date || x.created_at,                  // date-only OK (tabel tetap render tgl saja)
-    processOrder: x.processOrder || x.process_order || x.poNo || x.po_no || "-",
-    packageType: "REPORT CIP",                     // supaya filter "Package" mengenali
-    plant: x.plant || "Milk Filling Packing",
-    line: (x.line || "").toUpperCase(),
+  const mapCipToRow = useCallback(
+    (x) => ({
+      id: Number(x.id), // penting: numeric utk DetailReportCIP
+      date: x.date || x.created_at, // date-only OK (tabel tetap render tgl saja)
+      processOrder: x.processOrder || x.process_order || x.poNo || x.po_no || "-",
+      packageType: "REPORT CIP", // supaya filter "Package" mengenali
+      plant: x.plant || "Milk Filling Packing",
+      line: (x.line || "").toUpperCase(),
 
-    // Shift: gunakan field shift jika ada; bila kosong, turunkan dari timestamp (aturan 06-14/14-22/22-06)
-    shift: x.shift ? `Shift ${x.shift}` : deriveShift(x.created_at || x.date),
+      // Shift: gunakan field shift jika ada; bila kosong, turunkan dari timestamp (aturan 06-14/14-22/22-06)
+      shift: x.shift ? `Shift ${x.shift}` : deriveShift(x.created_at || x.date),
 
-    // Product = CIP type/kitchen yang dipilih user saat input
-    product: labelCipProduct(x.cipType || x.cip_type || x.kitchen),
+      // Product = CIP type/kitchen yang dipilih user saat input
+      product: labelCipProduct(x.cipType || x.cip_type || x.kitchen),
 
-    // Machine: ambil dari properti yang ada (jika back-end kirim), jika tidak ada tampil "-"
-    machine: x.machine || x.machine_name || "-",
+      // Machine: ambil dari properti yang ada (jika back-end kirim), jika tidak ada tampil "-"
+      machine: x.machine || x.machine_name || "-",
 
-    status: x.status || x.status_text || "-",
-  }), []);
+      status: x.status || x.status_text || "-",
+    }),
+    []
+  );
 
   /* ---------- Lifecycle ---------- */
   useEffect(() => {
@@ -2318,19 +2569,26 @@ const ListCILT = ({ navigation }) => {
   }, [navigation]);
 
   useEffect(() => {
-    fetchDataFromAPI();
-    fetchPlantOptions();
-    fetchPackageOptions();
-    fetchAllLineOptions();
+    (async () => {
+      try { await fetchDataFromAPI(); }
+      catch (e) { console.warn("fetchDataFromAPI:", e?.message || e); }
+
+      try { await fetchPlantOptions(); }
+      catch (e) { console.warn("fetchPlantOptions:", e?.message || e); }
+
+      try { await fetchPackageOptions(); }
+      catch (e) { console.warn("fetchPackageOptions:", e?.message || e); }  
+
+      try { await fetchAllLineOptions(); }
+      catch (e) { console.warn("fetchAllLineOptions:", e?.message || e); }
+    })();
   }, []);
 
   useEffect(() => {
     if (!lineOptions?.length && dataGreentag?.length) {
       const uniq = Array.from(
         new Set(
-          dataGreentag
-            .map((x) => (x?.line ? String(x.line).trim() : ""))
-            .filter(Boolean)
+          dataGreentag.map((x) => (x?.line ? String(x.line).trim() : "")).filter(Boolean)
         )
       ).sort((a, b) => a.localeCompare(b));
       if (uniq.length) setLineOptions(uniq);
@@ -2341,10 +2599,13 @@ const ListCILT = ({ navigation }) => {
   useEffect(() => {
     // hanya tarik bila user pilih "REPORT CIP" atau tidak memilih Package (biar gabungan jalan)
     const needCip = !selectedPackage || selectedPackage === "REPORT CIP";
-    if (!needCip) { setCipRows([]); return; }
+    if (!needCip) {
+      setCipRows([]);
+      return;
+    }
 
     (async () => {
-      const list = await fetchCIPForFilters();    // fungsi ini sudah ada di file Anda
+      const list = await fetchCIPForFilters(); // fungsi ini sudah ada di file Anda
       setCipRows((list || []).map(mapCipToRow));
     })();
     // ikut re-fetch saat filter yang relevan berubah
@@ -2396,15 +2657,15 @@ const ListCILT = ({ navigation }) => {
       const fromData = Array.from(
         new Set(
           (dataGreentag || [])
-            .map(x => (x?.packageType ? String(x.packageType).trim() : ""))
+            .map((x) => (x?.packageType ? String(x.packageType).trim() : ""))
             .filter(Boolean)
         )
-      ).map(pkg => ({ package: pkg }));
+      ).map((pkg) => ({ package: pkg }));
 
       // gabungkan unik berdasar label
       const merged = [];
       const seen = new Set();
-      [...fromApi, ...fromData].forEach(it => {
+      [...fromApi, ...fromData].forEach((it) => {
         const key = (it.package || "").trim();
         if (key && !seen.has(key)) {
           seen.add(key);
@@ -2413,7 +2674,7 @@ const ListCILT = ({ navigation }) => {
       });
 
       // --- NEW: inject REPORT CIP option if not present
-      const withCip = merged.some(p => (p.package || "").trim() === "REPORT CIP")
+      const withCip = merged.some((p) => (p.package || "").trim() === "REPORT CIP")
         ? merged
         : [...merged, { package: "REPORT CIP" }];
 
@@ -2424,21 +2685,16 @@ const ListCILT = ({ navigation }) => {
       const fallback = Array.from(
         new Set(
           (dataGreentag || [])
-            .map(x => (x?.packageType ? String(x.packageType).trim() : ""))
+            .map((x) => (x?.packageType ? String(x.packageType).trim() : ""))
             .filter(Boolean)
         )
-      ).map(pkg => ({ package: pkg }));
+      ).map((pkg) => ({ package: pkg }));
       setPackageOptions(fallback);
     }
   };
 
   const fetchAllLineOptions = async () => {
-    const endpoints = [
-      "/mastercilt/line/all",
-      "/mastercilt/lines",
-      "/mastercilt/all-line",
-      "/mastercilt/line",
-    ];
+    const endpoints = ["/mastercilt/line/all", "/mastercilt/lines", "/mastercilt/all-line", "/mastercilt/line"];
   };
 
   const onRefresh = async () => {
@@ -2485,14 +2741,10 @@ const ListCILT = ({ navigation }) => {
       Alert.alert("Error", "Silakan pilih shift terlebih dahulu untuk download data");
       return;
     }
-    Alert.alert(
-      "Download Konfirmasi",
-      `Apakah Anda ingin mendownload seluruh data untuk ${selectedShift}?`,
-      [
-        { text: "Batal", style: "cancel" },
-        { text: "Download", onPress: () => downloadShiftData() },
-      ]
-    );
+    Alert.alert("Download Konfirmasi", `Apakah Anda ingin mendownload seluruh data untuk ${selectedShift}?`, [
+      { text: "Batal", style: "cancel" },
+      { text: "Download", onPress: () => { downloadShiftData().catch(e => console.warn("downloadShiftData failed:", e?.message || e)); } },
+    ]);
   };
 
   const downloadShiftData = async () => {
@@ -2502,21 +2754,14 @@ const ListCILT = ({ navigation }) => {
         const matchesShift = selectedShift ? item.shift === selectedShift : true;
         const matchesSearch = item.processOrder.toLowerCase().includes(searchQuery.toLowerCase());
         const matchesDate = selectedDate
-          ? (item.packageType === "CHECKLIST CILT"
+          ? item.packageType === "CHECKLIST CILT"
             ? moment(item.date).isSame(moment(selectedDate), "month")
-            : moment(item.date).isSame(moment(selectedDate), "day"))
+            : moment(item.date).isSame(moment(selectedDate), "day")
           : true;
         const matchesPlant = selectedPlant ? item.plant === selectedPlant : true;
         const matchesLine = selectedLine ? item.line === selectedLine : true;
         const matchesPackage = selectedPackage ? item.packageType === selectedPackage : true;
-        return (
-          matchesShift &&
-          matchesSearch &&
-          matchesDate &&
-          matchesPlant &&
-          matchesLine &&
-          matchesPackage
-        );
+        return matchesShift && matchesSearch && matchesDate && matchesPlant && matchesLine && matchesPackage;
       });
 
       const includeCIP = !selectedPackage || selectedPackage === "REPORT CIP" || selectedPackage === "CIP";
@@ -2542,14 +2787,10 @@ const ListCILT = ({ navigation }) => {
       Alert.alert("Info", "Tidak ada data sesuai filter saat ini.");
       return;
     }
-    Alert.alert(
-      "Download Konfirmasi",
-      `Download ${filteredData.length} item sesuai filter saat ini?`,
-      [
-        { text: "Batal", style: "cancel" },
-        { text: "Download", onPress: () => downloadFilteredData() },
-      ]
-    );
+    Alert.alert("Download Konfirmasi", `Download ${filteredData.length} item sesuai filter saat ini?`, [
+      { text: "Batal", style: "cancel" },
+      { text: "Download",  onPress: () => { downloadFilteredData().catch(e => console.warn("downloadFilteredData failed:", e?.message || e)); } },
+    ]);
   };
 
   const downloadFilteredData = async () => {
@@ -2559,9 +2800,7 @@ const ListCILT = ({ navigation }) => {
       const rawData = filteredData;
 
       const includeCIP = !selectedPackage || selectedPackage === "REPORT CIP" || selectedPackage === "CIP";
-      const cipList = includeCIP && typeof fetchCIPForFilters === "function"
-        ? await fetchCIPForFilters()
-        : [];
+      const cipList = includeCIP && typeof fetchCIPForFilters === "function" ? await fetchCIPForFilters() : [];
 
       if ((rawData?.length ?? 0) === 0 && (cipList?.length ?? 0) === 0) {
         Alert.alert("Info", "Tidak ada data untuk filter yang dipilih.");
@@ -2590,7 +2829,7 @@ const ListCILT = ({ navigation }) => {
         grouped[dateKey] = {
           date: dateKey,
           ciltData: [],
-          cipData: []
+          cipData: [],
         };
       }
       grouped[dateKey].ciltData.push(item);
@@ -2603,7 +2842,7 @@ const ListCILT = ({ navigation }) => {
         grouped[dateKey] = {
           date: dateKey,
           ciltData: [],
-          cipData: []
+          cipData: [],
         };
       }
       grouped[dateKey].cipData.push(cip);
@@ -2612,12 +2851,12 @@ const ListCILT = ({ navigation }) => {
     // Sort dates and return
     return Object.keys(grouped)
       .sort()
-      .map(dateKey => grouped[dateKey]);
+      .map((dateKey) => grouped[dateKey]);
   };
 
   const generatePDFFile = async (shift, rawData, cipList) => {
     // Get latest PERFORMA data only
-    const performaItems = rawData.filter(x => x.packageType === "PERFORMA RED AND GREEN");
+    const performaItems = rawData.filter((x) => x.packageType === "PERFORMA RED AND GREEN");
     let latestPerforma = [];
 
     if (performaItems.length > 0) {
@@ -2633,27 +2872,24 @@ const ListCILT = ({ navigation }) => {
     }
 
     // Non-PERFORMA data
-    const otherData = rawData.filter(x => x.packageType !== "PERFORMA RED AND GREEN");
+    const otherData = rawData.filter((x) => x.packageType !== "PERFORMA RED AND GREEN");
 
     // Combine latest PERFORMA with other data
     let data = [...otherData, ...latestPerforma];
 
-    // *** PENTING ***
     // Satukan semua item CHECKLIST CILT menjadi SATU item per bulan
-    // (berdasarkan plant/line/machine + bulan). Ini memastikan
-    // PDF menampilkan SATU tabel kumulatif per bulan (layer 1–15 dan 16–30).
     data = mergeChecklistCILTMonthly(data);
 
-    // Lanjut: group per tanggal hanya untuk header bagian (OK kalau
-    // CILT bulanan memiliki anchor date = akhir bulan → cuma 1 section)
+    // Group per tanggal (CILT bulanan akan punya anchor di akhir bulan → satu section)
     const groupedData = groupDataByDate(data, cipList || []);
 
     try {
       const htmlContent = await generateCombinedHTML(shift, groupedData);
       const monthPart = selectedMonth ? moment(`${selectedYear || moment().format("YYYY")}-${selectedMonth}-01`).format("MMM-YY") : "";
-      const nameSuffix = selectedPackage === "CHECKLIST CILT" && (selectedMonth || selectedYear)
-        ? `_CILT_${selectedPlant || "ALL"}_${selectedLine || "ALL"}_${monthPart || (selectedYear || "")}`
-        : "";
+      const nameSuffix =
+        selectedPackage === "CHECKLIST CILT" && (selectedMonth || selectedYear)
+          ? `_CILT_${selectedPlant || "ALL"}_${selectedLine || "ALL"}_${monthPart || (selectedYear || "")}`
+          : "";
       const pdfFileName = `Report${nameSuffix || "_Filtered"}.pdf`;
       const { uri } = await Print.printToFileAsync({ html: htmlContent });
       const newUri = `${FileSystem.documentDirectory}${pdfFileName}`;
@@ -2667,7 +2903,9 @@ const ListCILT = ({ navigation }) => {
       }
       Alert.alert("Success", `Data ${shift} berhasil didownload sebagai PDF`);
     } catch (err) {
-      console.error("PDF generation error:", err);
+      console.warn(
+        "PDF generation error:", err?.name, err?.code, err?.message || err
+      );
       Alert.alert("Error", "Gagal membuat PDF: " + (err?.message || "Unknown error"));
     }
   };
@@ -2734,15 +2972,13 @@ const ListCILT = ({ navigation }) => {
 
       if (dateSections.trim()) {
         const totalPackages = allSectionsForDate.length;
-        const spacingClass = totalPackages === 1 ? 'single-package-section' : 'multiple-package-section';
+        const spacingClass = totalPackages === 1 ? "single-package-section" : "multiple-package-section";
         const wrappedSections = `<div class="${spacingClass}">${dateSections}</div>`;
         dateGroupSections.push(dateHeader + wrappedSections);
       }
     }
 
-    const totalItems = groupedData.reduce((total, group) =>
-      total + group.ciltData.length + group.cipData.length, 0
-    );
+    const totalItems = groupedData.reduce((total, group) => total + group.ciltData.length + group.cipData.length, 0);
 
     return `
       <html>
@@ -2786,49 +3022,26 @@ const ListCILT = ({ navigation }) => {
       .filter((item) => {
         const matchesSearch = item.processOrder?.toLowerCase().includes(searchQuery.toLowerCase());
         const matchesDate = selectedDate
-          ? (item.packageType === "CHECKLIST CILT"
+          ? item.packageType === "CHECKLIST CILT"
             ? moment(item.date).isSame(moment(selectedDate), "month")
-            : moment(item.date).isSame(moment(selectedDate), "day"))
+            : moment(item.date).isSame(moment(selectedDate), "day")
           : true;
         const matchesPlant = selectedPlant ? item.plant === selectedPlant : true;
         const matchesLine = selectedLine ? item.line === selectedLine : true;
         const matchesPackage = selectedPackage ? item.packageType === selectedPackage : true;
         const matchesShift = selectedShift ? item.shift === selectedShift : true;
         // === tambahan: bulan & tahun khusus Checklist CILT ===
-        const monthOk =
-          selectedPackage === "CHECKLIST CILT"
-            ? (selectedMonth ? moment(item.date).format("MM") === selectedMonth : true)
-            : true;
-        const yearOk =
-          selectedPackage === "CHECKLIST CILT"
-            ? (selectedYear ? moment(item.date).format("YYYY") === selectedYear : true)
-            : true;
-        return (
-          matchesSearch &&
-          matchesDate &&
-          matchesPlant &&
-          matchesLine &&
-          matchesPackage &&
-          matchesShift &&
-          monthOk &&
-          yearOk
-        );
+        const monthOk = selectedPackage === "CHECKLIST CILT" ? (selectedMonth ? moment(item.date).format("MM") === selectedMonth : true) : true;
+        const yearOk = selectedPackage === "CHECKLIST CILT" ? (selectedYear ? moment(item.date).format("YYYY") === selectedYear : true) : true;
+        return matchesSearch && matchesDate && matchesPlant && matchesLine && matchesPackage && matchesShift && monthOk && yearOk;
       })
       .sort((a, b) => new Date(b.date) - new Date(a.date));
-  }, [
-    rowsForTable, searchQuery, selectedDate, selectedPlant, selectedLine, selectedPackage, selectedShift,
-    selectedMonth, selectedYear // <— JANGAN lupa dependensinya
-  ]);
+  }, [rowsForTable, searchQuery, selectedDate, selectedPlant, selectedLine, selectedPackage, selectedShift, selectedMonth, selectedYear]);
 
-  const hasAnyFilter = useMemo(() =>
-    [
-      searchQuery, selectedDate, selectedPlant, selectedLine, selectedPackage, selectedShift,
-      selectedMonth, selectedYear
-    ].some(Boolean),
-    [
-      searchQuery, selectedDate, selectedPlant, selectedLine, selectedPackage, selectedShift,
-      selectedMonth, selectedYear
-    ]);
+  const hasAnyFilter = useMemo(
+    () => [searchQuery, selectedDate, selectedPlant, selectedLine, selectedPackage, selectedShift, selectedMonth, selectedYear].some(Boolean),
+    [searchQuery, selectedDate, selectedPlant, selectedLine, selectedPackage, selectedShift, selectedMonth, selectedYear]
+  );
 
   const paginatedData = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -2871,23 +3084,17 @@ const ListCILT = ({ navigation }) => {
   };
 
   const TableHeader = () => (
-    <View style={styles.tableHeader}>
-      {["Date", "Process Order", "Package", "Plant", "Line", "Shift", "Product", "Machine"].map(
-        (col, i) => (
-          <TouchableOpacity
-            key={i}
-            onPress={() =>
-              sortData(
-                ["date", "processOrder", "packageType", "plant", "line", "shift", "product", "machine"][i]
-              )
-            }
-            style={styles.tableHeaderCell}
-          >
-            <Text style={styles.tableHeaderText}>{col}</Text>
-            <Icon name="arrow-drop-down" size={24} color={COLORS.blue} />
-          </TouchableOpacity>
-        )
-      )}
+    <View className="tableHeader" style={styles.tableHeader}>
+      {["Date", "Process Order", "Package", "Plant", "Line", "Shift", "Product", "Machine"].map((col, i) => (
+        <TouchableOpacity
+          key={i}
+          onPress={() => sortData(["date", "processOrder", "packageType", "plant", "line", "shift", "product", "machine"][i])}
+          style={styles.tableHeaderCell}
+        >
+          <Text style={styles.tableHeaderText}>{col}</Text>
+          <Icon name="arrow-drop-down" size={24} color={COLORS.blue} />
+        </TouchableOpacity>
+      ))}
     </View>
   );
 
@@ -2917,9 +3124,7 @@ const ListCILT = ({ navigation }) => {
               : moment(item.date, "YYYY-MM-DD HH:mm:ss.SSS").format("DD/MM/YY HH:mm:ss")}
           </Text>
           <Text style={styles.tableCell}>{item.processOrder}</Text>
-          <Text style={styles.tableCell}>
-            {item.packageType} {item.packageType === "PERFORMA RED AND GREEN" ? "(Latest)" : ""}
-          </Text>
+          <Text style={styles.tableCell}>{item.packageType} {item.packageType === "PERFORMA RED AND GREEN" ? "(Latest)" : ""}</Text>
           <Text style={styles.tableCell}>{item.plant}</Text>
           <Text style={styles.tableCell}>{item.line}</Text>
           <Text style={styles.tableCell}>{item.shift}</Text>
@@ -2933,12 +3138,7 @@ const ListCILT = ({ navigation }) => {
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
-        <Searchbar
-          placeholder="Search by Process Order"
-          onChangeText={setSearchQuery}
-          value={searchQuery}
-          style={styles.searchBar}
-        />
+        <Searchbar placeholder="Search by Process Order" onChangeText={setSearchQuery} value={searchQuery} style={styles.searchBar} />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={COLORS.green} />
         </View>
@@ -2948,12 +3148,7 @@ const ListCILT = ({ navigation }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      <Searchbar
-        placeholder="Search by Process Order"
-        onChangeText={setSearchQuery}
-        value={searchQuery}
-        style={styles.searchBar}
-      />
+      <Searchbar placeholder="Search by Process Order" onChangeText={setSearchQuery} value={searchQuery} style={styles.searchBar} />
       <Text style={styles.title}>List CILT</Text>
 
       {/* Filter Bar */}
@@ -2961,9 +3156,7 @@ const ListCILT = ({ navigation }) => {
         {/* Date */}
         <View style={styles.halfInputGroup}>
           <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.dropdownContainer}>
-            <Text style={{ marginLeft: 5 }}>
-              {selectedDate ? moment(selectedDate).format("DD/MM/YYYY") : "Date"}
-            </Text>
+            <Text style={{ marginLeft: 5 }}>{selectedDate ? moment(selectedDate).format("DD/MM/YYYY") : "Date"}</Text>
           </TouchableOpacity>
           {showDatePicker && (
             <DateTimePicker
@@ -3025,18 +3218,10 @@ const ListCILT = ({ navigation }) => {
             {/* Bulan */}
             <View style={styles.halfInputGroup}>
               <View style={styles.dropdownContainer}>
-                <Picker
-                  selectedValue={selectedMonth}
-                  onValueChange={setSelectedMonth}
-                  style={styles.dropdown}
-                >
+                <Picker selectedValue={selectedMonth} onValueChange={setSelectedMonth} style={styles.dropdown}>
                   <Picker.Item label="All Months" value="" />
                   {Array.from({ length: 12 }).map((_, i) => (
-                    <Picker.Item
-                      key={i}
-                      label={moment().month(i).format("MMM")}
-                      value={String(i + 1).padStart(2, "0")}
-                    />
+                    <Picker.Item key={i} label={moment().month(i).format("MMM")} value={String(i + 1).padStart(2, "0")} />
                   ))}
                 </Picker>
               </View>
@@ -3044,13 +3229,9 @@ const ListCILT = ({ navigation }) => {
             {/* Tahun */}
             <View style={styles.halfInputGroup}>
               <View style={styles.dropdownContainer}>
-                <Picker
-                  selectedValue={selectedYear}
-                  onValueChange={setSelectedYear}
-                  style={styles.dropdown}
-                >
+                <Picker selectedValue={selectedYear} onValueChange={setSelectedYear} style={styles.dropdown}>
                   <Picker.Item label="All Years" value="" />
-                  {yearOptions.map(y => (
+                  {yearOptions.map((y) => (
                     <Picker.Item key={y} label={y} value={y} />
                   ))}
                 </Picker>
@@ -3076,9 +3257,7 @@ const ListCILT = ({ navigation }) => {
       <View style={styles.downloadSection}>
         <View style={styles.downloadInfo}>
           <Text style={styles.downloadInfoText}>
-            {hasAnyFilter
-              ? `Data ditampilkan: ${filteredData.length} item`
-              : "Pilih minimal satu filter untuk mengaktifkan download"}
+            {hasAnyFilter ? `Data ditampilkan: ${filteredData.length} item` : "Pilih minimal satu filter untuk mengaktifkan download"}
           </Text>
         </View>
         {/* Notifikasi kecil di UI jika package = CHECKLIST CILT dan tanggal dipilih */}
@@ -3088,22 +3267,12 @@ const ListCILT = ({ navigation }) => {
           </Text>
         )}
         <TouchableOpacity
-          style={[
-            styles.downloadButton,
-            (isDownloading || !hasAnyFilter || filteredData.length === 0) && styles.downloadButtonDisabled,
-          ]}
+          style={[styles.downloadButton, (isDownloading || !hasAnyFilter || filteredData.length === 0) && styles.downloadButtonDisabled]}
           onPress={handleDownloadFiltered}
           disabled={isDownloading || !hasAnyFilter || filteredData.length === 0}
         >
-          <Icon
-            name={isDownloading ? "hourglass-empty" : "picture-as-pdf"}
-            size={20}
-            color="#fff"
-            style={styles.downloadIcon}
-          />
-          <Text style={styles.downloadButtonText}>
-            {isDownloading ? "Generating PDF..." : "Download Data PDF"}
-          </Text>
+          <Icon name={isDownloading ? "hourglass-empty" : "picture-as-pdf"} size={20} color="#fff" style={styles.downloadIcon} />
+          <Text style={styles.downloadButtonText}>{isDownloading ? "Generating PDF..." : "Download Data PDF"}</Text>
         </TouchableOpacity>
       </View>
 
@@ -3112,17 +3281,11 @@ const ListCILT = ({ navigation }) => {
           <TableHeader />
           {paginatedData.map(renderItem)}
           <View style={styles.paginationContainer}>
-            <Button
-              title="Previous"
-              onPress={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-              disabled={currentPage === 1}
-            />
-            <Text style={styles.pageInfo}>Page {currentPage} of {totalPages}</Text>
-            <Button
-              title="Next"
-              onPress={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
-              disabled={currentPage === totalPages}
-            />
+            <Button title="Previous" onPress={() => setCurrentPage((prev) => Math.max(prev - 1, 1))} disabled={currentPage === 1} />
+            <Text style={styles.pageInfo}>
+              Page {currentPage} of {totalPages}
+            </Text>
+            <Button title="Next" onPress={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))} disabled={currentPage === totalPages} />
           </View>
         </View>
       </ScrollView>
@@ -3130,9 +3293,9 @@ const ListCILT = ({ navigation }) => {
   );
 };
 
-/* =======================
- * ========= Styles =======
- * ======================= */
+/* ====================
+ * ====== Styles ======
+ * ==================== */
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },

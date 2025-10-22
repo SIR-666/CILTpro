@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Picker } from "@react-native-picker/picker";
 import * as ScreenOrientation from "expo-screen-orientation";
 import moment from "moment-timezone";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -124,6 +124,14 @@ const CILTinspection = ({ route, navigation }) => {
   const [machineOptions, setMachineOptions] = useState([]);
   const [packageOptions, setPackageOptions] = useState([]);
 
+  // === MEMOIZED callbacks ke anak (stabil, anti-loop) ===
+  const handleInspectionChange = useCallback((data) => {
+    setInspectionData(data);
+  }, []);
+  const handleSegregationDescriptionChange = useCallback((data) => {
+    setSegregationDescriptionData(data);
+  }, []);
+
   const fetchPackageMaster = async () => {
     try {
       const response = await api.get("/package-master");
@@ -211,14 +219,14 @@ const CILTinspection = ({ route, navigation }) => {
   // Function untuk clear storage spesifik berdasarkan package dan product setelah submit berhasil
   const clearPackageStorageAfterSubmit = async () => {
     try {
-      if (packageType === "PEMAKAIAN PAPER" && window.clearPaperStorage) {
-        await window.clearPaperStorage();
+      if (packageType === "PEMAKAIAN PAPER" && globalThis.clearPaperStorage) {
+        await globalThis.clearPaperStorage();
         console.log("Cleared paper storage after submit");
-      } else if (packageType === "PEMAKAIAN SCREW CAP" && window.clearScrewCapStorage) {
-        await window.clearScrewCapStorage();
+      } else if (packageType === "PEMAKAIAN SCREW CAP" && globalThis.clearScrewCapStorage) {
+        await globalThis.clearScrewCapStorage();
         console.log("Cleared screw cap storage after submit");
-      } else if (packageType === "SEGREGASI" && window.clearSegregasiStorage) {
-        await window.clearSegregasiStorage();
+      } else if (packageType === "SEGREGASI" && globalThis.clearSegregasiStorage) {
+        await globalThis.clearSegregasiStorage();
         console.log("Cleared segregasi storage after submit");
       }
       // Tambahkan untuk package type lainnya jika diperlukan
@@ -299,22 +307,20 @@ const CILTinspection = ({ route, navigation }) => {
 
             try {
               // Call GNR save function before submit if it's GNR form
+              let inspectionDataForSubmit = inspectionData;
               if (packageType === "PERFORMA RED AND GREEN") {
-                if (line === "LINE A" && window.gnrBeforeSubmit) {
-                  console.log("Calling GNR save for LINE A before submit...");
-                  window.gnrBeforeSubmit();
-                  await new Promise((resolve) => setTimeout(resolve, 500));
-                } else if (
-                  (line === "LINE B" || line === "LINE C") &&
-                  window.gnrBCBeforeSubmit
-                ) {
-                  console.log("Calling GNR save for LINE B/C before submit...");
-                  window.gnrBCBeforeSubmit();
-                  await new Promise((resolve) => setTimeout(resolve, 500));
-                } else if (line === "LINE D" && window.gnrDBeforeSubmit) {
-                  console.log("Calling GNR save for LINE D before submit...");
-                  window.gnrDBeforeSubmit();
-                  await new Promise((resolve) => setTimeout(resolve, 500));
+                const callAndWait = async (fn) => {
+                  if (typeof fn === "function") {
+                    await Promise.resolve(fn());
+                    await new Promise(r => setTimeout(r, 0));
+                  }
+                };
+                if (line === "LINE A") {
+                  await callAndWait(globalThis.gnrBeforeSubmit);
+                } else if (line === "LINE B" || line === "LINE C") {
+                  await callAndWait(globalThis.gnrBCBeforeSubmit);
+                } else if (line === "LINE D") {
+                  await callAndWait(globalThis.gnrDBeforeSubmit);
                 }
               }
 
@@ -322,7 +328,7 @@ const CILTinspection = ({ route, navigation }) => {
 
               // Process inspection data
               updatedInspectionData = await Promise.all(
-                inspectionData.map(async (item, index) => {
+                inspectionDataForSubmit.map(async (item, index) => {
                   let updatedItem = { ...item, id: index + 1 };
 
                   if (item.picture && item.picture.startsWith("file://")) {
@@ -395,9 +401,10 @@ const CILTinspection = ({ route, navigation }) => {
                 // Clear storage spesifik untuk package dan product ini setelah submit berhasil
                 await clearPackageStorageAfterSubmit();
 
-                // Reset inspection data setelah submit berhasil
-                setInspectionData([]);
-                setSegregationDescriptionData([]);
+                if (packageType !== "PERFORMA RED AND GREEN") {
+                  setInspectionData([]);
+                  setSegregationDescriptionData([]);
+                }
 
                 setTimeout(() => {
                   navigation.goBack();
@@ -446,10 +453,10 @@ const CILTinspection = ({ route, navigation }) => {
 
       // Jika ada storage paket khusus, bersihkan juga
       try {
-        if (packageType === "PEMAKAIAN PAPER" && window.clearPaperStorage) {
-          await window.clearPaperStorage();
-        } else if (packageType === "PEMAKAIAN SCREW CAP" && window.clearScrewCapStorage) {
-          await window.clearScrewCapStorage();
+        if (packageType === "PEMAKAIAN PAPER" && globalThis.clearPaperStorage) {
+          await globalThis.clearPaperStorage();
+        } else if (packageType === "PEMAKAIAN SCREW CAP" && globalThis.clearScrewCapStorage) {
+          await globalThis.clearScrewCapStorage();
         }
       } catch (e) {
         console.log("Optional package storage clear error:", e);
@@ -474,7 +481,6 @@ const CILTinspection = ({ route, navigation }) => {
       setInspectionData([]);
       setSegregationDescriptionData([]);
 
-      // (opsional) tampilkan notifikasi kecil
       Alert.alert("Reset", "Semua pilihan telah dikosongkan.");
     } catch (error) {
       console.error("Reset failed:", error);
@@ -538,7 +544,15 @@ const CILTinspection = ({ route, navigation }) => {
                   <Picker
                     selectedValue={shift}
                     style={styles.dropdown}
-                    onValueChange={(itemValue) => setShift(itemValue)}
+                    onValueChange={(itemValue) => {
+                      // simpan GNR yg sedang aktif sebelum ganti shift supaya input tidak hilang
+                      if (packageType === "PERFORMA RED AND GREEN") {
+                        globalThis.gnrBeforeSubmit?.();
+                        globalThis.gnrBCBeforeSubmit?.();
+                        globalThis.gnrDBeforeSubmit?.();
+                      }
+                      setShift(itemValue);
+                    }}
                   >
                     <Picker.Item label="Select option" value="" />
                     {shiftOptions.map((option) => (
@@ -616,6 +630,13 @@ const CILTinspection = ({ route, navigation }) => {
                     selectedValue={machine}
                     style={styles.dropdown}
                     onValueChange={async (itemValue) => {
+                      // simpan GNR yg sedang aktif sebelum ganti machine supaya input tidak hilang
+                      if (packageType === "PERFORMA RED AND GREEN") {
+                        await (globalThis.gnrBeforeSubmit?.());
+                        await (globalThis.gnrBCBeforeSubmit?.());
+                        await (globalThis.gnrDBeforeSubmit?.());
+                      }
+                      await new Promise(r => setTimeout(r, 0)); // beri sedikit jeda
                       setMachine(itemValue);
                       await AsyncStorage.setItem("machine", itemValue);
                     }}
@@ -639,7 +660,14 @@ const CILTinspection = ({ route, navigation }) => {
                   <Picker
                     selectedValue={packageType}
                     style={styles.dropdown}
-                    onValueChange={(itemValue) => {
+                    onValueChange={async (itemValue) => {
+                      // simpan GNR yg sedang aktif sebelum pindah package supaya input tidak hilang
+                      if (packageType === "PERFORMA RED AND GREEN") {
+                        await (globalThis.gnrBeforeSubmit?.());
+                        await (globalThis.gnrBCBeforeSubmit?.());
+                        await (globalThis.gnrDBeforeSubmit?.());
+                        await new Promise(r => setTimeout(r, 0));
+                      }
                       setPackageType(itemValue);
                     }}
                   >
@@ -723,7 +751,7 @@ const CILTinspection = ({ route, navigation }) => {
                   <ScrewCapInspectionTable
                     key={`screw-cap-${processOrder}-${product}`}
                     username={username}
-                    onDataChange={(data) => setInspectionData(data)}
+                    onDataChange={handleInspectionChange}
                     initialData={inspectionData}
                     processOrder={processOrder}
                     product={product}
@@ -733,7 +761,7 @@ const CILTinspection = ({ route, navigation }) => {
                 <PaperUsageInspectionTable
                   key={`paper-${processOrder}-${product}`}
                   username={username}
-                  onDataChange={(data) => setInspectionData(data)}
+                  onDataChange={handleInspectionChange}
                   initialData={inspectionData}
                   processOrder={processOrder}
                   product={product}
@@ -744,7 +772,7 @@ const CILTinspection = ({ route, navigation }) => {
                   <H2o2CheckInspectionTable
                     key="h2o2-check"
                     username={username}
-                    onDataChange={(data) => setInspectionData(data)}
+                    onDataChange={handleInspectionChange}
                     initialData={inspectionData}
                   />
                 )}
@@ -754,7 +782,7 @@ const CILTinspection = ({ route, navigation }) => {
                   <GnrPerformanceInspectionTable
                     key="gnr-performance-line-a"
                     username={username}
-                    onDataChange={(data) => setInspectionData(data)}
+                    onDataChange={handleInspectionChange}
                     initialData={inspectionData}
                     plant={plant}
                     line={line}
@@ -769,7 +797,7 @@ const CILTinspection = ({ route, navigation }) => {
                   <GnrPerformanceInspectionTableBC
                     key="gnr-performance-line-bc"
                     username={username}
-                    onDataChange={(data) => setInspectionData(data)}
+                    onDataChange={handleInspectionChange}
                     initialData={inspectionData}
                     plant={plant}
                     line={line}
@@ -784,7 +812,7 @@ const CILTinspection = ({ route, navigation }) => {
                   <GnrPerformanceInspectionTableD
                     key="gnr-performance-line-d"
                     username={username}
-                    onDataChange={(data) => setInspectionData(data)}
+                    onDataChange={handleInspectionChange}
                     initialData={inspectionData}
                     plant={plant}
                     line={line}
@@ -797,7 +825,7 @@ const CILTinspection = ({ route, navigation }) => {
                 <ChecklistCILTInspectionTable
                   key="checklist-cilt"
                   username={username}
-                  onDataChange={(data) => setInspectionData(data)}
+                  onDataChange={handleInspectionChange}
                   initialData={inspectionData}
                   plant={plant}
                   line={line}
@@ -809,8 +837,8 @@ const CILTinspection = ({ route, navigation }) => {
                 <SegregasiInspectionTable
                   key={`segregasi-${processOrder}`}
                   username={username}
-                  onDataChange={(data) => setInspectionData(data)}
-                  onDescriptionChange={(data) => setSegregationDescriptionData(data)}
+                  onDataChange={handleInspectionChange}
+                  onDescriptionChange={handleSegregationDescriptionChange}
                   initialData={inspectionData}
                   initialDescription={segregationDescriptionData}
                   product={baseProduct}
@@ -818,6 +846,7 @@ const CILTinspection = ({ route, navigation }) => {
                   lineName={line}
                   packageType={packageType}
                   shift={shift}
+                  processOrder={processOrder}
                   onEffectiveProductChange={(eff) => {
                     // eff bisa sama (tanpa variant) atau beda (ada Change Variant)
                     setProduct(eff || baseProduct);
@@ -833,7 +862,7 @@ const CILTinspection = ({ route, navigation }) => {
             status={agreed ? "checked" : "unchecked"}
             onPress={() => setAgreed(!agreed)}
           />
-          <Text style={styles.checkboxLabel}>
+        <Text style={styles.checkboxLabel}>
             Saya menyatakan telah memasukkan data dengan benar.
           </Text>
         </View>
