@@ -13,9 +13,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 /** ====== GLOBAL JAM BUS (event dengan sumber, index, user, processOrder, product) ====== */
 const SHARED_JAM_LISTENERS = "__sharedJamListeners";
 function setSharedJamEvent(evt) {
-  // evt: { value: "HH:MM", from: "paper"|"h2o2", rowIndex: number, user: string, processOrder?: string, product?: string }
   (globalThis[SHARED_JAM_LISTENERS] || []).forEach((fn) => {
-    try { fn(evt); } catch { }
+    try {
+      fn(evt);
+    } catch {}
   });
 }
 function subscribeSharedJam(fn) {
@@ -41,7 +42,7 @@ const PaperUsageInspectionTable = ({
 
   const [tableData, setTableData] = useState(
     Array(20)
-      .fill()
+      .fill(null)
       .map((_, index) => ({
         id: index + 1,
         jam: "",
@@ -60,6 +61,23 @@ const PaperUsageInspectionTable = ({
 
   // guard anti “ping-pong”
   const applyingExternalRef = useRef(false);
+  // tahan emit saat init/hydrate
+  const suppressEmitRef = useRef(false);
+
+  // simpan reference callback agar identitasnya stabil
+  const onDataChangeRef = useRef(onDataChange);
+  useEffect(() => {
+    onDataChangeRef.current = onDataChange;
+  }, [onDataChange]);
+
+  // cache tanda tangan payload terakhir yang di-emit (anti loop)
+  const emitSigRef = useRef("");
+
+  // ref pdPaper terakhir untuk listener tanpa tergantung state
+  const lastPdPaperRef = useRef(lastPdPaper);
+  useEffect(() => {
+    lastPdPaperRef.current = lastPdPaper;
+  }, [lastPdPaper]);
 
   const formatDate = (date) => {
     const d = String(date.getDate()).padStart(2, "0");
@@ -69,7 +87,9 @@ const PaperUsageInspectionTable = ({
   };
 
   const getStorageKey = () =>
-    `paper_usage_${processOrder || "default"}_${product || "no_product"}__${(username || "user").replace(/\s+/g, "_")}`;
+    `paper_usage_${processOrder || "default"}_${product || "no_product"}__${(
+      username || "user"
+    ).replace(/\s+/g, "_")}`;
   const getFlagKey = () => `${getStorageKey()}_cekAlergen`;
 
   const propagatePdPaperDownIfJamFilled = (data, fromIndex, value) => {
@@ -82,6 +102,23 @@ const PaperUsageInspectionTable = ({
     return next;
   };
 
+  // Silent hydrate: set state tanpa emit ke parent
+  const silentHydrate = useCallback((rows, flag) => {
+    suppressEmitRef.current = true;
+    setTableData(rows);
+    setCekAlergenKemasan(flag);
+    const lastNonEmpty = [...rows]
+      .reverse()
+      .find((r) => r.pdPaper && String(r.pdPaper).trim() !== "");
+    const lp = lastNonEmpty?.pdPaper || "";
+    setLastPdPaper(lp);
+    lastPdPaperRef.current = lp;
+    // Lepaskan suppress di tick berikutnya
+    setTimeout(() => {
+      suppressEmitRef.current = false;
+    }, 0);
+  }, []);
+
   const loadDataFromStorage = async () => {
     try {
       const storageKey = getStorageKey();
@@ -89,23 +126,10 @@ const PaperUsageInspectionTable = ({
       const storedFlag = await AsyncStorage.getItem(getFlagKey());
       if (storedData) {
         const parsedData = JSON.parse(storedData);
-        setTableData(parsedData);
-        setCekAlergenKemasan(storedFlag === "true");
-
-        const lastNonEmpty = [...parsedData]
-          .reverse()
-          .find((r) => r.pdPaper && String(r.pdPaper).trim() !== "");
-        setLastPdPaper(lastNonEmpty?.pdPaper || "");
-
-        onDataChange(
-          parsedData.map((r) => ({
-            ...r,
-            cekAlergenKemasan: storedFlag === "true",
-          }))
-        );
+        silentHydrate(parsedData, storedFlag === "true");
       } else {
         const emptyData = Array(20)
-          .fill()
+          .fill(null)
           .map((_, index) => ({
             id: index + 1,
             jam: "",
@@ -116,23 +140,23 @@ const PaperUsageInspectionTable = ({
             time: "",
             saved: false,
           }));
-        setTableData(emptyData);
-        setCekAlergenKemasan(false);
-        setLastPdPaper("");
-        onDataChange(emptyData.map((r) => ({ ...r, cekAlergenKemasan: false })));
+        silentHydrate(emptyData, false);
       }
     } catch (e) {
       console.error("Error loading paper data:", e);
     }
   };
 
-  const saveDataToStorage = useCallback(async (data) => {
-    try {
-      await AsyncStorage.setItem(getStorageKey(), JSON.stringify(data));
-    } catch (e) {
-      console.error("Error saving paper data:", e);
-    }
-  }, [processOrder, product, username]);
+  const saveDataToStorage = useCallback(
+    async (data) => {
+      try {
+        await AsyncStorage.setItem(getStorageKey(), JSON.stringify(data));
+      } catch (e) {
+        console.error("Error saving paper data:", e);
+      }
+    },
+    [processOrder, product, username]
+  );
 
   const saveFlagToStorage = async (flag) => {
     try {
@@ -149,7 +173,7 @@ const PaperUsageInspectionTable = ({
       try {
         await AsyncStorage.removeItem(getStorageKey());
         await AsyncStorage.removeItem(getFlagKey());
-      } catch { }
+      } catch {}
     };
   }, [processOrder, product]);
 
@@ -161,28 +185,36 @@ const PaperUsageInspectionTable = ({
 
   useEffect(() => {
     if (initialData && initialData.length > 0) {
-      setTableData(initialData);
       const flag = !!initialData[0]?.cekAlergenKemasan;
-      setCekAlergenKemasan(flag);
-
-      const lastNonEmpty = [...initialData]
-        .reverse()
-        .find((r) => r.pdPaper && String(r.pdPaper).trim() !== "");
-      setLastPdPaper(lastNonEmpty?.pdPaper || "");
+      silentHydrate(initialData, flag);
     } else {
       loadDataFromStorage();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Emit ke parent hanya jika tidak suppressed & payload berubah
   useEffect(() => {
-    onDataChange(tableData.map((r) => ({ ...r, cekAlergenKemasan })));
-  }, [tableData, cekAlergenKemasan]);
+    if (suppressEmitRef.current) return;
+    const payload = tableData.map((r) => ({ ...r, cekAlergenKemasan }));
+    const sig = JSON.stringify(payload);
+    if (sig === emitSigRef.current) return;
+    emitSigRef.current = sig;
+    onDataChangeRef.current?.(payload);
+  }, [tableData, cekAlergenKemasan]); // (tanpa onDataChange)
 
   /** ====== LISTEN shared jam (user, PO, product harus sama; bukan event sendiri) ====== */
   useEffect(() => {
     const applyShared = (evt) => {
       if (!evt) return;
-      const { value, rowIndex, from, user, processOrder: evtPO, product: evtProd } = evt;
+      const {
+        value,
+        rowIndex,
+        from,
+        user,
+        processOrder: evtPO,
+        product: evtProd,
+      } = evt;
       if (!value || rowIndex == null) return;
       if (from === COMPONENT_ID) return;
       if (user !== username) return;
@@ -190,46 +222,52 @@ const PaperUsageInspectionTable = ({
       if (evtProd !== product) return;
       if (applyingExternalRef.current) return;
 
-      if (rowIndex < 0 || rowIndex >= tableData.length) return;
-
-      // Jangan overwrite jika sudah sama/terisi
-      if (String(tableData[rowIndex].jam || "").trim() === value) return;
-
-      const now = new Date();
-      const nowTime = `${String(now.getHours()).padStart(2, "0")}:${String(
-        now.getMinutes()
-      ).padStart(2, "0")}`;
-
-      const updated = [...tableData];
-
-      // isi hanya kalau masih kosong
-      if (!String(updated[rowIndex].jam || "").trim()) {
-        updated[rowIndex].jam = value;
-        updated[rowIndex].user = username;
-        updated[rowIndex].time = nowTime;
-
-        // auto isi pdPaper jika kosong
-        if (!String(updated[rowIndex].pdPaper || "").trim()) {
-          const todayDate = formatDate(now);
-          updated[rowIndex].pdPaper = lastPdPaper || todayDate;
+      applyingExternalRef.current = true;
+      setTableData((prev) => {
+        if (rowIndex < 0 || rowIndex >= prev.length) {
+          return prev;
         }
+        // Jangan overwrite jika sudah sama/terisi
+        if (String(prev[rowIndex].jam || "").trim() === value) return prev;
 
-        applyingExternalRef.current = true;
-        setTableData(updated);
-        onDataChange(updated.map((r) => ({ ...r, cekAlergenKemasan })));
-        setTimeout(() => (applyingExternalRef.current = false), 0);
-      }
+        const now = new Date();
+        const nowTime = `${String(now.getHours()).padStart(2, "0")}:${String(
+          now.getMinutes()
+        ).padStart(2, "0")}`;
+        const todayDate = formatDate(now);
+
+        const next = [...prev];
+        if (!String(next[rowIndex].jam || "").trim()) {
+          next[rowIndex] = {
+            ...next[rowIndex],
+            jam: value,
+            user: username,
+            time: nowTime,
+            pdPaper:
+              String(next[rowIndex].pdPaper || "").trim() ||
+              lastPdPaperRef.current ||
+              todayDate,
+          };
+        }
+        return next;
+      });
+      setTimeout(() => (applyingExternalRef.current = false), 0);
     };
 
     const unsub = subscribeSharedJam(applyShared);
     return unsub;
-  }, [tableData, cekAlergenKemasan, lastPdPaper, username, processOrder, product]);
+  }, [username, processOrder, product]); // (tanpa tableData/lastPdPaper)
 
+  // Persist saat unmount / perubahan signifikan
   useEffect(() => {
     return () => {
-      try { AsyncStorage.setItem(getStorageKey(), JSON.stringify(tableData)); }
-      catch (e) { console.error(e); }
+      try {
+        AsyncStorage.setItem(getStorageKey(), JSON.stringify(tableData));
+      } catch (e) {
+        console.error(e);
+      }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [processOrder, product, username, tableData]);
 
   const handleInputChange = (text, index, field) => {
@@ -250,7 +288,10 @@ const PaperUsageInspectionTable = ({
         !updated[index].pdPaper ||
         String(updated[index].pdPaper).trim() === ""
       ) {
-        updated[index].pdPaper = lastPdPaper || todayDate;
+        const fallback = lastPdPaperRef.current || todayDate;
+        updated[index].pdPaper = fallback;
+        setLastPdPaper(fallback);
+        lastPdPaperRef.current = fallback;
       }
       setSharedJamEvent({
         value: text,
@@ -274,6 +315,7 @@ const PaperUsageInspectionTable = ({
       }
       const newLast = text;
       setLastPdPaper(newLast);
+      lastPdPaperRef.current = newLast;
       updated = propagatePdPaperDownIfJamFilled(updated, index, newLast);
     }
 
@@ -302,8 +344,7 @@ const PaperUsageInspectionTable = ({
       });
     }
 
-    setTableData(updated);
-    onDataChange(updated.map((r) => ({ ...r, cekAlergenKemasan })));
+    setTableData(updated); // effect akan emit (tidak suppressed)
   };
 
   /** ====== HAPUS ROW ====== */
@@ -315,13 +356,21 @@ const PaperUsageInspectionTable = ({
     updated.splice(index, 1);
     if (updated.length === 0) {
       updated = [
-        { id: 1, jam: "", boxNo: "", pdPaper: "", qtyLabel: "", user: "", time: "", saved: false },
+        {
+          id: 1,
+          jam: "",
+          boxNo: "",
+          pdPaper: "",
+          qtyLabel: "",
+          user: "",
+          time: "",
+          saved: false,
+        },
       ];
     }
     updated = updated.map((r, i) => ({ ...r, id: i + 1 }));
 
-    setTableData(updated);
-    onDataChange(updated.map((r) => ({ ...r, cekAlergenKemasan })));
+    setTableData(updated); // effect akan emit
     saveDataToStorage(updated);
   };
 
@@ -341,9 +390,7 @@ const PaperUsageInspectionTable = ({
             const next = !cekAlergenKemasan;
             setCekAlergenKemasan(next);
             saveFlagToStorage(next);
-            onDataChange(
-              tableData.map((r) => ({ ...r, cekAlergenKemasan: next }))
-            );
+            // Tidak perlu onDataChange di sini; effect akan emit
           }}
           style={[styles.checkbox, cekAlergenKemasan && styles.checkboxChecked]}
         >
@@ -455,7 +502,10 @@ const PaperUsageInspectionTable = ({
           />
 
           {/* HAPUS (X) */}
-          <TouchableOpacity style={[styles.cell, styles.actionsCell]} onPress={() => removeRow(index)}>
+          <TouchableOpacity
+            style={[styles.cell, styles.actionsCell]}
+            onPress={() => removeRow(index)}
+          >
             <Text style={styles.xText}>×</Text>
           </TouchableOpacity>
         </View>

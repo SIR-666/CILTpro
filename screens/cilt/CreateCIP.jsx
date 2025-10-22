@@ -42,7 +42,7 @@ const CreateCIP = ({ navigation }) => {
     posisi: "",
     flowRate: "",
     notes: "",
-    kodeOperator: "", 
+    kodeOperator: "",
     kodeTeknisi: "",
   });
 
@@ -87,10 +87,10 @@ const CreateCIP = ({ navigation }) => {
       const response = await api.get("/user/profile");
       const userData = response.data;
       setUserProfile(userData);
-      
+
       // Auto-set operator name from login
-      setFormData(prev => ({ 
-        ...prev, 
+      setFormData(prev => ({
+        ...prev,
         operator: userData.name || userData.fullName || userData.username || ""
       }));
     } catch (error) {
@@ -149,13 +149,13 @@ const CreateCIP = ({ navigation }) => {
       Alert.alert("Validation Error", "Please select a posisi");
       return false;
     }
-    
+
     // For LINE A, validate single flow rate
     if (formData.line === "LINE A" && !formData.flowRate) {
       Alert.alert("Validation Error", "Flow rate is required");
       return false;
     }
-    
+
     return true;
   };
 
@@ -164,16 +164,25 @@ const CreateCIP = ({ navigation }) => {
 
     const warningMessages = warnings.map(w => `• ${w.message}`).join('\n\n');
     const title = isDraft ? "Draft Saved with Warnings" : "Submitted with Warnings";
-    const message = isDraft 
+    const message = isDraft
       ? `Your draft has been saved with the following warnings:\n\n${warningMessages}\n\nYou can edit and submit later.`
       : `Your report has been submitted with the following warnings:\n\n${warningMessages}\n\nPlease note these for future reference.`;
-    
+
     Alert.alert(title, message, [{ text: "OK" }]);
   };
 
+  const validateDraftInfo = () => {
+    return !!formData.line;
+  };
+
   const handleSaveCIP = async (cipTableData, isDraft = false) => {
-    if (!validateBasicInfo()) {
-      return;
+    if (!isDraft) {
+      if (!validateBasicInfo()) return;
+    } else {
+      if (!validateDraftInfo()) {
+        Alert.alert("Draft Error", "Minimal pilih Line untuk menyimpan draft.");
+        return;
+      }
     }
 
     setLoading(true);
@@ -198,7 +207,7 @@ const CreateCIP = ({ navigation }) => {
           flowRate: parseFloat(formData.flowRate) || 0,
           kodeOperator: cipTableData.kodeOperator || formData.kodeOperator || "",
           kodeTeknisi: cipTableData.kodeTeknisi || formData.kodeTeknisi || "",
-          
+
           // Steps data
           steps: cipTableData.steps.map(step => ({
             stepNumber: parseInt(step.stepNumber),
@@ -213,7 +222,7 @@ const CreateCIP = ({ navigation }) => {
             startTime: step.startTime || null,
             endTime: step.endTime || null,
           })),
-          
+
           // COP records
           copRecords: cipTableData.copRecords.map(cop => ({
             stepType: cop.stepType,
@@ -228,7 +237,7 @@ const CreateCIP = ({ navigation }) => {
             kode: cop.kode || "",
           })),
         };
-      } 
+      }
       // Handle LINE B/C data
       else if (formData.line === "LINE B" || formData.line === "LINE C") {
         dataToSubmit = {
@@ -238,7 +247,7 @@ const CreateCIP = ({ navigation }) => {
           valvePositions: cipTableData.valvePositions || { A: false, B: false, C: false },
           kodeOperator: cipTableData.kodeOperator || formData.kodeOperator || "",
           kodeTeknisi: cipTableData.kodeTeknisi || formData.kodeTeknisi || "",
-          
+
           // Steps data (same structure as LINE A)
           steps: cipTableData.steps.map(step => ({
             stepNumber: parseInt(step.stepNumber),
@@ -253,7 +262,7 @@ const CreateCIP = ({ navigation }) => {
             startTime: step.startTime || null,
             endTime: step.endTime || null,
           })),
-          
+
           // Special records for BCD (DRYING, FOAMING, DISINFECT)
           specialRecords: cipTableData.specialRecords.map(record => ({
             stepType: record.stepType,
@@ -282,7 +291,7 @@ const CreateCIP = ({ navigation }) => {
           valvePositions: cipTableData.valvePositions || { A: false, B: false, C: false },
           kodeOperator: cipTableData.kodeOperator || formData.kodeOperator || "",
           kodeTeknisi: cipTableData.kodeTeknisi || formData.kodeTeknisi || "",
-          
+
           // Steps data (same structure as LINE A)
           steps: cipTableData.steps.map(step => ({
             stepNumber: parseInt(step.stepNumber),
@@ -297,7 +306,7 @@ const CreateCIP = ({ navigation }) => {
             startTime: step.startTime || null,
             endTime: step.endTime || null,
           })),
-          
+
           // Special records for BCD (DRYING, FOAMING, DISINFECT)
           specialRecords: cipTableData.specialRecords.map(record => ({
             stepType: record.stepType,
@@ -328,14 +337,14 @@ const CreateCIP = ({ navigation }) => {
           showWarningsDialog(response.data.warnings, isDraft);
         }
 
-        const successMessage = isDraft 
+        const successMessage = isDraft
           ? "CIP Report saved as draft successfully"
-          : response.data.hasValidationWarnings 
+          : response.data.hasValidationWarnings
             ? "CIP Report submitted successfully with some validation warnings. Check the details for recommendations."
             : "CIP Report submitted successfully";
 
         Alert.alert(
-          "Success", 
+          "Success",
           successMessage,
           [
             {
@@ -355,12 +364,12 @@ const CreateCIP = ({ navigation }) => {
     } catch (error) {
       console.error("Error creating CIP report:", error);
       console.error("Error response:", error.response?.data);
-      
+
       // More detailed error message
-      const errorMessage = error.response?.data?.message || 
-                          error.response?.data?.errors?.[0]?.message ||
-                          "Failed to create CIP report";
-      
+      const errorMessage = error.response?.data?.message ||
+        error.response?.data?.errors?.[0]?.message ||
+        "Failed to create CIP report";
+
       Alert.alert("Error", errorMessage);
     } finally {
       setLoading(false);
@@ -579,8 +588,10 @@ const CreateCIP = ({ navigation }) => {
         <View style={styles.statusInfoBox}>
           <Icon name="info-outline" size={20} color={COLORS.blue} />
           <Text style={styles.statusInfoText}>
-            The "Save CIP Report" button will save and submit your report directly.
-            Data will be saved even if values are outside recommended ranges with validation warnings shown for reference.
+            The "Save CIP Report" button is smart:
+            1) If all fields are complete → it SUBMITS your report.
+            2) If some fields are missing → it SAVES as DRAFT (In Progress) so you can finish later.
+            Out-of-range values will still be saved with validation warnings for reference.
           </Text>
         </View>
 
@@ -590,7 +601,7 @@ const CreateCIP = ({ navigation }) => {
             {formData.line === "LINE A" ? (
               <ReportCIPInspectionTable
                 cipData={formData}
-                onSave={(cipTableData) => handleSaveCIP(cipTableData, false)}
+                onSave={(cipTableData, isDraft) => handleSaveCIP(cipTableData, isDraft)}
                 isEditable={true}
                 allowUnrestrictedInput={true}
               />
@@ -598,7 +609,7 @@ const CreateCIP = ({ navigation }) => {
               <ReportCIPInspectionTableBCD
                 cipData={formData}
                 selectedLine={formData.line}
-                onSave={(cipTableData) => handleSaveCIP(cipTableData, false)}
+                onSave={(cipTableData, isDraft) => handleSaveCIP(cipTableData, isDraft)}
                 isEditable={true}
                 allowUnrestrictedInput={true}
               />
@@ -743,7 +754,7 @@ const styles = StyleSheet.create({
   picker: {
     height: 50,
   },
-  
+
   // Operator Section Styles
   operatorContainer: {
     flexDirection: "row",
@@ -766,7 +777,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontStyle: "italic",
   },
-  
+
   infoBox: {
     flexDirection: "row",
     alignItems: "center",
