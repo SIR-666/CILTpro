@@ -124,13 +124,38 @@ const CILTinspection = ({ route, navigation }) => {
   const [machineOptions, setMachineOptions] = useState([]);
   const [packageOptions, setPackageOptions] = useState([]);
 
+  // ========== CACHE SYSTEM ==========
+  // Cache untuk menyimpan data inspection per package type
+  const [packageDataCache, setPackageDataCache] = useState({});
+  // Cache untuk menyimpan description data (khusus Segregasi)
+  const [packageDescriptionCache, setPackageDescriptionCache] = useState({});
+
   // === MEMOIZED callbacks ke anak (stabil, anti-loop) ===
   const handleInspectionChange = useCallback((data) => {
     setInspectionData(data);
-  }, []);
+    
+    // Simpan ke cache berdasarkan package type
+    if (packageType) {
+      setPackageDataCache(prev => ({
+        ...prev,
+        [packageType]: data
+      }));
+      console.log(`💾 Cached inspection data for: ${packageType}`, data.length, "items");
+    }
+  }, [packageType]);
+
   const handleSegregationDescriptionChange = useCallback((data) => {
     setSegregationDescriptionData(data);
-  }, []);
+    
+    // Simpan description data ke cache
+    if (packageType === "SEGREGASI") {
+      setPackageDescriptionCache(prev => ({
+        ...prev,
+        [packageType]: data
+      }));
+      console.log(`💾 Cached description data for: ${packageType}`, data.length, "items");
+    }
+  }, [packageType]);
 
   const fetchPackageMaster = async () => {
     try {
@@ -194,12 +219,24 @@ const CILTinspection = ({ route, navigation }) => {
         // Jika sudah ada, preload data sebelumnya
         const parsedData = JSON.parse(response.data.data.inspectionData);
         setInspectionData(parsedData);
+        
+        // Simpan ke cache juga
+        setPackageDataCache(prev => ({
+          ...prev,
+          [packageType]: parsedData
+        }));
 
         // Load description data if exists for segregation
         if (packageType === "SEGREGASI" && response.data.data.descriptionData) {
           try {
             const parsedDescriptionData = JSON.parse(response.data.data.descriptionData);
             setSegregationDescriptionData(parsedDescriptionData);
+            
+            // Simpan description ke cache
+            setPackageDescriptionCache(prev => ({
+              ...prev,
+              [packageType]: parsedDescriptionData
+            }));
           } catch (error) {
             console.error("Failed to parse description data:", error);
             setSegregationDescriptionData([]);
@@ -282,6 +319,31 @@ const CILTinspection = ({ route, navigation }) => {
     if (!plant || !line || !date || !shift || !machine || !packageType) return;
     checkIfDataExists();
   }, [processOrder]);
+
+  // ========== LOAD FROM CACHE SAAT PACKAGE BERUBAH ==========
+  useEffect(() => {
+    if (!packageType) return;
+
+    console.log(`📦 Package changed to: ${packageType}`);
+    
+    // Load inspection data dari cache jika ada
+    if (packageDataCache[packageType]) {
+      console.log(`✅ Loading inspection data from cache for: ${packageType}`);
+      setInspectionData(packageDataCache[packageType]);
+    } else {
+      console.log(`⚠️ No cache found for: ${packageType}, resetting inspection data`);
+      setInspectionData([]);
+    }
+
+    // Load description data dari cache untuk Segregasi
+    if (packageType === "SEGREGASI" && packageDescriptionCache[packageType]) {
+      console.log(`✅ Loading description data from cache for: ${packageType}`);
+      setSegregationDescriptionData(packageDescriptionCache[packageType]);
+    } else if (packageType === "SEGREGASI") {
+      console.log(`⚠️ No description cache found for: ${packageType}, resetting`);
+      setSegregationDescriptionData([]);
+    }
+  }, [packageType]);
 
   const handleImageSelected = (uri, index) => {
     let data = [...inspectionData];
@@ -401,6 +463,19 @@ const CILTinspection = ({ route, navigation }) => {
                 // Clear storage spesifik untuk package dan product ini setelah submit berhasil
                 await clearPackageStorageAfterSubmit();
 
+                // Clear cache untuk package yang sudah di-submit
+                setPackageDataCache(prev => {
+                  const newCache = { ...prev };
+                  delete newCache[packageType];
+                  return newCache;
+                });
+                
+                setPackageDescriptionCache(prev => {
+                  const newCache = { ...prev };
+                  delete newCache[packageType];
+                  return newCache;
+                });
+
                 if (packageType !== "PERFORMA RED AND GREEN") {
                   setInspectionData([]);
                   setSegregationDescriptionData([]);
@@ -480,8 +555,13 @@ const CILTinspection = ({ route, navigation }) => {
       // Reset data table/description
       setInspectionData([]);
       setSegregationDescriptionData([]);
+      
+      // ========== CLEAR ALL CACHES ==========
+      setPackageDataCache({});
+      setPackageDescriptionCache({});
+      console.log("🗑️ All caches cleared");
 
-      Alert.alert("Reset", "Semua pilihan telah dikosongkan.");
+      Alert.alert("Reset", "Semua pilihan dan data cache telah dikosongkan.");
     } catch (error) {
       console.error("Reset failed:", error);
       Alert.alert("Error", "Gagal melakukan reset. Coba lagi.");
@@ -752,7 +832,7 @@ const CILTinspection = ({ route, navigation }) => {
                     key={`screw-cap-${processOrder}-${product}`}
                     username={username}
                     onDataChange={handleInspectionChange}
-                    initialData={inspectionData}
+                    initialData={packageDataCache["PEMAKAIAN SCREW CAP"] || []}
                     processOrder={processOrder}
                     product={product}
                   />
@@ -762,7 +842,7 @@ const CILTinspection = ({ route, navigation }) => {
                   key={`paper-${processOrder}-${product}`}
                   username={username}
                   onDataChange={handleInspectionChange}
-                  initialData={inspectionData}
+                  initialData={packageDataCache["PEMAKAIAN PAPER"] || []}
                   processOrder={processOrder}
                   product={product}
                 />
@@ -773,7 +853,7 @@ const CILTinspection = ({ route, navigation }) => {
                     key="h2o2-check"
                     username={username}
                     onDataChange={handleInspectionChange}
-                    initialData={inspectionData}
+                    initialData={packageDataCache["PENGECEKAN H2O2 ( SPRAY )"] || []}
                   />
                 )}
               {machine === "FILLER" &&
@@ -783,7 +863,7 @@ const CILTinspection = ({ route, navigation }) => {
                     key="gnr-performance-line-a"
                     username={username}
                     onDataChange={handleInspectionChange}
-                    initialData={inspectionData}
+                    initialData={packageDataCache["PERFORMA RED AND GREEN"] || []}
                     plant={plant}
                     line={line}
                     machine={machine}
@@ -798,7 +878,7 @@ const CILTinspection = ({ route, navigation }) => {
                     key="gnr-performance-line-bc"
                     username={username}
                     onDataChange={handleInspectionChange}
-                    initialData={inspectionData}
+                    initialData={packageDataCache["PERFORMA RED AND GREEN"] || []}
                     plant={plant}
                     line={line}
                     machine={machine}
@@ -813,7 +893,7 @@ const CILTinspection = ({ route, navigation }) => {
                     key="gnr-performance-line-d"
                     username={username}
                     onDataChange={handleInspectionChange}
-                    initialData={inspectionData}
+                    initialData={packageDataCache["PERFORMA RED AND GREEN"] || []}
                     plant={plant}
                     line={line}
                     machine={machine}
@@ -826,7 +906,7 @@ const CILTinspection = ({ route, navigation }) => {
                   key="checklist-cilt"
                   username={username}
                   onDataChange={handleInspectionChange}
-                  initialData={inspectionData}
+                  initialData={packageDataCache["CHECKLIST CILT"] || []}
                   plant={plant}
                   line={line}
                   machine={machine}
@@ -839,8 +919,8 @@ const CILTinspection = ({ route, navigation }) => {
                   username={username}
                   onDataChange={handleInspectionChange}
                   onDescriptionChange={handleSegregationDescriptionChange}
-                  initialData={inspectionData}
-                  initialDescription={segregationDescriptionData}
+                  initialData={packageDataCache["SEGREGASI"] || []}
+                  initialDescription={packageDescriptionCache["SEGREGASI"] || []}
                   product={baseProduct}
                   productOptions={productOptions}
                   lineName={line}
@@ -862,7 +942,7 @@ const CILTinspection = ({ route, navigation }) => {
             status={agreed ? "checked" : "unchecked"}
             onPress={() => setAgreed(!agreed)}
           />
-        <Text style={styles.checkboxLabel}>
+          <Text style={styles.checkboxLabel}>
             Saya menyatakan telah memasukkan data dengan benar.
           </Text>
         </View>

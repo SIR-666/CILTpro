@@ -1,7 +1,7 @@
 import * as Print from "expo-print";
 import { shareAsync } from "expo-sharing";
 import moment from "moment-timezone";
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   ActivityIndicator,
@@ -14,11 +14,15 @@ import {
   Text,
   TouchableOpacity,
   View,
+  BackHandler,
+  InteractionManager,
+  Animated,
 } from "react-native";
 import { COLORS } from "../../constants/theme";
 import { api } from "../../utils/axiosInstance";
+import { useFocusEffect } from "@react-navigation/native";
 
-const DetailLaporanShiftly = ({ route }) => {
+const DetailLaporanShiftly = ({ route, navigation }) => {
   const { item } = route.params;
   const [data, setData] = useState([]);
   const [uniqueData, setUniqueData] = useState([]);
@@ -27,37 +31,85 @@ const DetailLaporanShiftly = ({ route }) => {
   const [selectedImage, setSelectedImage] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
 
+  // ==== FAST BACK ====
+  const leavingRef = useRef(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (modalVisible) {
+          setModalVisible(false);
+          return true;
+        }
+        leavingRef.current = true;
+        navigation.goBack();
+        return true;
+      });
+      return () => sub.remove();
+    }, [modalVisible, navigation])
+  );
+
   // tinggi baris "Actual Time" agar kiri-kanan sama
   const [actualTimeHeight, setActualTimeHeight] = useState(50);
 
-  // --- Kunci "Actual Time" per record ---
+  // Kunci "Actual Time" per record
   const [actualLocks, setActualLocks] = useState({}); // recordKey -> hour
   const [locksReady, setLocksReady] = useState(false);
 
-  // Refs sinkronisasi scroll
-  const hHeaderRef = useRef(null); // scroll horizontal header (actual time + header jam)
-  const hBodyRef = useRef(null);   // scroll horizontal body kanan
+  // Refs
+  const hBodyRef = useRef(null); // body horizontal (kanan)
   const verticalScrollRef = useRef(null);
-  const isSyncingRef = useRef(false);
+
+  // ---- Tinggi baris (ukur kiri saja, kanan mengikuti) ----
+  const [leftHeights, setLeftHeights] = useState({});
+  const lhRef = useRef({});
+  const rafRef = useRef(null);
+
+  const flushHeights = () => {
+    rafRef.current = null;
+    setLeftHeights(prev => {
+      if (!Object.keys(lhRef.current).length) return prev;
+      const next = { ...prev, ...lhRef.current };
+      lhRef.current = {};
+      return next;
+    });
+  };
+  const queueFlush = () => {
+    if (rafRef.current != null) return;
+    rafRef.current = requestAnimationFrame(flushHeights);
+  };
+  const setLH = (i, h) => {
+    const v = Math.round(h);
+    if (leavingRef.current || leftHeights[i] === v) return;
+    lhRef.current[i] = v;
+    queueFlush();
+  };
+  useEffect(() => {
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
+  const rowHeight = (i) => Math.max(50, leftHeights[i] || 0);
 
   const { width } = Dimensions.get("window");
   const modalImageSize = width * 0.8;
 
   const pad2 = (n) => String(n).padStart(2, "0");
+  const rowKey = (row, index) => `${row?.id ?? row?.activity ?? "row"}|${index}`;
 
-  const handleHScroll = (e, source) => {
-    const x = e.nativeEvent.contentOffset.x;
-    if (isSyncingRef.current) return;
-    isSyncingRef.current = true;
-    if (source === "header" && hBodyRef.current) {
-      hBodyRef.current.scrollTo({ x, animated: false });
-    } else if (source === "body" && hHeaderRef.current) {
-      hHeaderRef.current.scrollTo({ x, animated: false });
-    }
-    requestAnimationFrame(() => {
-      isSyncingRef.current = false;
-    });
+  // SCROLL TANPA DELAY: header kanan ikut body via Animated translateX
+  const scrollX = useRef(new Animated.Value(0)).current;
+  const CELL_WIDTHS = {
+    no: 40,
+    activity: 200,
+    status: 50,
+    hour: 60,
+    fixedTotal: 390, // no + activity + 3 status cells
   };
+  const hoursWidth = useMemo(
+    () => (Array.isArray(shiftHours) ? shiftHours.length : 0) * CELL_WIDTHS.hour,
+    [shiftHours]
+  );
 
   const getShiftHours = (shift) => {
     if (shift === "Shift 1") return [6, 7, 8, 9, 10, 11, 12, 13, 14];
@@ -66,35 +118,49 @@ const DetailLaporanShiftly = ({ route }) => {
     return [];
   };
 
+  // cache timestamp submit (ms) supaya tidak parsing moment berulang
+  const getSubmitMs = (rec) => {
+    const raw = rec?.submitTime || rec?.submit_time || rec?.createdAt || rec?.created_at;
+    const m = parseWIBNaive(raw);
+    return m?.isValid?.() ? m.valueOf() : null;
+  };
+
   const fetchData = async () => {
     try {
       setIsLoading(true);
-      const formattedDate = item.date.split("T")[0];
+      const formattedDate = (item?.date ? String(item.date) : "")
+        .split("T")[0] || moment().format("YYYY-MM-DD");
 
+      const controller = new AbortController();
+      fetchData.controller = controller;
       const { data: result, status } = await api.get(
         `/cilt/reportCILTAll/PERFORMA RED AND GREEN/${encodeURIComponent(
           item.plant
         )}/${encodeURIComponent(item.line)}/${encodeURIComponent(
           item.shift
-        )}/${encodeURIComponent(item.machine)}/${formattedDate}`
+        )}/${encodeURIComponent(item.machine)}/${formattedDate}`,
+        { signal: controller.signal }
       );
       if (status !== 200) throw new Error(`HTTP Error: ${status}`);
 
-      // set jam shift SELALU (hindari nyangkut dari request sebelumnya)
       setShiftHours(getShiftHours(item.shift));
 
       if (Array.isArray(result) && result.length > 0) {
-        setData(result);
-        setUniqueData(extractUniqueInspectionData(result));
+        const enriched = result.map(r => ({ ...r, __ts: getSubmitMs(r) }));
+        setData(enriched);
+        setUniqueData(extractUniqueInspectionData(enriched));
       } else {
         setData([]);
         setUniqueData([]);
       }
     } catch (error) {
-      console.error("Error fetching data:", error);
-      setData([]);
-      setUniqueData([]);
-      setShiftHours(getShiftHours(item.shift));
+      if (error?.name === "CanceledError" || error?.code === "ERR_CANCELED") {
+      } else {
+        console.error("Error fetching data:", error);
+        setData([]);
+        setUniqueData([]);
+        setShiftHours(getShiftHours(item.shift));
+      }
     } finally {
       setIsLoading(false);
     }
@@ -123,12 +189,11 @@ const DetailLaporanShiftly = ({ route }) => {
     const safe = Array.isArray(records) ? [...records] : [];
 
     try {
-      safe.sort((a, b) => (a?.submitTime || "").localeCompare(b?.submitTime || ""));
-    } catch { }
+      safe.sort((a, b) => (a?.__ts ?? 0) - (b?.__ts ?? 0));
+    } catch {}
 
     for (const record of safe) {
       try {
-        // tahan newline: [\s\S]
         const chunks = String(record?.CombinedInspectionData || "").match(/\[[\s\S]*?\]/g);
         if (!chunks || chunks.length === 0) continue;
 
@@ -168,7 +233,7 @@ const DetailLaporanShiftly = ({ route }) => {
               }
             }
 
-            // simpan per 30 MENIT (jika periode menyebut 30)
+            // simpan per 30 MENIT
             if (
               inspection.periode &&
               String(inspection.periode).toLowerCase().includes("30")
@@ -214,10 +279,17 @@ const DetailLaporanShiftly = ({ route }) => {
     return () => { cancelled = true; };
   }, [scopeKey]);
 
-  // Persist kunci saat berubah
+  // Simpan kunci dengan debounce, dan skip saat sedang back
+  const locksSaveTimerRef = useRef(null);
   useEffect(() => {
-    if (!locksReady) return;
-    AsyncStorage.setItem(scopeKey, JSON.stringify(actualLocks)).catch(() => {});
+    if (!locksReady || leavingRef.current) return;
+    if (locksSaveTimerRef.current) clearTimeout(locksSaveTimerRef.current);
+    locksSaveTimerRef.current = setTimeout(() => {
+      AsyncStorage.setItem(scopeKey, JSON.stringify(actualLocks)).catch(() => {});
+    }, 300);
+    return () => {
+      if (locksSaveTimerRef.current) clearTimeout(locksSaveTimerRef.current);
+    };
   }, [actualLocks, locksReady, scopeKey]);
 
   // Key stabil untuk setiap record
@@ -235,11 +307,16 @@ const DetailLaporanShiftly = ({ route }) => {
   };
 
   useEffect(() => {
-    fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const task = InteractionManager.runAfterInteractions(() => {
+      fetchData();
+    });
+    return () => {
+      task.cancel?.();
+      try { fetchData.controller?.abort?.(); } catch {}
+    };
   }, [item]);
 
-  // Setelah data di-load, tetapkan kunci yang belum ada (sekali saja per record)
+  // Setelah data di-load, tetapkan kunci yang belum ada
   useEffect(() => {
     if (!locksReady) return;
     if (!Array.isArray(data) || data.length === 0) return;
@@ -248,12 +325,12 @@ const DetailLaporanShiftly = ({ route }) => {
     for (const rec of data) {
       const k = recordKey(rec);
       if (next[k] == null) {
-        const h = intendedHourForRecord(rec); // pakai logika normal hanya untuk penetapan awal
+        const h = intendedHourForRecord(rec);
         if (h != null) { next[k] = h; changed = true; }
       }
     }
     if (changed) setActualLocks(next);
-  }, [data, locksReady]); // jangan tambahkan actualLocks agar tidak loop
+  }, [data, locksReady]);
 
   const handlePress = (image) => {
     setSelectedImage(image);
@@ -314,7 +391,7 @@ const DetailLaporanShiftly = ({ route }) => {
     return "#f8f9fa";
   };
 
-  const shouldShowSeparator = (index, dataArr) => {
+  const shouldShowSeparator = (index) => {
     const separatorIndices = [13, 20, 39];
     return separatorIndices.includes(index);
   };
@@ -368,11 +445,9 @@ const DetailLaporanShiftly = ({ route }) => {
     return _parseHourLoose(rg);
   };
   const hourFromSubmitTime = (rec) => {
-    const m = parseWIBNaive(
-      rec?.submitTime || rec?.submit_time || rec?.createdAt || rec?.created_at
-    );
-    if (!m || !m.isValid?.()) return undefined;
-    const H = m.hour();
+    const t = rec?.__ts;
+    if (t == null) return undefined;
+    const H = moment.tz(t, "Asia/Jakarta").hour();
     const hours = (Array.isArray(shiftHours) && shiftHours.length > 0)
       ? shiftHours
       : getShiftHours(item.shift);
@@ -400,24 +475,25 @@ const DetailLaporanShiftly = ({ route }) => {
       try {
         const arr = JSON.parse(txt);
         if (Array.isArray(arr)) out.push(...arr);
-      } catch { }
+      } catch {}
     }
     return out;
   };
 
-  // --- Pemetaan chip "Actual Time" berdasarkan kunci yang sudah tersimpan (tidak bisa pindah) ---
+  // --- Pemetaan chip "Actual Time" berdasarkan kunci yang sudah tersimpan ---
   const actualTimeMap = useMemo(() => {
     const map = new Map();
     if (!locksReady) return map;
     for (const rec of data) {
       const k = recordKey(rec);
-      const h = actualLocks[k]; // selalu gunakan jam terkunci
+      const h = actualLocks[k]; // gunakan jam terkunci
       if (h == null) continue;
       if (!map.has(h)) map.set(h, []);
       map.get(h).push(rec);
     }
-    for (const [k, arr] of map) {
-      arr.sort((a, b) => parseWIBNaive(a.submitTime).diff(parseWIBNaive(b.submitTime)));
+    for (const entry of map) {
+      const arr = entry[1];
+      arr.sort((a, b) => (a.__ts ?? 0) - (b.__ts ?? 0));
     }
     return map;
   }, [data, actualLocks, locksReady]);
@@ -491,12 +567,12 @@ const DetailLaporanShiftly = ({ route }) => {
     const actualByHour = {};
     for (const rec of data) {
       const k = recordKey(rec);
-      const h = actualLocks[k]; // gunakan jam terkunci juga di PDF
+      const h = actualLocks[k];
       if (h == null) continue;
       (actualByHour[h] ||= []).push(rec);
     }
     for (const k of Object.keys(actualByHour)) {
-      actualByHour[k].sort((a, b) => parseWIBNaive(a.submitTime).diff(parseWIBNaive(b.submitTime)));
+      actualByHour[+k].sort((a, b) => (a.__ts ?? 0) - (b.__ts ?? 0));
     }
 
     const actualTimeRow = `
@@ -514,7 +590,7 @@ const DetailLaporanShiftly = ({ route }) => {
             }
             const chips = related
               .map((rec) => {
-                const s = parseWIBNaive(rec.submitTime);
+                const s = moment.tz(rec.__ts, "Asia/Jakarta");
                 const late = Math.abs(s.hour() - hNum) >= 1;
                 const bg = late ? "#ffebee" : "#e8f5e9";
                 const color = late ? "#d32f2f" : "#2e7d32";
@@ -540,7 +616,7 @@ const DetailLaporanShiftly = ({ route }) => {
         <td class="col-red">${row.reject ?? "-"}</td>
         ${getHalfHourSlots(shiftHours)
           .map(({ hour, mm }) => {
-            const rawValue = getResultAtHalfHour(row, hour, mm, {
+            const rawValue = getResultAtHalfHour(row, +hour, mm, {
               duplicateHourlyToBoth: true,
             });
             const bg = getHalfHourBg(rawValue, row.good, row.reject);
@@ -619,15 +695,6 @@ const DetailLaporanShiftly = ({ route }) => {
     }
   };
 
-  // Fixed cell widths
-  const CELL_WIDTHS = {
-    no: 40,
-    activity: 200,
-    status: 50,
-    hour: 60,
-    fixedTotal: 390, // no + activity + 3 status cells
-  };
-
   return (
     <SafeAreaView style={styles.container}>
       <View>
@@ -686,7 +753,7 @@ const DetailLaporanShiftly = ({ route }) => {
           <View style={styles.tableWrapper}>
             {/* Sticky Header Container */}
             <View style={styles.stickyContainer}>
-              {/* KIRI fixed (label) + KANAN scroll (actual chips + header jam hijau) */}
+              {/* KIRI fixed (label) + KANAN header ikut translateX(scrollX) */}
               <View style={{ flexDirection: "row" }}>
                 {/* KIRI: dua baris fixed */}
                 <View style={{ width: CELL_WIDTHS.fixedTotal }}>
@@ -712,16 +779,15 @@ const DetailLaporanShiftly = ({ route }) => {
                   </View>
                 </View>
 
-                {/* KANAN: satu ScrollView untuk BARIS ActualTime & Header Jam */}
-                <ScrollView
-                  ref={hHeaderRef}
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  onScroll={(e) => handleHScroll(e, "header")}
-                  scrollEventThrottle={16}
-                >
-                  <View>
-                    {/* Baris actual time (abu), ukur tinggi untuk disamakan dengan label kiri */}
+                {/* KANAN: header TIDAK discroll; ikut body via translateX */}
+                <View style={{ flex: 1, overflow: "hidden" }}>
+                  <Animated.View
+                    style={{
+                      width: hoursWidth,
+                      transform: [{ translateX: Animated.multiply(scrollX, -1) }],
+                    }}
+                  >
+                    {/* Baris actual time (abu) */}
                     <View
                       style={[styles.actualTimeContent, { backgroundColor: "#f8f9fa" }]}
                       onLayout={(e) => setActualTimeHeight(e.nativeEvent.layout.height)}
@@ -737,7 +803,7 @@ const DetailLaporanShiftly = ({ route }) => {
                               <Text style={styles.actualTimeEmpty}>-</Text>
                             ) : (
                               relatedItems.map((rec, idy) => {
-                                const s = parseWIBNaive(rec.submitTime);
+                                const s = moment.tz(rec.__ts, "Asia/Jakarta");
                                 const actualStr = s.format("HH:mm");
                                 const isLate = Math.abs(s.hour() - Number(hour)) >= 1;
                                 return (
@@ -776,8 +842,8 @@ const DetailLaporanShiftly = ({ route }) => {
                         </View>
                       ))}
                     </View>
-                  </View>
-                </ScrollView>
+                  </Animated.View>
+                </View>
               </View>
             </View>
 
@@ -791,78 +857,83 @@ const DetailLaporanShiftly = ({ route }) => {
               <View style={{ flexDirection: "row" }}>
                 {/* KIRI: kolom fixed semua baris */}
                 <View>
-                  {uniqueData.map((row, index) => (
-                    <View key={`fixed-${index}`}>
-                      <View style={[styles.tableRow, index % 2 === 1 && styles.tableRowAlt]}>
-                        <View style={styles.fixedColumns}>
-                          <View style={[styles.cell, { width: CELL_WIDTHS.no }]}>
-                            <Text style={styles.cellText}>{index + 1}</Text>
-                          </View>
-                          <View style={[styles.cell, { width: CELL_WIDTHS.activity }]}>
-                            <Text style={styles.activityText}>{row.activity}</Text>
-                          </View>
-                          <View style={[styles.cell, { width: CELL_WIDTHS.status }]}>
-                            <Text style={styles.cellText}>{row.good ?? "-"}</Text>
-                          </View>
-                          <View style={[styles.cell, { width: CELL_WIDTHS.status }]}>
-                            <Text style={styles.cellText}>{row.need ?? "-"}</Text>
-                          </View>
-                          <View style={[styles.cell, { width: CELL_WIDTHS.status }]}>
-                            <Text style={styles.cellText}>{row.reject ?? "-"}</Text>
+                  {uniqueData.map((row, index) => {
+                    const rkey = rowKey(row, index);
+                    return (
+                      <View key={`fixed-${rkey}`}
+                        onLayout={(e) => setLH(index, e.nativeEvent.layout.height)}>
+                        <View style={[
+                          styles.tableRow,
+                          index % 2 === 1 && styles.tableRowAlt,
+                          { height: rowHeight(index) }
+                        ]}>
+                          <View style={styles.fixedColumns}>
+                            <View style={[styles.cell, { width: CELL_WIDTHS.no }]}><Text style={styles.cellText}>{index + 1}</Text></View>
+                            <View style={[styles.cell, { width: CELL_WIDTHS.activity }]}><Text style={styles.activityText}>{row.activity}</Text></View>
+                            <View style={[styles.cell, { width: CELL_WIDTHS.status }]}><Text style={styles.cellText}>{row.good ?? "-"}</Text></View>
+                            <View style={[styles.cell, { width: CELL_WIDTHS.status }]}><Text style={styles.cellText}>{row.need ?? "-"}</Text></View>
+                            <View style={[styles.cell, { width: CELL_WIDTHS.status }]}><Text style={styles.cellText}>{row.reject ?? "-"}</Text></View>
                           </View>
                         </View>
+                        {shouldShowSeparator(index) && <View style={styles.sectionSeparator} />}
                       </View>
-                      {shouldShowSeparator(index, uniqueData) && <View style={styles.sectionSeparator} />}
-                    </View>
-                  ))}
+                    );
+                  })}
                 </View>
 
-                {/* KANAN: satu ScrollView horizontal untuk semua baris kanan */}
-                <ScrollView
+                {/* KANAN: Animated.ScrollView sebagai satu-satunya sumber scroll horizontal */}
+                <Animated.ScrollView
                   ref={hBodyRef}
                   horizontal
                   showsHorizontalScrollIndicator={false}
-                  onScroll={(e) => handleHScroll(e, "body")}
-                  scrollEventThrottle={16}
+                  onScroll={Animated.event(
+                    [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+                    { useNativeDriver: true }
+                  )}
+                  scrollEventThrottle={1}
+                  decelerationRate="fast"
                 >
                   <View>
-                    {uniqueData.map((row, index) => (
-                      <View key={`cells-${index}`}>
-                        <View style={[styles.tableRow, index % 2 === 1 && styles.tableRowAlt]}>
-                          <View style={styles.scrollableContent}>
-                            {shiftHours.map((hour, idx) => {
-                              const val = row.results?.[hour];
-                              return (
-                                <TouchableOpacity
-                                  key={`cell-${index}-${hour}-${idx}`}
-                                  style={[
-                                    styles.cell,
-                                    {
-                                      width: CELL_WIDTHS.hour,
-                                      backgroundColor: getResultColor(val, row.good, row.reject),
-                                    },
-                                  ]}
-                                  onPress={() => row.picture?.[hour] && handlePress(row.picture[hour])}
-                                  disabled={!row.picture?.[hour]}
-                                >
-                                  <Text
+                    {uniqueData.map((row, index) => {
+                      const rkey = rowKey(row, index);
+                      return (
+                        <View key={`cells-${rkey}`}>
+                          <View style={[
+                            styles.tableRow,
+                            index % 2 === 1 && styles.tableRowAlt,
+                            { height: rowHeight(index) }
+                          ]}>
+                            <View style={styles.scrollableContent}>
+                              {shiftHours.map((hour, idx) => {
+                                const val = row.results?.[hour];
+                                return (
+                                  <TouchableOpacity
+                                    key={`cell-${rkey}-${hour}-${idx}`}
                                     style={[
-                                      styles.cellText,
-                                      { fontWeight: val ? "bold" : "normal" },
+                                      styles.cell,
+                                      {
+                                        width: CELL_WIDTHS.hour,
+                                        backgroundColor: getResultColor(val, row.good, row.reject),
+                                        height: '100%'
+                                      }
                                     ]}
+                                    onPress={() => row.picture?.[hour] && handlePress(row.picture[hour])}
+                                    disabled={!row.picture?.[hour]}
                                   >
-                                    {val || ""}
-                                  </Text>
-                                </TouchableOpacity>
-                              );
-                            })}
+                                    <Text style={[styles.cellText, { fontWeight: val ? "bold" : "normal" }]}>
+                                      {val || ""}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </View>
                           </View>
+                          {shouldShowSeparator(index) && <View style={styles.sectionSeparator} />}
                         </View>
-                        {shouldShowSeparator(index, uniqueData) && <View style={styles.sectionSeparator} />}
-                      </View>
-                    ))}
+                      );
+                    })}
                   </View>
-                </ScrollView>
+                </Animated.ScrollView>
               </View>
             </ScrollView>
           </View>
@@ -1008,9 +1079,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#e0e0e0",
   },
-  scrollableHeaderContent: {
-    flexDirection: "row",
-  },
   headerCell: {
     justifyContent: "center",
     alignItems: "center",
@@ -1032,6 +1100,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#e0e0e0",
     minHeight: 45,
+    alignItems: "stretch",
   },
   tableRowAlt: {
     backgroundColor: "#f8f9fa",
@@ -1059,6 +1128,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#333",
     paddingHorizontal: 10,
+    flexWrap: "wrap"
   },
   sectionSeparator: {
     height: 3,
