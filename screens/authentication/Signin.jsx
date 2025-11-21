@@ -58,11 +58,11 @@ const Signin = ({ navigation }) => {
     Alert.alert("Invalid Form", "Please provide all required fields", [
       {
         text: "Cancel",
-        onPress: () => {},
+        onPress: () => { },
       },
       {
         text: "Continue",
-        onPress: () => {},
+        onPress: () => { },
       },
       { defaultIndex: 1 },
     ]);
@@ -90,11 +90,11 @@ const Signin = ({ navigation }) => {
         Alert.alert("Error Logging in ", "Please provide valid credentials ", [
           {
             text: "Cancel",
-            onPress: () => {},
+            onPress: () => { },
           },
           {
             text: "Continue",
-            onPress: () => {},
+            onPress: () => { },
           },
           { defaultIndex: 1 },
         ]);
@@ -107,11 +107,11 @@ const Signin = ({ navigation }) => {
         [
           {
             text: "Cancel",
-            onPress: () => {},
+            onPress: () => { },
           },
           {
             text: "Continue",
-            onPress: () => {},
+            onPress: () => { },
           },
           { defaultIndex: 1 },
         ]
@@ -182,11 +182,15 @@ const Signin = ({ navigation }) => {
       if (res.status == 200) {
         const responseData = res.data; // Mengambil data JSON dari respons
         await AsyncStorage.setItem("user", responseData.user.email);
+        await AsyncStorage.setItem("userData", responseData.user.role.id.toString());
+        await AsyncStorage.setItem("username", responseData.user.username);
+
         const userData = {
           email: responseData.user.email,
           password: "null",
           username: responseData.user.username,
           profile: "user",
+          role: responseData.user.role.id,
         };
         // addUser(userData);
         navigation.replace("Bottom");
@@ -324,8 +328,8 @@ const Signin = ({ navigation }) => {
                 size={45}
                 color={COLORS.green}
                 onPress={() => navigation.navigate("Onboard")}
-                // onPress={() => navigation.navigate("Bottom")}
-                // onPress={() => navigation.navigate("AuthTop")}
+              // onPress={() => navigation.navigate("Bottom")}
+              // onPress={() => navigation.navigate("AuthTop")}
               />
 
               {fieldStrapi ? (

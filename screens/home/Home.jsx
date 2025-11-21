@@ -59,6 +59,8 @@ const Home = ({ navigation }) => {
       const fcmToken = await AsyncStorage.getItem("fcmToken");
 
       // const profile = await AsyncStorage.getItem("profile");
+      const userData = await AsyncStorage.getItem("userData");
+      console.log("userData :", userData);
 
       console.log("fetchUserData email", email);
       console.log("fetchUserData fcmToken", fcmToken);

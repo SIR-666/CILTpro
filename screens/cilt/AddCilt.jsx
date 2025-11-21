@@ -3,7 +3,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Picker } from "@react-native-picker/picker";
 import * as ScreenOrientation from "expo-screen-orientation";
 import moment from "moment-timezone";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   ActivityIndicator,
   Alert,
@@ -19,8 +20,6 @@ import { Checkbox } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 import ChecklistCILTInspectionTable from "../../components/package/filler/ChecklistCILTInspectionTable";
 import GnrPerformanceInspectionTable from "../../components/package/filler/GnrPerformanceInspectionTable";
-import GnrPerformanceInspectionTableBC from "../../components/package/filler/GnrPerformanceInspectionTableBC";
-import GnrPerformanceInspectionTableD from "../../components/package/filler/GnrPerformanceInspectionTableD";
 import H2o2CheckInspectionTable from "../../components/package/filler/h2o2CheckInspectionTable";
 import PaperUsageInspectionTable from "../../components/package/filler/PaperUsageInspectionTable";
 import ScrewCapInspectionTable from "../../components/package/filler/ScrewCapInspectionTable";
@@ -123,70 +122,158 @@ const CILTinspection = ({ route, navigation }) => {
   const [lineOptions, setLineOptions] = useState([]);
   const [machineOptions, setMachineOptions] = useState([]);
   const [packageOptions, setPackageOptions] = useState([]);
-
-  // ========== CACHE SYSTEM ==========
   // Cache untuk menyimpan data inspection per package type
   const [packageDataCache, setPackageDataCache] = useState({});
   // Cache untuk menyimpan description data (khusus Segregasi)
   const [packageDescriptionCache, setPackageDescriptionCache] = useState({});
+  // state custom plants, machines, packages
+  const [customPlants, setCustomPlants] = useState([]);
+  const [customMachines, setCustomMachines] = useState([]);
+  const [customPackages, setCustomPackages] = useState([]);
+  const [isCustomDataLoaded, setIsCustomDataLoaded] = useState(false);
 
-  // === MEMOIZED callbacks ke anak (stabil, anti-loop) ===
+  const mergedMachineOptions = useMemo(() => {
+    const base = Array.isArray(machineOptions) ? machineOptions : [];
+    const custom = Array.isArray(customMachines) ? customMachines : [];
+    return [...new Set([...base, ...custom].filter(Boolean))].sort();
+  }, [machineOptions, customMachines]);
+
+  // callbacks ke children (stabil, anti-loop)
   const handleInspectionChange = useCallback((data) => {
     setInspectionData(data);
-    
     // Simpan ke cache berdasarkan package type
     if (packageType) {
       setPackageDataCache(prev => ({
         ...prev,
         [packageType]: data
       }));
-      console.log(`💾 Cached inspection data for: ${packageType}`, data.length, "items");
+      console.log(`Cached inspection data for: ${packageType}`, data.length, "items");
     }
   }, [packageType]);
 
   const handleSegregationDescriptionChange = useCallback((data) => {
     setSegregationDescriptionData(data);
-    
+
     // Simpan description data ke cache
     if (packageType === "SEGREGASI") {
       setPackageDescriptionCache(prev => ({
         ...prev,
         [packageType]: data
       }));
-      console.log(`💾 Cached description data for: ${packageType}`, data.length, "items");
+      console.log(`Cached description data for: ${packageType}`, data.length, "items");
     }
   }, [packageType]);
 
-  const fetchPackageMaster = async () => {
+  // fungsi fetch custom data
+  const fetchCustomData = async () => {
+    try {
+      console.log("Fetching custom data from master...");
+      setIsCustomDataLoaded(false);
+
+      // Fetch custom plants
+      const plantsResponse = await api.get("/custom/plants");
+      const plantsData = plantsResponse.data;
+      const plants = Array.isArray(plantsData.data)
+        ? plantsData.data.map(p => p.plant)
+        : [];
+      setCustomPlants(plants);
+      console.log(`Loaded ${plants.length} custom plants`);
+
+      // Fetch custom machines
+      const machinesResponse = await api.get("/custom/machines");
+      const machinesData = machinesResponse.data;
+      const machines = Array.isArray(machinesData.data)
+        ? machinesData.data.map(m => m.machine)
+        : [];
+      setCustomMachines(machines);
+      console.log(`Loaded ${machines.length} custom machines`);
+
+      // Fetch custom packages
+      const packagesResponse = await api.get("/custom/packages");
+      const packagesData = packagesResponse.data;
+      const packages = Array.isArray(packagesData.data)
+        ? packagesData.data
+        : [];
+      setCustomPackages(packages);
+      console.log(`Loaded ${packages.length} custom packages`);
+      setIsCustomDataLoaded(true);
+
+    } catch (error) {
+      console.error("❌ Failed to fetch custom data:", error);
+      setCustomPlants([]);
+      setCustomMachines([]);
+      setCustomPackages([]);
+      setIsCustomDataLoaded(true);
+    }
+  };
+
+  // fetchPackageMaster function
+  const fetchPackageMaster = async (selectedLine = null) => {
     try {
       const response = await api.get("/package-master");
       const data = response.data;
 
-      const uniquePlants = [...new Set(data.map((item) => item.plant))];
-      const uniqueLines = [...new Set(data.map((item) => item.line))];
-      const uniqueMachines = [...new Set(data.map((item) => item.machine))];
-      const uniquePackages = [...new Set(data.map((item) => item.package))];
+      // Merge plant options: package_master custom_plants
+      const packageMasterPlants = [...new Set(data.map((item) => item.plant).filter(Boolean))];
+      const mergedPlants = [...new Set([...packageMasterPlants, ...customPlants])].filter(Boolean);
+      setPlantOptions(mergedPlants.sort());
 
-      setPlantOptions(uniquePlants);
-      setLineOptions(uniqueLines);
-      setMachineOptions(uniqueMachines);
-      setPackageOptions(uniquePackages);
+      // Merge machine options: package_master custom_machines
+      const packageMasterMachines = [...new Set(data.map((item) => item.machine).filter(Boolean))];
+      const mergedMachines = [...new Set([...packageMasterMachines, ...customMachines])].filter(Boolean);
+      setMachineOptions(mergedMachines.sort());
+
+      // Line options (hanya dari package_master, karena custom package terikat ke line existing)
+      const uniqueLines = [...new Set(data.map((item) => item.line).filter(Boolean))];
+      setLineOptions(uniqueLines.sort());
+
+      const filteredPackagesFromMaster = selectedLine
+        ? data.filter(
+          (item) =>
+            item.line?.toUpperCase().trim() === selectedLine.toUpperCase().trim()
+        )
+        : data;
+
+      const filteredCustomPackages = selectedLine
+        ? customPackages.filter(
+          (item) =>
+            item.line?.toUpperCase().trim() === selectedLine.toUpperCase().trim()
+        )
+        : customPackages;
+
+      // Merge package options dari package_master custom
+      const packageMasterPackages = [...new Set(filteredPackagesFromMaster.map((item) => item.package).filter(Boolean))];
+      const customPackageNames = filteredCustomPackages.map(item => item.package).filter(Boolean);
+      const mergedPackages = [...new Set([...packageMasterPackages, ...customPackageNames])].filter(Boolean);
+
+      setPackageOptions(mergedPackages.sort());
     } catch (error) {
-      console.error("Failed to fetch /package-master:", error);
+      console.error("❌ Failed to fetch /package-master:", error);
     }
   };
 
   useEffect(() => {
-    // Lock the screen orientation to portrait
     const lockOrientation = async () => {
       await ScreenOrientation.lockAsync(
         ScreenOrientation.OrientationLock.PORTRAIT
       );
     };
-    lockOrientation();
-    fetchPackageMaster();
+
+    const initializeData = async () => {
+      await lockOrientation();
+      await fetchCustomData();
+    };
+    initializeData();
     setFormOpenTime(moment().tz("Asia/Jakarta").format());
   }, []);
+
+  useEffect(() => {
+    if (!line) return;
+    if (!isCustomDataLoaded) return;
+
+    console.log(`Fetching package master for line: ${line}`);
+    fetchPackageMaster(line);
+  }, [line, isCustomDataLoaded, customPackages]);
 
   useEffect(() => {
     const loadDate = async () => {
@@ -209,6 +296,34 @@ const CILTinspection = ({ route, navigation }) => {
     { label: "Shift 3", value: "Shift 3" },
   ];
 
+  useFocusEffect(
+    useCallback(() => {
+      refreshCustomDataSilently();
+    }, [line])
+  );
+
+  // function untuk manual refresh custom data
+  const handleRefreshCustomData = async () => {
+    try {
+      Alert.alert("Refreshing", "Loading latest custom data from master...");
+      setIsCustomDataLoaded(false);
+      await fetchCustomData();
+    } catch (error) {
+      console.error("Error refreshing custom data:", error);
+      Alert.alert("Error", "Failed to refresh custom data. Please try again.");
+    }
+  };
+
+  const refreshCustomDataSilently = async () => {
+    try {
+      console.log("Auto refreshing custom data on screen focus...");
+      setIsCustomDataLoaded(false);
+      await fetchCustomData();
+    } catch (error) {
+      console.error("Error auto refreshing custom data:", error);
+    }
+  };
+
   const checkIfDataExists = async () => {
     try {
       const response = await api.get(
@@ -219,7 +334,7 @@ const CILTinspection = ({ route, navigation }) => {
         // Jika sudah ada, preload data sebelumnya
         const parsedData = JSON.parse(response.data.data.inspectionData);
         setInspectionData(parsedData);
-        
+
         // Simpan ke cache juga
         setPackageDataCache(prev => ({
           ...prev,
@@ -231,7 +346,7 @@ const CILTinspection = ({ route, navigation }) => {
           try {
             const parsedDescriptionData = JSON.parse(response.data.data.descriptionData);
             setSegregationDescriptionData(parsedDescriptionData);
-            
+
             // Simpan description ke cache
             setPackageDescriptionCache(prev => ({
               ...prev,
@@ -266,7 +381,6 @@ const CILTinspection = ({ route, navigation }) => {
         await globalThis.clearSegregasiStorage();
         console.log("Cleared segregasi storage after submit");
       }
-      // Tambahkan untuk package type lainnya jika diperlukan
     } catch (error) {
       console.error("Error clearing package storage after submit:", error);
     }
@@ -320,27 +434,26 @@ const CILTinspection = ({ route, navigation }) => {
     checkIfDataExists();
   }, [processOrder]);
 
-  // ========== LOAD FROM CACHE SAAT PACKAGE BERUBAH ==========
   useEffect(() => {
     if (!packageType) return;
 
-    console.log(`📦 Package changed to: ${packageType}`);
-    
+    console.log(`Package changed to: ${packageType}`);
+
     // Load inspection data dari cache jika ada
     if (packageDataCache[packageType]) {
-      console.log(`✅ Loading inspection data from cache for: ${packageType}`);
+      console.log(` Loading inspection data from cache for: ${packageType}`);
       setInspectionData(packageDataCache[packageType]);
     } else {
-      console.log(`⚠️ No cache found for: ${packageType}, resetting inspection data`);
+      console.log(`No cache found for: ${packageType}, resetting inspection data`);
       setInspectionData([]);
     }
 
     // Load description data dari cache untuk Segregasi
     if (packageType === "SEGREGASI" && packageDescriptionCache[packageType]) {
-      console.log(`✅ Loading description data from cache for: ${packageType}`);
+      console.log(` Loading description data from cache for: ${packageType}`);
       setSegregationDescriptionData(packageDescriptionCache[packageType]);
     } else if (packageType === "SEGREGASI") {
-      console.log(`⚠️ No description cache found for: ${packageType}, resetting`);
+      console.log(`No description cache found for: ${packageType}, resetting`);
       setSegregationDescriptionData([]);
     }
   }, [packageType]);
@@ -349,6 +462,27 @@ const CILTinspection = ({ route, navigation }) => {
     let data = [...inspectionData];
     data[index].picture = uri;
     setInspectionData(data);
+  };
+
+  // Function for refresh inspection data (line universal)
+  const handleRefreshInspectionData = () => {
+    try {
+      console.log(`🔄 Refreshing inspection data for Line ${line}, Package ${packageType}...`);
+
+      if (packageType === "PERFORMA RED AND GREEN" && globalThis.gnrForceRefresh) {
+        globalThis.gnrForceRefresh();
+        Alert.alert("Refresh", `Data GNR Line ${line} berhasil di-refresh!`);
+      }
+      else if (packageType === "CHECKLIST CILT" && globalThis.checklistForceRefresh) {
+        globalThis.checklistForceRefresh();
+        Alert.alert("Refresh", `Data Checklist Line ${line} berhasil di-refresh!`);
+      } else {
+        Alert.alert("Info", "Refresh data tidak tersedia untuk package type ini");
+      }
+    } catch (error) {
+      console.error("Error refreshing data:", error);
+      Alert.alert("Error", "Gagal me-refresh data. Silakan coba lagi.");
+    }
   };
 
   // Updated handleSubmit function
@@ -370,22 +504,11 @@ const CILTinspection = ({ route, navigation }) => {
             try {
               // Call GNR save function before submit if it's GNR form
               let inspectionDataForSubmit = inspectionData;
-              if (packageType === "PERFORMA RED AND GREEN") {
-                const callAndWait = async (fn) => {
-                  if (typeof fn === "function") {
-                    await Promise.resolve(fn());
-                    await new Promise(r => setTimeout(r, 0));
-                  }
-                };
-                if (line === "LINE A") {
-                  await callAndWait(globalThis.gnrBeforeSubmit);
-                } else if (line === "LINE B" || line === "LINE C") {
-                  await callAndWait(globalThis.gnrBCBeforeSubmit);
-                } else if (line === "LINE D") {
-                  await callAndWait(globalThis.gnrDBeforeSubmit);
-                }
+              if (packageType === "PERFORMA RED AND GREEN" && globalThis.gnrBeforeSubmit) {
+                console.log(`💾 Saving GNR data before submit for Line ${line}...`);
+                await Promise.resolve(globalThis.gnrBeforeSubmit());
+                await new Promise(r => setTimeout(r, 100));
               }
-
               let updatedInspectionData;
 
               // Process inspection data
@@ -469,7 +592,7 @@ const CILTinspection = ({ route, navigation }) => {
                   delete newCache[packageType];
                   return newCache;
                 });
-                
+
                 setPackageDescriptionCache(prev => {
                   const newCache = { ...prev };
                   delete newCache[packageType];
@@ -520,7 +643,7 @@ const CILTinspection = ({ route, navigation }) => {
     }
   };
 
-  // === RESET ALL selections & caches ===
+  // RESET ALL selections & caches
   const resetForm = async () => {
     try {
       // Bersihkan storage yang menyimpan pilihan terakhir
@@ -551,15 +674,13 @@ const CILTinspection = ({ route, navigation }) => {
       setBatch("");
       setRemarks("");
       setAgreed(false);
-
-      // Reset data table/description
       setInspectionData([]);
       setSegregationDescriptionData([]);
-      
-      // ========== CLEAR ALL CACHES ==========
+
+      // Clear all caches
       setPackageDataCache({});
       setPackageDescriptionCache({});
-      console.log("🗑️ All caches cleared");
+      console.log("All caches cleared");
 
       Alert.alert("Reset", "Semua pilihan dan data cache telah dikosongkan.");
     } catch (error) {
@@ -571,9 +692,35 @@ const CILTinspection = ({ route, navigation }) => {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContainer} nestedScrollEnabled={true}>
-        {/* Header dengan tombol Reset */}
         <View style={styles.header}>
           <Text style={styles.title}>New Inspection Schedule</Text>
+          {/* Tombol Refresh Custom Data dari Master Web */}
+          <TouchableOpacity
+            onPress={handleRefreshCustomData}
+            accessibilityLabel="Refresh custom data from master"
+            style={[styles.resetBtn, {
+              right: 90,
+              backgroundColor: '#e3f2fd',
+              borderColor: '#2196f3'
+            }]}
+            hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+          >
+            <MaterialCommunityIcons name="database-refresh" size={20} color="#2196f3" />
+          </TouchableOpacity>
+
+          {/* Tombol Refresh Inspection Data (GNR/Checklist) */}
+          {line && packageType && (packageType === "PERFORMA RED AND GREEN" || packageType === "CHECKLIST CILT") && (
+            <TouchableOpacity
+              onPress={handleRefreshInspectionData}
+              accessibilityLabel="Refresh inspection data"
+              style={[styles.resetBtn, { right: 45, backgroundColor: '#e8f5e9', borderColor: '#4caf50' }]}
+              hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+            >
+              <MaterialCommunityIcons name="refresh" size={20} color="#4caf50" />
+            </TouchableOpacity>
+          )}
+
+          {/* Tombol Reset Form */}
           <TouchableOpacity
             onPress={resetForm}
             accessibilityLabel="Reset semua pilihan"
@@ -583,6 +730,7 @@ const CILTinspection = ({ route, navigation }) => {
             <MaterialCommunityIcons name="refresh" size={20} color={COLORS.blue} />
           </TouchableOpacity>
         </View>
+
         <View style={styles.inputGroup}>
           <Text style={styles.label}>Process Order *</Text>
           <View style={styles.dropdownContainer}>
@@ -625,11 +773,8 @@ const CILTinspection = ({ route, navigation }) => {
                     selectedValue={shift}
                     style={styles.dropdown}
                     onValueChange={(itemValue) => {
-                      // simpan GNR yg sedang aktif sebelum ganti shift supaya input tidak hilang
-                      if (packageType === "PERFORMA RED AND GREEN") {
-                        globalThis.gnrBeforeSubmit?.();
-                        globalThis.gnrBCBeforeSubmit?.();
-                        globalThis.gnrDBeforeSubmit?.();
+                      if (packageType === "PERFORMA RED AND GREEN" && globalThis.gnrBeforeSubmit) {
+                        globalThis.gnrBeforeSubmit();
                       }
                       setShift(itemValue);
                     }}
@@ -710,19 +855,16 @@ const CILTinspection = ({ route, navigation }) => {
                     selectedValue={machine}
                     style={styles.dropdown}
                     onValueChange={async (itemValue) => {
-                      // simpan GNR yg sedang aktif sebelum ganti machine supaya input tidak hilang
-                      if (packageType === "PERFORMA RED AND GREEN") {
-                        await (globalThis.gnrBeforeSubmit?.());
-                        await (globalThis.gnrBCBeforeSubmit?.());
-                        await (globalThis.gnrDBeforeSubmit?.());
+                      if (packageType === "PERFORMA RED AND GREEN" && globalThis.gnrBeforeSubmit) {
+                        await globalThis.gnrBeforeSubmit();
+                        await new Promise(r => setTimeout(r, 100));
                       }
-                      await new Promise(r => setTimeout(r, 0)); // beri sedikit jeda
                       setMachine(itemValue);
                       await AsyncStorage.setItem("machine", itemValue);
                     }}
                   >
                     <Picker.Item label="Select option" value="" />
-                    {machineOptions.map((option, index) => (
+                    {mergedMachineOptions.map((option, index) => (
                       <Picker.Item key={index} label={option} value={option} />
                     ))}
                   </Picker>
@@ -740,13 +882,11 @@ const CILTinspection = ({ route, navigation }) => {
                   <Picker
                     selectedValue={packageType}
                     style={styles.dropdown}
+                    enabled={!!line}
                     onValueChange={async (itemValue) => {
-                      // simpan GNR yg sedang aktif sebelum pindah package supaya input tidak hilang
-                      if (packageType === "PERFORMA RED AND GREEN") {
-                        await (globalThis.gnrBeforeSubmit?.());
-                        await (globalThis.gnrBCBeforeSubmit?.());
-                        await (globalThis.gnrDBeforeSubmit?.());
-                        await new Promise(r => setTimeout(r, 0));
+                      if (packageType === "PERFORMA RED AND GREEN" && globalThis.gnrBeforeSubmit) {
+                        await globalThis.gnrBeforeSubmit();
+                        await new Promise(r => setTimeout(r, 100));
                       }
                       setPackageType(itemValue);
                     }}
@@ -856,11 +996,10 @@ const CILTinspection = ({ route, navigation }) => {
                     initialData={packageDataCache["PENGECEKAN H2O2 ( SPRAY )"] || []}
                   />
                 )}
-              {machine === "FILLER" &&
-                packageType === "PERFORMA RED AND GREEN" &&
-                line === "LINE A" && (
+              {machine === "FILLER" && packageType === "PERFORMA RED AND GREEN" ? (
+                plant && line && shift ? (
                   <GnrPerformanceInspectionTable
-                    key="gnr-performance-line-a"
+                    key={`gnr-performance-${line}-${machine}-${packageType}`}
                     username={username}
                     onDataChange={handleInspectionChange}
                     initialData={packageDataCache["PERFORMA RED AND GREEN"] || []}
@@ -870,40 +1009,15 @@ const CILTinspection = ({ route, navigation }) => {
                     type={packageType}
                     shift={shift}
                   />
-                )}
-              {machine === "FILLER" &&
-                packageType === "PERFORMA RED AND GREEN" &&
-                (line === "LINE B" || line === "LINE C") && (
-                  <GnrPerformanceInspectionTableBC
-                    key="gnr-performance-line-bc"
-                    username={username}
-                    onDataChange={handleInspectionChange}
-                    initialData={packageDataCache["PERFORMA RED AND GREEN"] || []}
-                    plant={plant}
-                    line={line}
-                    machine={machine}
-                    type={packageType}
-                    shift={shift}
-                  />
-                )}
-              {machine === "FILLER" &&
-                packageType === "PERFORMA RED AND GREEN" &&
-                line === "LINE D" && (
-                  <GnrPerformanceInspectionTableD
-                    key="gnr-performance-line-d"
-                    username={username}
-                    onDataChange={handleInspectionChange}
-                    initialData={packageDataCache["PERFORMA RED AND GREEN"] || []}
-                    plant={plant}
-                    line={line}
-                    machine={machine}
-                    type={packageType}
-                    shift={shift}
-                  />
-                )}
+                ) : (
+                  <View style={{ padding: 20, alignItems: "center" }}>
+                    <Text style={{ color: "#777" }}>Menyiapkan data GNR...</Text>
+                  </View>
+                )
+              ) : null}
               {machine === "FILLER" && packageType === "CHECKLIST CILT" && (
                 <ChecklistCILTInspectionTable
-                  key="checklist-cilt"
+                  key={`checklist-cilt-${line}-${machine}`}
                   username={username}
                   onDataChange={handleInspectionChange}
                   initialData={packageDataCache["CHECKLIST CILT"] || []}
@@ -928,7 +1042,6 @@ const CILTinspection = ({ route, navigation }) => {
                   shift={shift}
                   processOrder={processOrder}
                   onEffectiveProductChange={(eff) => {
-                    // eff bisa sama (tanpa variant) atau beda (ada Change Variant)
                     setProduct(eff || baseProduct);
                   }}
                 />
