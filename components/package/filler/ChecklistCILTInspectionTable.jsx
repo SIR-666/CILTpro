@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   Platform,
   StyleSheet,
@@ -21,6 +21,12 @@ const ChecklistCILTInspectionTable = ({
 }) => {
   const [inspectionData, setInspectionData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  
+  // Track jika data sudah pernah di-fetch
+  const hasLoadedData = useRef(false);
+  
+  // Track previous params untuk deteksi perubahan
+  const prevParams = useRef({ plant, line, machine, type });
 
   const uploadImageToServer = async (uri) => {
     const formData = new FormData();
@@ -59,11 +65,11 @@ const ChecklistCILTInspectionTable = ({
     const data = [...inspectionData];
     data[index].picture = uri;
     setInspectionData(data);
+    onDataChange(data);
   };
 
   const fetchInspection = async (plant, line, machine, type) => {
     setIsLoading(true);
-    setInspectionData([]);
 
     try {
       const response = await api.get(
@@ -86,18 +92,47 @@ const ChecklistCILTInspectionTable = ({
       }));
 
       setInspectionData(formattedData);
+      onDataChange(formattedData);
+      hasLoadedData.current = true;
     } catch (error) {
       console.error("Error fetching data:", error);
+      setInspectionData([]);
     } finally {
       setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    if (initialData.length > 0) {
+    // Cek apakah params berubah
+    const paramsChanged = 
+      prevParams.current.plant !== plant ||
+      prevParams.current.line !== line ||
+      prevParams.current.machine !== machine ||
+      prevParams.current.type !== type;
+
+    // Update ref
+    prevParams.current = { plant, line, machine, type };
+
+    // Load initial data dari parent jika ada dan belum pernah load
+    if (initialData.length > 0 && !hasLoadedData.current) {
+      console.log("Loading from initialData:", initialData.length);
       setInspectionData(initialData);
-      onDataChange(initialData);
-    } else if (plant && line && machine && type) {
+      hasLoadedData.current = true;
+      return;
+    }
+
+    // Fetch dari API hanya jika:
+    // 1. Belum pernah load data, DAN
+    // 2. Semua params lengkap
+    if (!hasLoadedData.current && plant && line && machine && type) {
+      console.log("Fetching data from API");
+      fetchInspection(plant, line, machine, type);
+      return;
+    }
+
+    // Jika params berubah dan sudah pernah load, fetch ulang
+    if (paramsChanged && hasLoadedData.current && plant && line && machine && type) {
+      console.log("Params changed, refetching");
       fetchInspection(plant, line, machine, type);
     }
   }, [plant, line, machine, type, initialData]);
@@ -226,7 +261,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  /* ====== Hasil cell + buttons ====== */
+  /* Hasil cell + buttons */
   resultCell: {
     paddingVertical: 6,
     paddingHorizontal: 6,
