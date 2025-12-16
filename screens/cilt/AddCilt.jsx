@@ -24,6 +24,14 @@ import H2o2CheckInspectionTable from "../../components/package/filler/h2o2CheckI
 import PaperUsageInspectionTable from "../../components/package/filler/PaperUsageInspectionTable";
 import ScrewCapInspectionTable from "../../components/package/filler/ScrewCapInspectionTable";
 import SegregasiInspectionTable from "../../components/package/filler/SegregasiInspectionTable";
+import ArtemaCardboardInspectionTable from "../../components/package/packer/ArtemaCardboardInspectionTable";
+import FransCasePackerInspectionTable from "../../components/package/packer/FransCasePackerInspectionTable";
+import A3FlexInspectionTable from "../../components/package/filler/A3FlexInspectionTable";
+import A3FlexInspectionTablePage1 from "../../components/package/filler/A3FlexInspectionTablePage1";
+import A3StartFinishInspectionTable from "../../components/package/filler/A3StartFinishInspectionTable";
+import CombiXGSlim24ProductInspectionTable from "../../components/package/filler/CombiXGSlim24ProductInspectionTable";
+import CombiXGSlim24CheckInspectionTable from "../../components/package/filler/CombiXGSlim24CheckInspectionTable";
+import RobotPalletizerFillerInspectionTable from "../../components/package/robot/RobotPalletizerFillerInspectionTable";
 import ReusableDatetime2 from "../../components/Reusable/ReusableDatetime2";
 import { COLORS } from "../../constants/theme";
 import { api, uploadImageApi } from "../../utils/axiosInstance";
@@ -93,6 +101,38 @@ const hasDescriptionData = (descriptionData) => {
   );
 };
 
+// PRODUCT FILTER BY LINE
+const filterProductsByLine = (products, line) => {
+  if (!line) return products;
+
+  const upperLine = line.toUpperCase();
+
+  // LINE A, B, C
+  if (["LINE A", "LINE B", "LINE C"].includes(upperLine)) {
+    return products.filter(p => {
+      const label = p.label?.toUpperCase() || "";
+      return (
+        label.includes("GF MILK ESL") &&
+        !label.includes("1890")
+      );
+    });
+  }
+
+  // LINE D
+  if (upperLine === "LINE D") {
+    return products.filter(p => {
+      const label = p.label?.toUpperCase() || "";
+      return (
+        label.includes("GF MILK ESL") &&
+        label.includes("1890")
+      );
+    });
+  }
+
+  // default → semua product
+  return products;
+};
+
 const CILTinspection = ({ route, navigation }) => {
   const { username } = route.params;
   const [processOrder, setProcessOrder] = useState("");
@@ -137,6 +177,10 @@ const CILTinspection = ({ route, navigation }) => {
     const custom = Array.isArray(customMachines) ? customMachines : [];
     return [...new Set([...base, ...custom].filter(Boolean))].sort();
   }, [machineOptions, customMachines]);
+
+  const filteredProductOptions = useMemo(() => {
+    return filterProductsByLine(productOptions, line);
+  }, [productOptions, line]);
 
   // callbacks ke children (stabil, anti-loop)
   const handleInspectionChange = useCallback((data) => {
@@ -199,7 +243,7 @@ const CILTinspection = ({ route, navigation }) => {
       setIsCustomDataLoaded(true);
 
     } catch (error) {
-      console.error("❌ Failed to fetch custom data:", error);
+      console.error("Failed to fetch custom data:", error);
       setCustomPlants([]);
       setCustomMachines([]);
       setCustomPackages([]);
@@ -227,12 +271,20 @@ const CILTinspection = ({ route, navigation }) => {
       const uniqueLines = [...new Set(data.map((item) => item.line).filter(Boolean))];
       setLineOptions(uniqueLines.sort());
 
-      const filteredPackagesFromMaster = selectedLine
-        ? data.filter(
-          (item) =>
-            item.line?.toUpperCase().trim() === selectedLine.toUpperCase().trim()
-        )
-        : data;
+      const filteredPackagesFromMaster = data.filter((item) => {
+        const matchPlant =
+          plant ? item.plant?.toUpperCase() === plant.toUpperCase() : true;
+        const matchLine =
+          selectedLine
+            ? item.line?.toUpperCase() === selectedLine.toUpperCase()
+            : true;
+        const matchMachine =
+          machine
+            ? item.machine?.toUpperCase() === machine.toUpperCase()
+            : true;
+
+        return matchPlant && matchLine && matchMachine;
+      });
 
       const filteredCustomPackages = selectedLine
         ? customPackages.filter(
@@ -248,7 +300,7 @@ const CILTinspection = ({ route, navigation }) => {
 
       setPackageOptions(mergedPackages.sort());
     } catch (error) {
-      console.error("❌ Failed to fetch /package-master:", error);
+      console.error("Failed to fetch /package-master:", error);
     }
   };
 
@@ -467,7 +519,7 @@ const CILTinspection = ({ route, navigation }) => {
   // Function for refresh inspection data (line universal)
   const handleRefreshInspectionData = () => {
     try {
-      console.log(`🔄 Refreshing inspection data for Line ${line}, Package ${packageType}...`);
+      console.log(`Refreshing inspection data for Line ${line}, Package ${packageType}...`);
 
       if (packageType === "PERFORMA RED AND GREEN" && globalThis.gnrForceRefresh) {
         globalThis.gnrForceRefresh();
@@ -498,16 +550,33 @@ const CILTinspection = ({ route, navigation }) => {
         {
           text: "Ya, Submit",
           onPress: async () => {
-            const submitTime = moment().tz("Asia/Jakarta").format();
+            // langsung pakai format final untuk disimpan ke DB
+            const submitTime = moment()
+              .tz("Asia/Jakarta")
+              .format("YYYY-MM-DD HH:mm:ss.SSS");
             let order = {};
 
             try {
-              // Call GNR save function before submit if it's GNR form
+              // Call GNR save function before submit jika form PERFORMA
               let inspectionDataForSubmit = inspectionData;
-              if (packageType === "PERFORMA RED AND GREEN" && globalThis.gnrBeforeSubmit) {
-                console.log(`💾 Saving GNR data before submit for Line ${line}...`);
-                await Promise.resolve(globalThis.gnrBeforeSubmit());
-                await new Promise(r => setTimeout(r, 100));
+              if (
+                packageType === "PERFORMA RED AND GREEN" &&
+                typeof globalThis.gnrBeforeSubmit === "function"
+              ) {
+                console.log(
+                  `Saving GNR data sebelum submit untuk Line ${line}...`
+                );
+                try {
+                  const snapshot = await Promise.resolve(
+                    globalThis.gnrBeforeSubmit()
+                  );
+                  // kalau anak mengembalikan array snapshot, pakai itu
+                  if (Array.isArray(snapshot) && snapshot.length > 0) {
+                    inspectionDataForSubmit = snapshot;
+                  }
+                } catch (e) {
+                  console.error("Error gnrBeforeSubmit:", e);
+                }
               }
               let updatedInspectionData;
 
@@ -548,9 +617,7 @@ const CILTinspection = ({ route, navigation }) => {
                 formOpenTime: moment(formOpenTime)
                   .tz("Asia/Jakarta")
                   .format("YYYY-MM-DD HH:mm:ss.SSS"),
-                submitTime: moment(submitTime)
-                  .tz("Asia/Jakarta")
-                  .format("YYYY-MM-DD HH:mm:ss.SSS"),
+                submitTime,
               };
 
               // Always save description data for SEGREGASI package, even if partially filled
@@ -586,12 +653,13 @@ const CILTinspection = ({ route, navigation }) => {
                 // Clear storage spesifik untuk package dan product ini setelah submit berhasil
                 await clearPackageStorageAfterSubmit();
 
-                // Clear cache untuk package yang sudah di-submit
-                setPackageDataCache(prev => {
-                  const newCache = { ...prev };
-                  delete newCache[packageType];
-                  return newCache;
-                });
+                if (packageType !== "PERFORMA RED AND GREEN") {
+                  setPackageDataCache(prev => {
+                    const newCache = { ...prev };
+                    delete newCache[packageType];
+                    return newCache;
+                  });
+                }
 
                 setPackageDescriptionCache(prev => {
                   const newCache = { ...prev };
@@ -919,7 +987,7 @@ const CILTinspection = ({ route, navigation }) => {
                     }}
                   >
                     <Picker.Item label="Select option" value="" />
-                    {productOptions.map((option) => (
+                    {filteredProductOptions.map((option) => (
                       <Picker.Item
                         key={option.id}
                         label={option.label}
@@ -1008,6 +1076,7 @@ const CILTinspection = ({ route, navigation }) => {
                     machine={machine}
                     type={packageType}
                     shift={shift}
+                    processOrder={processOrder}
                   />
                 ) : (
                   <View style={{ padding: 20, alignItems: "center" }}>
@@ -1044,6 +1113,86 @@ const CILTinspection = ({ route, navigation }) => {
                   onEffectiveProductChange={(eff) => {
                     setProduct(eff || baseProduct);
                   }}
+                />
+              )}
+              {machine === "FILLER" && packageType === "A3 / FLEX ( PAGE 1 )" && (
+                <A3FlexInspectionTablePage1
+                  key={`a3-flex-page1-${processOrder}`}
+                  plant={plant}
+                  line={line}
+                  machine={machine}
+                  packageName={packageType}
+                  onDataChange={handleInspectionChange}
+                  initialData={packageDataCache["A3 / FLEX ( PAGE 1 )"] || []}
+                />
+              )}
+              {machine === "FILLER" && packageType === "PENGECEKAN PRESSURE" && (
+                <A3FlexInspectionTable
+                  key={`pressure-${processOrder}`}
+                  plant={plant}
+                  line={line}
+                  machine={machine}
+                  packageName={packageType}
+                  onDataChange={handleInspectionChange}
+                  initialData={packageDataCache["PENGECEKAN PRESSURE"] || []}
+                />
+              )}
+              {machine === "FILLER" && packageType === "START & FINISH" && (
+                <A3StartFinishInspectionTable
+                  key={`start-finish-${processOrder}`}
+                  plant={plant}
+                  line={line}
+                  machine={machine}
+                  packageName={packageType}
+                  onDataChange={handleInspectionChange}
+                  initialData={packageDataCache["START & FINISH"] || []}
+                />
+              )}
+              {machine === "PACKER" && packageType === "LAPORAN ARTEMA & SMS CARDBOARD" && (
+                <ArtemaCardboardInspectionTable
+                  key={`artema-cardboard-${processOrder}`}
+                  username={username}
+                  onDataChange={handleInspectionChange}
+                  initialData={packageDataCache["LAPORAN ARTEMA & SMS CARDBOARD"] || []}
+                />
+              )}
+              {machine === "PACKER" && packageType === "LAPORAN FRANS WP 25 CASE" && (
+                <FransCasePackerInspectionTable
+                  key={`frans-case-packer-${processOrder}`}
+                  username={username}
+                  onDataChange={handleInspectionChange}
+                  initialData={packageDataCache["LAPORAN FRANS WP 25 CASE"] || []}
+                />
+              )}
+              {machine === "FILLER" && packageType === "INFORMASI PRODUK" && (
+                <CombiXGSlim24ProductInspectionTable
+                  key={`info-prod-${processOrder}`}
+                  plant={plant}
+                  line={line}
+                  machine={machine}
+                  packageName={packageType}
+                  onDataChange={handleInspectionChange}
+                  initialData={packageDataCache["INFORMASI PRODUK"] || []}
+                />
+              )}
+              {machine === "FILLER" && packageType === "LAPORAN PRODUKSI MESIN" && (
+                <CombiXGSlim24CheckInspectionTable
+                  key={`prod-mesin-${processOrder}`}
+                  plant={plant}
+                  line={line}
+                  machine={machine}
+                  packageName={packageType}
+                  onDataChange={handleInspectionChange}
+                  initialData={packageDataCache["LAPORAN PRODUKSI MESIN"] || []}
+                />
+              )}
+              {machine === "ROBOT" && packageType === "ROBOT PALLETIZER FILLER" && (
+                <RobotPalletizerFillerInspectionTable
+                  key={`robot-palletizer-${processOrder}`}
+                  username={username}
+                  onDataChange={handleInspectionChange}
+                  initialData={packageDataCache["ROBOT PALLETIZER FILLER"] || []}
+                  shift={shift}
                 />
               )}
             </View>

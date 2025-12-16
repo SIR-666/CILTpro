@@ -21,10 +21,10 @@ const ChecklistCILTInspectionTable = ({
 }) => {
   const [inspectionData, setInspectionData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
-  
+
   // Track jika data sudah pernah di-fetch
-  const hasLoadedData = useRef(false);
-  
+  // const hasLoadedData = useRef(false);
+
   // Track previous params untuk deteksi perubahan
   const prevParams = useRef({ plant, line, machine, type });
 
@@ -69,9 +69,10 @@ const ChecklistCILTInspectionTable = ({
   };
 
   const fetchInspection = async (plant, line, machine, type) => {
-    setIsLoading(true);
+    console.log(`🔄 Fetching Checklist CILT for: Plant=${plant}, Line=${line}, Machine=${machine}, Type=${type}`);
 
     try {
+      setIsLoading(true);
       const response = await api.get(
         `/checklist-master?plant=${plant}&line=${line}&machine=${machine}&type=${type}`
       );
@@ -80,11 +81,13 @@ const ChecklistCILTInspectionTable = ({
         throw new Error("Invalid response format");
       }
 
-      const formattedData = response.data.map((item) => ({
+      const visibleData = response.data.filter(item => item.visibility !== false);
+      console.log(`📊 Found ${response.data.length} total records, ${visibleData.length} visible for Line ${line}`);
+      const formattedData = visibleData.map((item) => ({
         job_type: item.job_type,
         componen: item.componen,
         standart: item.standart,
-        results: item.results || "", 
+        results: item.results || "",
         picture: item.picture || "",
         done: !!item.results,
         user: item.user || "",
@@ -93,9 +96,9 @@ const ChecklistCILTInspectionTable = ({
 
       setInspectionData(formattedData);
       onDataChange(formattedData);
-      hasLoadedData.current = true;
+      // hasLoadedData.current = true;
     } catch (error) {
-      console.error("Error fetching data:", error);
+      console.error(`Error fetching checklist data for Line ${line}:`, error);
       setInspectionData([]);
     } finally {
       setIsLoading(false);
@@ -104,7 +107,7 @@ const ChecklistCILTInspectionTable = ({
 
   useEffect(() => {
     // Cek apakah params berubah
-    const paramsChanged = 
+    const paramsChanged =
       prevParams.current.plant !== plant ||
       prevParams.current.line !== line ||
       prevParams.current.machine !== machine ||
@@ -114,28 +117,56 @@ const ChecklistCILTInspectionTable = ({
     prevParams.current = { plant, line, machine, type };
 
     // Load initial data dari parent jika ada dan belum pernah load
-    if (initialData.length > 0 && !hasLoadedData.current) {
-      console.log("Loading from initialData:", initialData.length);
+    // if (initialData.length > 0 && !hasLoadedData.current) {
+    //   console.log("Loading from initialData:", initialData.length);
+    //   setInspectionData(initialData);
+    //   hasLoadedData.current = true;
+    //   return;
+    // }
+
+    // // Fetch dari API hanya jika:
+    // // 1. Belum pernah load data, DAN
+    // // 2. Semua params lengkap
+    // if (!hasLoadedData.current && plant && line && machine && type) {
+    //   console.log("Fetching data from API");
+    //   fetchInspection(plant, line, machine, type);
+    //   return;
+    // }
+
+    if (plant && line && machine && type) {
+      if (paramsChanged || inspectionData.length === 0) {
+        console.log(`🔄 Params changed or empty data, fetching for Line ${line}...`);
+        fetchInspection(plant, line, machine, type);
+      }
+    }
+  }, [plant, line, machine, type]);
+
+  //   // Jika params berubah dan sudah pernah load, fetch ulang
+  //   if (paramsChanged && hasLoadedData.current && plant && line && machine && type) {
+  //     console.log("Params changed, refetching");
+  //     fetchInspection(plant, line, machine, type);
+  //   }
+  // }, [plant, line, machine, type, initialData]);
+
+  useEffect(() => {
+    if (initialData.length > 0 && inspectionData.length === 0) {
+      console.log(`📦 Loading from initialData for Line ${line}:`, initialData.length);
       setInspectionData(initialData);
-      hasLoadedData.current = true;
-      return;
     }
+  }, [initialData]);
 
-    // Fetch dari API hanya jika:
-    // 1. Belum pernah load data, DAN
-    // 2. Semua params lengkap
-    if (!hasLoadedData.current && plant && line && machine && type) {
-      console.log("Fetching data from API");
-      fetchInspection(plant, line, machine, type);
-      return;
-    }
+  useEffect(() => {
+    globalThis.checklistForceRefresh = () => {
+      console.log(`🔄 Force refreshing Checklist data for Line ${line}...`);
+      if (plant && line && machine && type) {
+        fetchInspection(plant, line, machine, type);
+      }
+    };
 
-    // Jika params berubah dan sudah pernah load, fetch ulang
-    if (paramsChanged && hasLoadedData.current && plant && line && machine && type) {
-      console.log("Params changed, refetching");
-      fetchInspection(plant, line, machine, type);
-    }
-  }, [plant, line, machine, type, initialData]);
+    return () => {
+      globalThis.checklistForceRefresh = null;
+    };
+  }, [plant, line, machine, type]);
 
   const handleResultSelect = (value, index) => {
     const updated = [...inspectionData];
@@ -189,6 +220,22 @@ const ChecklistCILTInspectionTable = ({
       </View>
     );
   };
+
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text>Loading checklist data for Line {line}...</Text>
+      </View>
+    );
+  }
+
+  if (inspectionData.length === 0) {
+    return (
+      <View style={styles.emptyContainer}>
+        <Text style={styles.emptyText}>Tidak ada data checklist untuk Line {line}.</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.table}>
@@ -273,10 +320,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#f2f2f2",
   },
   bgOk: {
-    backgroundColor: "#dff6e6", 
+    backgroundColor: "#dff6e6",
   },
   bgNotOk: {
-    backgroundColor: "#fde3e3", 
+    backgroundColor: "#fde3e3",
   },
   resultButtonsWrap: {
     flexDirection: "row",

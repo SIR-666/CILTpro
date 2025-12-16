@@ -17,6 +17,8 @@ import { Searchbar } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { COLORS } from "../../constants/theme";
+import { Badge } from "react-native-paper";
+import { sqlApi } from "../../utils/axiosInstance";
 import { api } from "../../utils/axiosInstance";
 import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
@@ -281,7 +283,7 @@ const parseCombinedInspections = (rec) => {
     try {
       const arr = JSON.parse(txt);
       if (Array.isArray(arr)) out.push(...arr);
-    } catch {}
+    } catch { }
   }
   return out;
 };
@@ -297,7 +299,7 @@ const intendedHourForRecord = (rec) => {
   return undefined;
 };
 
-// === NEW: fungsi jam dari submitTime utk guard saat inisialisasi ===
+// fungsi jam dari submitTime utk guard saat inisialisasi ===
 const hourFromSubmitTime = (rec, shiftHours) => {
   const m = parseWIBNaive(rec?.submitTime || rec?.submit_time || rec?.createdAt || rec?.created_at);
   if (!m || !m.isValid?.()) return undefined;
@@ -305,7 +307,7 @@ const hourFromSubmitTime = (rec, shiftHours) => {
   return Array.isArray(shiftHours) && shiftHours.includes(H) ? H : undefined;
 };
 
-// === NEW: fungsi normalisasi jam agar selalu masuk range shift ===
+// fungsi normalisasi jam agar selalu masuk range shift ===
 const nearestHourInShift = (H, hours) => {
   if (hours.includes(H)) return H;
   let best = hours[0],
@@ -320,7 +322,7 @@ const nearestHourInShift = (H, hours) => {
   return best;
 };
 
-// === NEW: key scope dan key record (sama dengan DetailLaporanShiftly) ===
+// key scope dan key record (sama dengan DetailLaporanShiftly) ===
 const scopeKeyForItem = (item) => {
   const d = (item?.date || "").split("T")[0];
   return `cilt_actual_locks:${item?.processOrder}|${d}|${item?.shift}|${item?.line}|${item?.machine}`;
@@ -329,16 +331,16 @@ const scopeKeyForItem = (item) => {
 const recordKey = (rec) =>
   String(
     rec?.id ??
-      rec?.ID ??
-      rec?.recordId ??
-      rec?.RecordID ??
-      rec?.InputID ??
-      rec?.input_id ??
-      rec?.cilt_id ??
-      `${rec?.submitBy || rec?.createdBy || rec?.user || "unknown"}|${rec?.submitTime || rec?.createdAt || "ts"}`
+    rec?.ID ??
+    rec?.recordId ??
+    rec?.RecordID ??
+    rec?.InputID ??
+    rec?.input_id ??
+    rec?.cilt_id ??
+    `${rec?.submitBy || rec?.createdBy || rec?.user || "unknown"}|${rec?.submitTime || rec?.createdAt || "ts"}`
   );
 
-// === NEW: baca & pastikan kunci (jika belum ada, tetapkan sekali) ===
+// baca & pastikan kunci (jika belum ada, tetapkan sekali) ===
 const loadAndEnsureLocks = async (scopeKey, records, shiftHours) => {
   let locks = {};
   try {
@@ -367,7 +369,7 @@ const loadAndEnsureLocks = async (scopeKey, records, shiftHours) => {
   if (changed) {
     try {
       await AsyncStorage.setItem(scopeKey, JSON.stringify(next));
-    } catch {}
+    } catch { }
   }
   return next;
 };
@@ -662,9 +664,9 @@ const htmlSegregasi = (item) => {
   // Generate description section HTML
   const descriptionSection = hasDescriptionContent(descriptionData)
     ? descriptionData
-        .slice(0, 3)
-        .map(
-          (desc, idx) => `
+      .slice(0, 3)
+      .map(
+        (desc, idx) => `
         <div class="desc-column">
           <div class="desc-column-header">Kolom ${idx + 1}</div>
           ${desc.lastModifiedBy ? `
@@ -672,7 +674,7 @@ const htmlSegregasi = (item) => {
               <div>User: ${esc(desc.lastModifiedBy)}</div>
               <div>Time: ${esc(desc.lastModifiedTime)}</div>
             </div>
-          ` : '' }
+          ` : ''}
           
           <table class="desc-detail-table">
             <tr>
@@ -718,8 +720,8 @@ const htmlSegregasi = (item) => {
           </table>
         </div>
       `
-        )
-        .join("")
+      )
+      .join("")
     : '<div class="no-description-data">No description data entered</div>';
 
   // Generate segregasi section HTML
@@ -740,9 +742,8 @@ const htmlSegregasi = (item) => {
         </tr>
         <tr>
           <td class="seg-label">TO</td>
-          <td class="seg-value ${entry.type !== "Change Variant" ? "seg-value-disabled" : ""}">${
-        entry.type === "Change Variant" ? esc(entry.to || "-") : "—"
-      }</td>
+          <td class="seg-value ${entry.type !== "Change Variant" ? "seg-value-disabled" : ""}">${entry.type === "Change Variant" ? esc(entry.to || "-") : "—"
+        }</td>
         </tr>
       </table>
 
@@ -773,7 +774,7 @@ const htmlSegregasi = (item) => {
           <div>User: ${esc(entry.user)}</div>
           <div>Time: ${esc(entry.time)}</div>
         </div>
-      ` : '' }
+      ` : ''}
     </div>
   `
     )
@@ -943,10 +944,6 @@ const htmlH2O2 = (item) => {
  * 5) PERFORMA RED & GREEN 
  * ========================
  * === UPDATE PENTING ===
- * - Baris "Actual Time" kini memakai kunci jam dari AsyncStorage
- *   dengan scope yang sama seperti DetailLaporanShiftly.
- * - Jika kunci belum ada, ditetapkan sekali (berdasarkan intendedHour/submitTime)
- *   lalu disimpan (dikunci).
  */
 const htmlShiftly = async (item) => {
   // Get latest PERFORMA data
@@ -954,11 +951,11 @@ const htmlShiftly = async (item) => {
   const uniqueData = extractUniqueInspectionData(latestData);
   const shiftHours = getShiftHours(item.shift);
 
-  // === NEW: gunakan kunci yang sama dengan DetailLaporanShiftly
+  // gunakan kunci yang sama dengan DetailLaporanShiftly
   const scopeKey = scopeKeyForItem(item);
   const actualLocks = await loadAndEnsureLocks(scopeKey, latestData, shiftHours);
 
-  // === NEW: kelompokan actual time berdasar JAM TERKUNCI
+  // kelompokan actual time berdasar JAM TERKUNCI
   const actualByHour = {};
   for (const rec of latestData) {
     const k = recordKey(rec);
@@ -1003,25 +1000,25 @@ const htmlShiftly = async (item) => {
     <tr>
       <td colspan="5" style="font-weight: bold; text-align: center; background-color: #f8f9fa;">Actual Time</td>
       ${shiftHours
-        .map((hour) => {
-          const list = actualByHour[hour] || [];
-          if (list.length === 0) {
-            return `<td style="text-align:center; background:#f8f9fa; padding:4px;">-</td>`;
-          }
-          const chips = list
-            .map((rec) => {
-              const ts = parseWIBNaive(rec.submitTime);
-              const label = ts.format("HH:mm");
-              // terlambat jika HH submit berbeda >= 1 jam dari slot kunci
-              const isLate = Math.abs(ts.hour() - Number(hour)) >= 1;
-              const bg = isLate ? "#ffebee" : "#e8f5e9";
-              const fg = isLate ? "#d32f2f" : "#2e7d32";
-              return `<div style="background:${bg};color:${fg};font-weight:bold;padding:2px;margin-bottom:2px;border-radius:3px;display:inline-block;">${label}</div>`;
-            })
-            .join("");
-          return `<td style="text-align:center; background:#f8f9fa; padding:2px; vertical-align:top;">${chips}</td>`;
-        })
-        .join("")}
+      .map((hour) => {
+        const list = actualByHour[hour] || [];
+        if (list.length === 0) {
+          return `<td style="text-align:center; background:#f8f9fa; padding:4px;">-</td>`;
+        }
+        const chips = list
+          .map((rec) => {
+            const ts = parseWIBNaive(rec.submitTime);
+            const label = ts.format("HH:mm");
+            // terlambat jika HH submit berbeda >= 1 jam dari slot kunci
+            const isLate = Math.abs(ts.hour() - Number(hour)) >= 1;
+            const bg = isLate ? "#ffebee" : "#e8f5e9";
+            const fg = isLate ? "#d32f2f" : "#2e7d32";
+            return `<div style="background:${bg};color:${fg};font-weight:bold;padding:2px;margin-bottom:2px;border-radius:3px;display:inline-block;">${label}</div>`;
+          })
+          .join("");
+        return `<td style="text-align:center; background:#f8f9fa; padding:2px; vertical-align:top;">${chips}</td>`;
+      })
+      .join("")}
     </tr>
   `;
 
@@ -1036,28 +1033,28 @@ const htmlShiftly = async (item) => {
       <td class="col-need" style="text-align: center; width: 7%;">${esc(inspectionItem.need ?? "-")}</td>
       <td class="col-red" style="text-align: center; width: 7%;">${esc(inspectionItem.reject ?? "-")}</td>
       ${shiftHours
-        .map((hour) => {
-          const h = String(hour).padStart(2, "0");
-          const nextH = String((hour + 1) % 24).padStart(2, "0");
-          const slot1 = normSlot(`${h}:00 - ${h}:30`);
-          const slot2 = normSlot(`${h}:30 - ${nextH}:00`);
-          const v1 = slot1 ? inspectionItem.results30?.[slot1] ?? "" : "";
-          const v2 = slot2 ? inspectionItem.results30?.[slot2] ?? "" : "";
+          .map((hour) => {
+            const h = String(hour).padStart(2, "0");
+            const nextH = String((hour + 1) % 24).padStart(2, "0");
+            const slot1 = normSlot(`${h}:00 - ${h}:30`);
+            const slot2 = normSlot(`${h}:30 - ${nextH}:00`);
+            const v1 = slot1 ? inspectionItem.results30?.[slot1] ?? "" : "";
+            const v2 = slot2 ? inspectionItem.results30?.[slot2] ?? "" : "";
 
-          const fallback =
-            inspectionItem.results?.[hour] ??
-            inspectionItem.results?.[Number(hour)] ??
-            inspectionItem.results?.[`${h}:00`] ??
-            "";
+            const fallback =
+              inspectionItem.results?.[hour] ??
+              inspectionItem.results?.[Number(hour)] ??
+              inspectionItem.results?.[`${h}:00`] ??
+              "";
 
-          const leftVal = v1 !== "" ? v1 : fallback || "";
-          const rightVal = v2 !== "" ? v2 : "";
+            const leftVal = v1 !== "" ? v1 : fallback || "";
+            const rightVal = v2 !== "" ? v2 : "";
 
-          const c1 = getResultColor(leftVal, inspectionItem.good, inspectionItem.reject);
-          const c2 = getResultColor(rightVal, inspectionItem.good, inspectionItem.reject);
-          const cellWidth = `${(100 - (5 + 20 + 7 + 7 + 7)) / shiftHours.length}%`;
+            const c1 = getResultColor(leftVal, inspectionItem.good, inspectionItem.reject);
+            const c2 = getResultColor(rightVal, inspectionItem.good, inspectionItem.reject);
+            const cellWidth = `${(100 - (5 + 20 + 7 + 7 + 7)) / shiftHours.length}%`;
 
-          return `
+            return `
           <td class="col-shift slot-cell" style="width:${cellWidth};">
             <div class="slot-wrap">
               <div class="slot-half left" style="background:${c1}; color:${getTextColor(c1)};">${leftVal || "-"}</div>
@@ -1065,8 +1062,8 @@ const htmlShiftly = async (item) => {
             </div>
           </td>
         `;
-        })
-        .join("")}
+          })
+          .join("")}
     </tr>
   `
     )
@@ -1093,11 +1090,11 @@ const htmlShiftly = async (item) => {
             <th class="col-need" style="width: 7%;">N</th>
             <th class="col-red" style="width: 7%;">R</th>
             ${shiftHours
-              .map((hour) => {
-                const cellWidth = `${(100 - (5 + 20 + 7 + 7 + 7)) / shiftHours.length}%`;
-                return `<th class="col-shift" style="width: ${cellWidth};">${hour}:00</th>`;
-              })
-              .join("")}
+      .map((hour) => {
+        const cellWidth = `${(100 - (5 + 20 + 7 + 7 + 7)) / shiftHours.length}%`;
+        return `<th class="col-shift" style="width: ${cellWidth};">${hour}:00</th>`;
+      })
+      .join("")}
           </tr>
         </thead>
         <tbody>
@@ -1164,8 +1161,6 @@ const checklistLayerCss = `
 const getEntryDay = (entryTime, itemDate) => {
   const base = moment(itemDate, "YYYY-MM-DD HH:mm:ss.SSS");
   if (!entryTime) return base.date();
-
-  // hanya jam-menit?
   if (/^\d{1,2}:\d{2}$/.test(String(entryTime).trim())) {
     return base.date();
   }
@@ -1539,23 +1534,23 @@ const htmlCIP = async (cipSummary) => {
       <div class="cip-section-title">CIP Steps</div>
       <div class="cip-steps-container">
         ${steps
-          .map((s, idx) => {
-            const name = s.stepName ?? s.step_name ?? s.name ?? "-";
-            const n = s.stepNumber ?? s.step_number ?? idx + 1;
+        .map((s, idx) => {
+          const name = s.stepName ?? s.step_name ?? s.name ?? "-";
+          const n = s.stepNumber ?? s.step_number ?? idx + 1;
 
-            const tMin = s.temperature_setpoint_min ?? s.temperatureSetpointMin ?? s.tempMin ?? "-";
-            const tMax = s.temperature_setpoint_max ?? s.temperatureSetpointMax ?? s.tempMax ?? "-";
-            const tAct = s.temperature_actual ?? s.temperatureActual ?? s.temp_actual ?? "-";
+          const tMin = s.temperature_setpoint_min ?? s.temperatureSetpointMin ?? s.tempMin ?? "-";
+          const tMax = s.temperature_setpoint_max ?? s.temperatureSetpointMax ?? s.tempMax ?? "-";
+          const tAct = s.temperature_actual ?? s.temperatureActual ?? s.temp_actual ?? "-";
 
-            const timeSet = s.time_setpoint ?? s.timeSetpoint ?? s.time_set ?? s.time ?? "-";
-            const concSet = s.concentration_setpoint ?? s.concentrationSetpoint ?? s.conc_setpoint ?? s.concSetpoint;
-            const concAct = s.concentration_actual ?? s.concentrationActual ?? s.conc_actual ?? s.concActual;
+          const timeSet = s.time_setpoint ?? s.timeSetpoint ?? s.time_set ?? s.time ?? "-";
+          const concSet = s.concentration_setpoint ?? s.concentrationSetpoint ?? s.conc_setpoint ?? s.concSetpoint;
+          const concAct = s.concentration_actual ?? s.concentrationActual ?? s.conc_actual ?? s.concActual;
 
-            const start = (s.start_time || s.startTime || "").toString().slice(0, 5);
-            const end = (s.end_time || s.endTime || "").toString().slice(0, 5);
-            const duration = start && end ? `${start} - ${end}` : "-";
+          const start = (s.start_time || s.startTime || "").toString().slice(0, 5);
+          const end = (s.end_time || s.endTime || "").toString().slice(0, 5);
+          const duration = start && end ? `${start} - ${end}` : "-";
 
-            return `
+          return `
             <div class="cip-step-row">
               <div class="cip-step-number">${n}</div>
               <div class="cip-step-content">
@@ -1569,15 +1564,14 @@ const htmlCIP = async (cipSummary) => {
                     <span class="cip-step-label">Time:</span>
                     <span class="cip-step-value">${timeSet} min</span>
                   </div>
-                  ${
-                    concSet != null || concAct != null
-                      ? `
+                  ${concSet != null || concAct != null
+              ? `
                     <div class="cip-step-detail-group">
                       <span class="cip-step-label">Conc:</span>
                       <span class="cip-step-value">${concSet ?? "-"}% / ${concAct ?? "-"}%</span>
                     </div>`
-                      : ""
-                  }
+              : ""
+            }
                   <div class="cip-step-detail-group">
                     <span class="cip-step-label">Duration:</span>
                     <span class="cip-step-value">${duration}</span>
@@ -1586,8 +1580,8 @@ const htmlCIP = async (cipSummary) => {
               </div>
             </div>
           `;
-          })
-          .join("")}
+        })
+        .join("")}
       </div>
     </div>
   `
@@ -1601,14 +1595,14 @@ const htmlCIP = async (cipSummary) => {
       <div class="cip-section-title">COP/SOP/SIP Records</div>
       <div class="cip-cop-container">
         ${header.copRecords
-          .map((cop) => {
-            const tMin = cop.tempMin ?? cop.temp_min ?? "-";
-            const tMax = cop.tempMax ?? cop.temp_max ?? "-";
-            const tAct = cop.tempActual ?? cop.temp_actual ?? "-";
-            const cMin = cop.concMin ?? cop.conc_min;
-            const cMax = cop.concMax ?? cop.conc_max;
-            const cAct = cop.concActual ?? cop.conc_actual;
-            return `
+        .map((cop) => {
+          const tMin = cop.tempMin ?? cop.temp_min ?? "-";
+          const tMax = cop.tempMax ?? cop.temp_max ?? "-";
+          const tAct = cop.tempActual ?? cop.temp_actual ?? "-";
+          const cMin = cop.concMin ?? cop.conc_min;
+          const cMax = cop.concMax ?? cop.conc_max;
+          const cAct = cop.concActual ?? cop.conc_actual;
+          return `
             <div class="cip-cop-row">
               <div class="cip-cop-header">
                 <div class="cip-cop-type">${esc(cop.stepType || cop.step_type || "-")}</div>
@@ -1618,14 +1612,13 @@ const htmlCIP = async (cipSummary) => {
                 <div class="cip-cop-detail-group"><span class="cip-cop-label">Temp:</span>
                   <span class="cip-cop-value">${tAct}°C (${tMin}-${tMax}°C)</span>
                 </div>
-                ${
-                  cAct != null || cMin != null || cMax != null
-                    ? `
+                ${cAct != null || cMin != null || cMax != null
+              ? `
                   <div class="cip-cop-detail-group"><span class="cip-cop-label">Conc:</span>
                     <span class="cip-cop-value">${cAct ?? "-"}% (${cMin ?? "-"}–${cMax ?? "-"}%)</span>
                   </div>`
-                    : ""
-                }
+              : ""
+            }
                 ${cop.flowRate ? `<div class="cip-cop-detail-group"><span class="cip-cop-label">Flow:</span><span class="cip-cop-value">${cop.flowRate}</span></div>` : ""}
                 ${cop.time67Min ? `<div class="cip-cop-detail-group"><span class="cip-cop-label">67 min:</span><span class="cip-cop-value">${cop.time67Min}</span></div>` : ""}
                 ${cop.time45Min ? `<div class="cip-cop-detail-group"><span class="cip-cop-label">45 min:</span><span class="cip-cop-value">${cop.time45Min}</span></div>` : ""}
@@ -1633,8 +1626,8 @@ const htmlCIP = async (cipSummary) => {
               </div>
             </div>
           `;
-          })
-          .join("")}
+        })
+        .join("")}
       </div>
     </div>
   `
@@ -1643,15 +1636,15 @@ const htmlCIP = async (cipSummary) => {
   // --- 6) SECTION: DRYING/FOAMING/DISINFECT (LINE B/C/D) ---
   const specialSection =
     ["LINE B", "LINE C", "LINE D"].includes(String(header.line || "").toUpperCase()) &&
-    Array.isArray(specialRecords) &&
-    specialRecords.length > 0
+      Array.isArray(specialRecords) &&
+      specialRecords.length > 0
       ? `
     <div class="cip-section">
       <div class="cip-section-title">DRYING, FOAMING, DISINFECT/SANITASI Records</div>
       <div class="cip-special-container">
         ${specialRecords
-          .map(
-            (rec) => `
+        .map(
+          (rec) => `
           <div class="cip-special-row">
             <div class="cip-special-header">
               <div class="cip-special-type">${esc(rec.stepType || rec.step_type || "-")}</div>
@@ -1665,8 +1658,8 @@ const htmlCIP = async (cipSummary) => {
             </div>
           </div>
         `
-          )
-          .join("")}
+        )
+        .join("")}
       </div>
     </div>
   `
@@ -2113,7 +2106,7 @@ const cipPdfStyles = `
     display: flex;
     justify-content: space-between;
     margin-bottom: 8px;
-    align-items: center.
+    align-items: center;
   }
   
   .cip-special-type {
@@ -2374,7 +2367,7 @@ const groupMonthlyChecklistCILT = (items) => {
       if (!groups.has(key)) {
         groups.set(key, {
           ...it,
-          // tanggal “sintetik” utk judul; real anchor per entri akan dibawa di setiap entri
+          // tanggal "sintetik" utk judul; real anchor per entri akan dibawa di setiap entri
           date: `${yymm}-01 00:00:00.000`,
           // kita gabungkan semua entries dari berbagai tanggal ke satu array
           inspectionData: [],
@@ -2391,7 +2384,7 @@ const groupMonthlyChecklistCILT = (items) => {
         arr = [];
       }
 
-      // Sisipkan _anchorDate utk setiap entri (supaya tahu “tanggal asli” entrinya)
+      // Sisipkan _anchorDate utk setiap entri (supaya tahu "tanggal asli" entrinya)
       arr.forEach((e) => g.inspectionData.push({ ...e, _anchorDate: it.date }));
     });
 
@@ -2466,7 +2459,7 @@ const toMoment = (val) => {
 };
 
 // Aturan shift baru:
-// 06:00–13:59 => Shift 1, 14:00–21:59 => Shift 2, 22:00–05:59 => Shift 3
+// 06:00-13:59 => Shift 1, 14:00-21:59 => Shift 2, 22:00-05:59 => Shift 3
 const deriveShift = (dateOrString) => {
   if (!dateOrString) return "-";
   const m = toMoment(dateOrString);
@@ -2503,6 +2496,7 @@ const ListCILT = ({ navigation }) => {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dataGreentag, setDataGreentag] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [userProfile, setUserProfile] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -2517,6 +2511,9 @@ const ListCILT = ({ navigation }) => {
   const [packageOptions, setPackageOptions] = useState([]);
   const [isDownloading, setIsDownloading] = useState(false);
   const shiftOptions = ["Shift 1", "Shift 2", "Shift 3"];
+  const [userRole, setUserRole] = useState(null);
+  const [username, setUsername] = useState("");
+  const [profile, setProfile] = useState(null);
 
   // Bulan & Tahun (khusus Checklist CILT)
   const [selectedMonth, setSelectedMonth] = useState(""); // "01".."12" atau "" (semua)
@@ -2532,10 +2529,10 @@ const ListCILT = ({ navigation }) => {
     return Array.from(years).sort((a, b) => b.localeCompare(a)); // terbaru dulu
   }, [dataGreentag]);
 
-  // --- NEW: state khusus list CIP yang akan digabung ke tabel List CILT
+  // state khusus list CIP yang akan digabung ke tabel List CILT
   const [cipRows, setCipRows] = useState([]);
 
-  // --- NEW: ubah data CIP dari API ke bentuk baris tabel List CILT
+  // ubah data CIP dari API ke bentuk baris tabel List CILT
   const mapCipToRow = useCallback(
     (x) => ({
       id: Number(x.id), // penting: numeric utk DetailReportCIP
@@ -2555,6 +2552,13 @@ const ListCILT = ({ navigation }) => {
       machine: x.machine || x.machine_name || "-",
 
       status: x.status || x.status_text || "-",
+
+      approval_coor: x.approval_coor ?? 0,
+      approval_spv: x.approval_spv ?? 0,
+      approval_coor_by: x.approval_coor_by,
+      approval_coor_at: x.approval_coor_at,
+      approval_spv_by: x.approval_spv_by,
+      approval_spv_at: x.approval_spv_at,
     }),
     []
   );
@@ -2568,6 +2572,68 @@ const ListCILT = ({ navigation }) => {
     return unsubscribe;
   }, [navigation]);
 
+  const fetchUserData = async () => {
+    try {
+      const email = await AsyncStorage.getItem("user");
+      const userData = await AsyncStorage.getItem("userData");
+      if (userData != null) {
+        const roleNum = parseInt(userData, 10);
+        setUserRole(Number.isFinite(roleNum) ? roleNum : null);
+      }
+      try {
+        const client = sqlApi ?? api;
+        const response1 = await client.get(`/getUser`, { params: { email } });
+        const data = response1?.data || {};
+        if (data?.username) setUsername(data.username);
+        if (data?.profile) setProfile(data.profile);
+      } catch (e) {
+        console.warn("getUser fallback warning:", e?.message || e);
+      }
+    } catch (error) {
+      console.error("Error fetching user data:", error);
+    }
+  };
+
+  useEffect(() => {
+    fetchUserData();
+    loadUserProfile();
+  }, []);
+
+  const loadUserProfile = async () => {
+    try {
+      const stored = await AsyncStorage.getItem("userProfile");
+      if (stored) setUserProfile(JSON.parse(stored));
+    } catch (e) {
+      console.error("Error loading user profile:", e);
+    }
+  };
+
+  const handleApproval = async (reportId, action) => {
+    Alert.alert(
+      `${action === "approve" ? "Approve" : "Reject"} Report`,
+      `Are you sure you want to ${action} this report?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Yes",
+          onPress: async () => {
+            try {
+              await api.put(`/cip-report/${reportId}/${action}`, {
+                roleId: userProfile?.role_id,
+                userName: userProfile?.fullName || userProfile?.username,
+              });
+              Alert.alert("Success", `Report ${action}d successfully`);
+              fetchData();
+            } catch (err) {
+              console.error(err);
+              Alert.alert("Error", "Failed to update approval");
+            }
+          },
+        },
+      ]
+    );
+  };
+
   useEffect(() => {
     (async () => {
       try { await fetchDataFromAPI(); }
@@ -2577,7 +2643,7 @@ const ListCILT = ({ navigation }) => {
       catch (e) { console.warn("fetchPlantOptions:", e?.message || e); }
 
       try { await fetchPackageOptions(); }
-      catch (e) { console.warn("fetchPackageOptions:", e?.message || e); }  
+      catch (e) { console.warn("fetchPackageOptions:", e?.message || e); }
 
       try { await fetchAllLineOptions(); }
       catch (e) { console.warn("fetchAllLineOptions:", e?.message || e); }
@@ -2595,7 +2661,7 @@ const ListCILT = ({ navigation }) => {
     }
   }, [dataGreentag]);
 
-  // --- NEW: ambil CIP ketika filter berubah / halaman fokus
+  // ambil CIP ketika filter berubah / halaman fokus
   useEffect(() => {
     // hanya tarik bila user pilih "REPORT CIP" atau tidak memilih Package (biar gabungan jalan)
     const needCip = !selectedPackage || selectedPackage === "REPORT CIP";
@@ -2611,7 +2677,7 @@ const ListCILT = ({ navigation }) => {
     // ikut re-fetch saat filter yang relevan berubah
   }, [selectedDate, selectedPlant, selectedLine, selectedShift, searchQuery, selectedPackage, mapCipToRow]);
 
-  // --- NEW: listener focus untuk refresh data CILT dan CIP
+  // istener focus untuk refresh data CILT dan CIP
   useEffect(() => {
     const unsub = navigation.addListener("focus", () => {
       // refresh data CILT dan CIP
@@ -2630,7 +2696,7 @@ const ListCILT = ({ navigation }) => {
   const fetchDataFromAPI = async () => {
     setIsLoading(true);
     try {
-      const response = await api.get(`/cilt?status=0`);
+      const response = await api.get(`/cilt/?status=0`);
       setDataGreentag(response.data || []);
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -2673,7 +2739,7 @@ const ListCILT = ({ navigation }) => {
         }
       });
 
-      // --- NEW: inject REPORT CIP option if not present
+      // inject REPORT CIP option if not present
       const withCip = merged.some((p) => (p.package || "").trim() === "REPORT CIP")
         ? merged
         : [...merged, { package: "REPORT CIP" }];
@@ -2789,7 +2855,7 @@ const ListCILT = ({ navigation }) => {
     }
     Alert.alert("Download Konfirmasi", `Download ${filteredData.length} item sesuai filter saat ini?`, [
       { text: "Batal", style: "cancel" },
-      { text: "Download",  onPress: () => { downloadFilteredData().catch(e => console.warn("downloadFilteredData failed:", e?.message || e)); } },
+      { text: "Download", onPress: () => { downloadFilteredData().catch(e => console.warn("downloadFilteredData failed:", e?.message || e)); } },
     ]);
   };
 
@@ -2807,7 +2873,7 @@ const ListCILT = ({ navigation }) => {
         return;
       }
 
-      // Label judul – gunakan shift jika dipilih, kalau tidak pakai 'Filtered'
+      // Label judul - gunakan shift jika dipilih, kalau tidak pakai 'Filtered'
       const label = selectedShift || "Filtered";
       await generatePDFFile(label, rawData, cipList);
     } catch (err) {
@@ -2880,7 +2946,7 @@ const ListCILT = ({ navigation }) => {
     // Satukan semua item CHECKLIST CILT menjadi SATU item per bulan
     data = mergeChecklistCILTMonthly(data);
 
-    // Group per tanggal (CILT bulanan akan punya anchor di akhir bulan → satu section)
+    // Group per tanggal (CILT bulanan akan punya anchor di akhir bulan -> satu section)
     const groupedData = groupDataByDate(data, cipList || []);
 
     try {
@@ -2986,13 +3052,13 @@ const ListCILT = ({ navigation }) => {
         <body>
           ${mainHeader}
           <div class="cover">
-            <h2>Laporan CILT — ${esc(shift)}</h2>
+            <h2>Laporan CILT - ${esc(shift)}</h2>
             <div>Generated: ${timestamp} | Total Detail: ${totalItems}</div>
             ${filterInfo.length ? `<div>Filter: ${filterInfo.join(" | ")}</div>` : ""}
             <div><strong>Data dikelompokkan berdasarkan tanggal</strong></div>
           </div>
           ${dateGroupSections.join("")}
-          <div class="footer">CILT/CIP Report — generated automatically</div>
+          <div class="footer">CILT/CIP Report - generated automatically</div>
         </body>
       </html>
     `;
@@ -3018,25 +3084,213 @@ const ListCILT = ({ navigation }) => {
   }
 
   const filteredData = useMemo(() => {
-    return rowsForTable
-      .filter((item) => {
-        const matchesSearch = item.processOrder?.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesDate = selectedDate
-          ? item.packageType === "CHECKLIST CILT"
-            ? moment(item.date).isSame(moment(selectedDate), "month")
-            : moment(item.date).isSame(moment(selectedDate), "day")
+    let baseFilter = rowsForTable.filter((item) => {
+      const matchesSearch = item.processOrder?.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesDate = selectedDate
+        ? item.packageType === "CHECKLIST CILT"
+          ? moment(item.date).isSame(moment(selectedDate), "month")
+          : moment(item.date).isSame(moment(selectedDate), "day")
+        : true;
+      const matchesPlant = selectedPlant ? item.plant === selectedPlant : true;
+      const matchesLine = selectedLine ? item.line === selectedLine : true;
+      const matchesPackage = selectedPackage ? item.packageType === selectedPackage : true;
+      const matchesShift = selectedShift ? item.shift === selectedShift : true;
+      const monthOk =
+        selectedPackage === "CHECKLIST CILT"
+          ? (selectedMonth ? moment(item.date).format("MM") === selectedMonth : true)
           : true;
-        const matchesPlant = selectedPlant ? item.plant === selectedPlant : true;
-        const matchesLine = selectedLine ? item.line === selectedLine : true;
-        const matchesPackage = selectedPackage ? item.packageType === selectedPackage : true;
-        const matchesShift = selectedShift ? item.shift === selectedShift : true;
-        // === tambahan: bulan & tahun khusus Checklist CILT ===
-        const monthOk = selectedPackage === "CHECKLIST CILT" ? (selectedMonth ? moment(item.date).format("MM") === selectedMonth : true) : true;
-        const yearOk = selectedPackage === "CHECKLIST CILT" ? (selectedYear ? moment(item.date).format("YYYY") === selectedYear : true) : true;
-        return matchesSearch && matchesDate && matchesPlant && matchesLine && matchesPackage && matchesShift && monthOk && yearOk;
-      })
-      .sort((a, b) => new Date(b.date) - new Date(a.date));
-  }, [rowsForTable, searchQuery, selectedDate, selectedPlant, selectedLine, selectedPackage, selectedShift, selectedMonth, selectedYear]);
+      const yearOk =
+        selectedPackage === "CHECKLIST CILT"
+          ? (selectedYear ? moment(item.date).format("YYYY") === selectedYear : true)
+          : true;
+      return (
+        matchesSearch &&
+        matchesDate &&
+        matchesPlant &&
+        matchesLine &&
+        matchesPackage &&
+        matchesShift &&
+        monthOk &&
+        yearOk
+      );
+    });
+
+    return baseFilter.sort((a, b) => new Date(b.date) - new Date(a.date));
+  }, [
+    rowsForTable,
+    searchQuery,
+    selectedDate,
+    selectedPlant,
+    selectedLine,
+    selectedPackage,
+    selectedShift,
+    selectedMonth,
+    selectedYear,
+  ]);
+
+  const getApprovalStatusBadge = (item) => {
+    const isCIP = item.packageType === "REPORT CIP";
+
+    if (isCIP) {
+      // Untuk CIP: cek approval_coor dan approval_spv
+      const coorApproved = item.approval_coor === 1;
+      const spvApproved = item.approval_spv === 1;
+      const coorRejected = item.approval_coor === 2;
+      const spvRejected = item.approval_spv === 2;
+      const status = item.status || item.approval_status;
+
+      console.log(`CIP Badge Status for ID ${item.id}:`, {
+        status,
+        coorApproved,
+        spvApproved,
+        coorRejected,
+        spvRejected,
+        approval_coor: item.approval_coor,
+        approval_spv: item.approval_spv
+      });
+
+      // Cek rejection dulu
+      if (coorRejected || spvRejected) {
+        return (
+          <View style={styles.statusBadgeContainer}>
+            <View style={[styles.statusBadge, { backgroundColor: '#fee2e2', borderColor: '#ef4444' }]}>
+              <Icon name="cancel" size={14} color="#ef4444" />
+              <Text style={[styles.badgeText, { color: '#7f1d1d' }]}>Rejected</Text>
+            </View>
+          </View>
+        );
+      }
+
+      // Fully approved
+      if (coorApproved && spvApproved) {
+        return (
+          <View style={styles.statusBadgeContainer}>
+            <View style={[styles.statusBadge, { backgroundColor: '#d1fae5', borderColor: '#10b981' }]}>
+              <Icon name="check-circle" size={14} color="#10b981" />
+              <Text style={[styles.badgeText, { color: '#065f46' }]}>Approved</Text>
+            </View>
+          </View>
+        );
+      }
+
+      // Partial approval - Coor approved, waiting SPV
+      if (coorApproved && !spvApproved) {
+        return (
+          <View style={styles.statusBadgeContainer}>
+            <View style={[styles.statusBadge, { backgroundColor: '#fffbeb', borderColor: '#f59e0b' }]}>
+              <Icon name="hourglass-empty" size={14} color="#f59e0b" />
+              <Text style={[styles.badgeText, { color: '#92400e' }]}>Coor ✓ • Waiting SPV</Text>
+            </View>
+          </View>
+        );
+      }
+
+      // Partial approval - SPV approved, waiting Coor (unusual case)
+      if (spvApproved && !coorApproved) {
+        return (
+          <View style={styles.statusBadgeContainer}>
+            <View style={[styles.statusBadge, { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' }]}>
+              <Icon name="info" size={14} color="#0ea5e9" />
+              <Text style={[styles.badgeText, { color: '#075985' }]}>SPV ✓ • Waiting Coor</Text>
+            </View>
+          </View>
+        );
+      }
+
+      // Draft/In Progress
+      if (status === "In Progress") {
+        return (
+          <View style={styles.statusBadgeContainer}>
+            <View style={[styles.statusBadge, { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' }]}>
+              <Icon name="edit" size={14} color="#0ea5e9" />
+              <Text style={[styles.badgeText, { color: '#075985' }]}>Draft</Text>
+            </View>
+          </View>
+        );
+      }
+
+      // Complete but not reviewed
+      if (status === "Complete") {
+        return (
+          <View style={styles.statusBadgeContainer}>
+            <View style={[styles.statusBadge, { backgroundColor: '#fffbeb', borderColor: '#f59e0b' }]}>
+              <Icon name="pending" size={14} color="#f59e0b" />
+              <Text style={[styles.badgeText, { color: '#92400e' }]}>Awaiting Review</Text>
+            </View>
+          </View>
+        );
+      }
+
+      // Default - belum ada status approval
+      return (
+        <View style={styles.statusBadgeContainer}>
+          <View style={[styles.statusBadge, { backgroundColor: '#f3f4f6', borderColor: '#9ca3af' }]}>
+            <Icon name="remove-circle-outline" size={14} color="#6b7280" />
+            <Text style={[styles.badgeText, { color: '#374151' }]}>Not Reviewed</Text>
+          </View>
+        </View>
+      );
+    }
+
+    // ✅ CILT Items logic (hanya dieksekusi jika BUKAN CIP)
+    const coorApproved = item.approval_coor === 1;
+    const spvApproved = item.approval_spv === 1;
+    const rejected =
+      item.status === -1 || item.approval === -1 || item.approval_coor === -1 || item.approval_spv === -1;
+
+    if (coorApproved && spvApproved) {
+      return (
+        <View style={styles.statusBadgeContainer}>
+          <View style={[styles.statusBadge, { backgroundColor: '#d1fae5', borderColor: '#10b981' }]}>
+            <Icon name="check-circle" size={14} color="#10b981" />
+            <Text style={[styles.badgeText, { color: '#065f46' }]}>Approved</Text>
+          </View>
+        </View>
+      );
+    }
+
+    if (rejected) {
+      return (
+        <View style={styles.statusBadgeContainer}>
+          <View style={[styles.statusBadge, { backgroundColor: '#fee2e2', borderColor: '#ef4444' }]}>
+            <Icon name="cancel" size={14} color="#ef4444" />
+            <Text style={[styles.badgeText, { color: '#7f1d1d' }]}>Rejected</Text>
+          </View>
+        </View>
+      );
+    }
+
+    if (coorApproved && !spvApproved) {
+      return (
+        <View style={styles.statusBadgeContainer}>
+          <View style={[styles.statusBadge, { backgroundColor: '#fffbeb', borderColor: '#f59e0b' }]}>
+            <Icon name="hourglass-empty" size={14} color="#f59e0b" />
+            <Text style={[styles.badgeText, { color: '#92400e' }]}>Coor ✓ • Waiting SPV</Text>
+          </View>
+        </View>
+      );
+    }
+
+    if (!coorApproved && spvApproved) {
+      return (
+        <View style={styles.statusBadgeContainer}>
+          <View style={[styles.statusBadge, { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' }]}>
+            <Icon name="info" size={14} color="#0ea5e9" />
+            <Text style={[styles.badgeText, { color: '#075985' }]}>SPV ✓ • Waiting Coor</Text>
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.statusBadgeContainer}>
+        <View style={[styles.statusBadge, { backgroundColor: '#f3f4f6', borderColor: '#9ca3af' }]}>
+          <Icon name="remove-circle-outline" size={14} color="#6b7280" />
+          <Text style={[styles.badgeText, { color: '#374151' }]}>Not Reviewed</Text>
+        </View>
+      </View>
+    );
+  };
 
   const hasAnyFilter = useMemo(
     () => [searchQuery, selectedDate, selectedPlant, selectedLine, selectedPackage, selectedShift, selectedMonth, selectedYear].some(Boolean),
@@ -3049,6 +3303,173 @@ const ListCILT = ({ navigation }) => {
   }, [filteredData, currentPage]);
 
   const totalPages = Math.ceil(filteredData.length / itemsPerPage);
+
+  const handleApprove = async (item) => {
+    const isCIP = item.packageType === "REPORT CIP";
+
+    try {
+      const roleRaw = await AsyncStorage.getItem("userData");
+      const role = roleRaw ? parseInt(roleRaw, 10) : null;
+      const username = await AsyncStorage.getItem("username");
+      const roleLabel = role === 11 ? "Coordinator" : role === 9 ? "Supervisor" : "Unknown";
+
+      console.log(`Approve initiated:`, {
+        itemId: item.id,
+        packageType: item.packageType,
+        role,
+        roleLabel,
+        username
+      });
+
+      Alert.alert(
+        "Konfirmasi Approval",
+        `Approve item ini sebagai ${roleLabel}?`,
+        [
+          { text: "Batal", style: "cancel" },
+          {
+            text: "Approve",
+            onPress: async () => {
+              try {
+                let endpoint, payload;
+
+                if (isCIP) {
+                  endpoint = `/cip-report/${item.id}/approve`;
+                  payload = {
+                    roleId: role,
+                    userName: username || "Unknown User",
+                  };
+                  console.log(`Approving CIP report:`, { endpoint, payload });
+                } else {
+                  endpoint =
+                    role === 11
+                      ? `/cilt/approve-coordinator/${item.id}`
+                      : `/cilt/approve-supervisor/${item.id}`;
+                  payload = { username: username, role: role };
+                  console.log(`Approving CILT item:`, { endpoint, payload });
+                }
+
+                const res = await api.put(endpoint, payload);
+                console.log(`Approve response:`, res.data);
+
+                const resData = res.data ?? res;
+                if (res.status >= 400 || resData?.success === false) {
+                  throw new Error(resData?.message || "Gagal approve");
+                }
+
+                // Refresh data
+                await fetchDataFromAPI();
+                if (isCIP && (!selectedPackage || selectedPackage === "REPORT CIP")) {
+                  const list = await fetchCIPForFilters();
+                  setCipRows((list || []).map(mapCipToRow));
+                }
+
+                Alert.alert("Sukses", `${isCIP ? 'CIP Report' : 'CILT Item'} berhasil di-approve`);
+              } catch (err) {
+                console.error(`Approve error:`, err);
+                Alert.alert(
+                  "Error",
+                  err?.response?.data?.message || err?.message || "Gagal approve"
+                );
+              }
+            },
+          },
+        ],
+        { cancelable: true }
+      );
+    } catch (e) {
+      console.error(`handleApprove error:`, e);
+      Alert.alert("Error", e?.message || "Gagal approve");
+    }
+  };
+
+  const renderApproveButton = (item) => {
+    const isCIP = item.packageType === "REPORT CIP";
+
+    // console.log(`Render Approve Button for ID ${item.id}:`, {
+    //   packageType: item.packageType,
+    //   isCIP,
+    //   userRole,
+    //   status: item.status,
+    //   approval_coor: item.approval_coor,
+    //   approval_spv: item.approval_spv
+    // });
+
+    if (isCIP) {
+      const status = item.status || item.approval_status;
+      const coorApproved = item.approval_coor === 1;
+      const spvApproved = item.approval_spv === 1;
+      const coorRejected = item.approval_coor === 2;
+      const spvRejected = item.approval_spv === 2;
+
+      // Jangan tampilkan button jika sudah rejected
+      if (coorRejected || spvRejected) {
+        console.log(`  → Hidden: Already rejected`);
+        return null;
+      }
+
+      // Jangan tampilkan button jika sudah fully approved
+      if (coorApproved && spvApproved) {
+        console.log(`  → Hidden: Fully approved`);
+        return null;
+      }
+
+      // Status harus "Complete" untuk bisa di-approve
+      if (status !== "Complete") {
+        console.log(`  → Hidden: Status not Complete (${status})`);
+        return null;
+      }
+
+      // SPV (role 9) - bisa approve jika Coor sudah approve
+      if (userRole === 9 && coorApproved && !spvApproved) {
+        console.log(`  → SHOW: SPV can approve`);
+        return (
+          <TouchableOpacity
+            style={[styles.approveBtn, { marginTop: 4 }]}
+            onPress={() => handleApprove(item)}
+          >
+            <Icon name="check-circle" size={16} color="#fff" />
+            <Text style={[styles.approveBtnText, { marginLeft: 4 }]}>Approve (SPV)</Text>
+          </TouchableOpacity>
+        );
+      }
+
+      // Coordinator (role 11) - bisa approve jika belum di-approve sama sekali
+      if (userRole === 11 && !coorApproved) {
+        console.log(`  → SHOW: Coor can approve`);
+        return (
+          <TouchableOpacity
+            style={[styles.approveBtn, { marginTop: 4 }]}
+            onPress={() => handleApprove(item)}
+          >
+            <Icon name="check-circle" size={16} color="#fff" />
+            <Text style={[styles.approveBtnText, { marginLeft: 4 }]}>Approve (Coor)</Text>
+          </TouchableOpacity>
+        );
+      }
+
+      console.log(`  → Hidden: No approval permission`);
+      return null;
+    }
+
+    // CILT approval logic
+    if (userRole === 11 && item.approval_coor === 0 && item.status === 0) {
+      return (
+        <TouchableOpacity style={[styles.approveBtn, { marginTop: 4 }]} onPress={() => handleApprove(item)}>
+          <Icon name="check-circle" size={16} color="#fff" />
+          <Text style={[styles.approveBtnText, { marginLeft: 4 }]}>Approve (Coor)</Text>
+        </TouchableOpacity>
+      );
+    }
+    if (userRole === 9 && item.approval_coor === 1 && item.approval_spv === 0 && item.status === 0) {
+      return (
+        <TouchableOpacity style={[styles.approveBtn, { marginTop: 4 }]} onPress={() => handleApprove(item)}>
+          <Icon name="check-circle" size={16} color="#fff" />
+          <Text style={[styles.approveBtnText, { marginLeft: 4 }]}>Approve (SPV)</Text>
+        </TouchableOpacity>
+      );
+    }
+    return null;
+  };
 
   const handleDetailPress = (item) => {
     if (item.packageType === "PERFORMA RED AND GREEN") {
@@ -3085,7 +3506,7 @@ const ListCILT = ({ navigation }) => {
 
   const TableHeader = () => (
     <View className="tableHeader" style={styles.tableHeader}>
-      {["Date", "Process Order", "Package", "Plant", "Line", "Shift", "Product", "Machine"].map((col, i) => (
+      {["Date", "Process Order", "Package", "Plant", "Line", "Shift", "Product", "Machine", "Approval"].map((col, i) => (
         <TouchableOpacity
           key={i}
           onPress={() => sortData(["date", "processOrder", "packageType", "plant", "line", "shift", "product", "machine"][i])}
@@ -3108,6 +3529,7 @@ const ListCILT = ({ navigation }) => {
 
   const renderItem = (item) => {
     const key = `${item.processOrder}-${item.packageType}-${item.product}`;
+    const isCIP = item.packageType === "REPORT CIP";
 
     // For PERFORMA, only show the latest one
     if (item.packageType === "PERFORMA RED AND GREEN") {
@@ -3115,21 +3537,56 @@ const ListCILT = ({ navigation }) => {
       seenPerformaItems.add(key);
     }
 
+    // Check if approval button should be shown
+    const shouldShowApproveButton = (() => {
+      if (isCIP) {
+        const status = item.status || item.approval_status;
+        if (status === "Complete" && (userRole === 11 || userRole === 9)) {
+          return true;
+        }
+      } else {
+        if (userRole === 11 && item.approval_coor === 0 && item.status === 0) {
+          return true;
+        }
+        if (userRole === 9 && item.approval_coor === 1 && item.approval_spv === 0 && item.status === 0) {
+          return true;
+        }
+      }
+      return false;
+    })();
+
     return (
       <TouchableOpacity key={item.id} onPress={() => handleDetailPress(item)}>
-        <View style={styles.tableRow}>
+        <View style={[
+          styles.tableRow,
+          isCIP && styles.tableRowCIP,
+          shouldShowApproveButton && styles.tableRowWithAction
+        ]}>
           <Text style={styles.tableCell}>
             {item.packageType === "REPORT CIP"
               ? moment(item.date).format("DD/MM/YY")
               : moment(item.date, "YYYY-MM-DD HH:mm:ss.SSS").format("DD/MM/YY HH:mm:ss")}
           </Text>
-          <Text style={styles.tableCell}>{item.processOrder}</Text>
-          <Text style={styles.tableCell}>{item.packageType} {item.packageType === "PERFORMA RED AND GREEN" ? "(Latest)" : ""}</Text>
+          <View style={styles.tableCellWithBadge}>
+            <Text style={styles.tableCell} numberOfLines={2}>{item.processOrder}</Text>
+            {isCIP && (
+              <View style={styles.cipBadgeSmall}>
+                <Text style={styles.cipBadgeText}>CIP</Text>
+              </View>
+            )}
+          </View>
+          <Text style={styles.tableCell}>
+            {item.packageType} {item.packageType === "PERFORMA RED AND GREEN" ? "(Latest)" : ""}
+          </Text>
           <Text style={styles.tableCell}>{item.plant}</Text>
           <Text style={styles.tableCell}>{item.line}</Text>
           <Text style={styles.tableCell}>{item.shift}</Text>
           <Text style={styles.tableCell}>{item.product}</Text>
           <Text style={styles.tableCell}>{item.machine}</Text>
+          <View style={styles.approvalCell}>
+            {getApprovalStatusBadge(item)}
+            {renderApproveButton(item)}
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -3278,6 +3735,16 @@ const ListCILT = ({ navigation }) => {
 
       <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
         <View style={styles.content}>
+          <View style={styles.roleIndicator}>
+            <Icon
+              name={userRole === 11 ? "admin-panel-settings" : userRole === 9 ? "supervisor-account" : "person"}
+              size={16}
+              color="#fff"
+            />
+            <Text style={styles.roleText}>
+              {userRole === 11 ? "Coordinator" : userRole === 9 ? "Supervisor" : "User"}
+            </Text>
+          </View>
           <TableHeader />
           {paginatedData.map(renderItem)}
           <View style={styles.paginationContainer}>
@@ -3303,11 +3770,99 @@ const styles = StyleSheet.create({
   content: { padding: 10 },
   searchBar: { marginVertical: 10, marginHorizontal: 5 },
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
-  tableHeader: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#EAEAEA", paddingBottom: 10 },
-  tableHeaderCell: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center" },
-  tableHeaderText: { fontSize: 14, fontWeight: "bold" },
-  tableRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: "#EAEAEA", paddingVertical: 10 },
-  tableCell: { flex: 1, textAlign: "center" },
+  tableHeader: {
+    flexDirection: "row",
+    borderBottomWidth: 2,
+    borderBottomColor: COLORS.blue,
+    paddingBottom: 10,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 8,
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  tableHeaderCell: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+  },
+  tableHeaderText: {
+    fontSize: 12,
+    fontWeight: "bold",
+    color: COLORS.blue,
+  },
+  tableRow: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    borderBottomColor: "#EAEAEA",
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+    marginBottom: 4,
+    borderRadius: 6,
+    paddingHorizontal: 4,
+  },
+  tableRowWithAction: {
+    paddingVertical: 16,
+    minHeight: 70,
+  },
+  tableRowCIP: {
+    backgroundColor: '#f0f9ff',
+    borderLeftWidth: 3,
+    borderLeftColor: '#0ea5e9',
+  },
+  tableCell: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: 11,
+    paddingHorizontal: 2,
+  },
+  approvalCell: {
+    flex: 1,
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 4,
+  },
+  approveButtonWrapper: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  tableCellWithBadge: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cipBadgeSmall: {
+    backgroundColor: '#0ea5e9',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    marginTop: 2,
+  },
+  cipBadgeText: {
+    color: '#fff',
+    fontSize: 8,
+    fontWeight: 'bold',
+  },
+  roleIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.blue,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    alignSelf: 'flex-start',
+    marginBottom: 12,
+  },
+  roleText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+    marginLeft: 6,
+  },
   paginationContainer: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 10 },
   pageInfo: { fontSize: 16 },
   row: { flexDirection: "row", marginHorizontal: 10, gap: 10 },
@@ -3347,6 +3902,41 @@ const styles = StyleSheet.create({
   downloadButtonDisabled: { backgroundColor: "#aaa", elevation: 0 },
   downloadIcon: { marginRight: 8 },
   downloadButtonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
+  badgeApproved: { backgroundColor: "#E8FFF5", color: "#065f46" },
+  badgeWaiting: { backgroundColor: "#FFF7E6", color: "#92400e" },
+  badgeNeutral: { backgroundColor: "#F3F4F6", color: "#374151" },
+  approveBtn: {
+    backgroundColor: "#10b981",
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    minWidth: 80,
+    maxWidth: '90%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  approveBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 10,
+  },
+  statusBadgeContainer: { alignItems: "center", justifyContent: "center", width: '100%', },
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    borderRadius: 12,
+    borderWidth: 1,
+    maxWidth: '100%',
+  },
+  badgeText: { marginLeft: 3, fontSize: 7.3, fontWeight: "700" },
 });
 
 export default ListCILT;
