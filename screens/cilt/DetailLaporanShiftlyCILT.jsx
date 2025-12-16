@@ -26,6 +26,7 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
   const { item } = route.params;
   const [data, setData] = useState([]);
   const [uniqueData, setUniqueData] = useState([]);
+  const [masterActivities, setMasterActivities] = useState([]);
   const [shiftHours, setShiftHours] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedImage, setSelectedImage] = useState(null);
@@ -52,44 +53,9 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
   // tinggi baris "Actual Time" agar kiri-kanan sama
   const [actualTimeHeight, setActualTimeHeight] = useState(50);
 
-  // Kunci "Actual Time" per record
-  const [actualLocks, setActualLocks] = useState({}); // recordKey -> hour
-  const [locksReady, setLocksReady] = useState(false);
-
   // Refs
-  const hBodyRef = useRef(null); // body horizontal (kanan)
+  const hBodyRef = useRef(null);
   const verticalScrollRef = useRef(null);
-
-  // ---- Tinggi baris (ukur kiri saja, kanan mengikuti) ----
-  const [leftHeights, setLeftHeights] = useState({});
-  const lhRef = useRef({});
-  const rafRef = useRef(null);
-
-  const flushHeights = () => {
-    rafRef.current = null;
-    setLeftHeights(prev => {
-      if (!Object.keys(lhRef.current).length) return prev;
-      const next = { ...prev, ...lhRef.current };
-      lhRef.current = {};
-      return next;
-    });
-  };
-  const queueFlush = () => {
-    if (rafRef.current != null) return;
-    rafRef.current = requestAnimationFrame(flushHeights);
-  };
-  const setLH = (i, h) => {
-    const v = Math.round(h);
-    if (leavingRef.current || leftHeights[i] === v) return;
-    lhRef.current[i] = v;
-    queueFlush();
-  };
-  useEffect(() => {
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, []);
-  const rowHeight = (i) => Math.max(50, leftHeights[i] || 0);
 
   const { width } = Dimensions.get("window");
   const modalImageSize = width * 0.8;
@@ -97,19 +63,30 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
   const pad2 = (n) => String(n).padStart(2, "0");
   const rowKey = (row, index) => `${row?.id ?? row?.activity ?? "row"}|${index}`;
 
-  // SCROLL TANPA DELAY: header kanan ikut body via Animated translateX
+  // SCROLL: header kanan ikut body via Animated translateX
   const scrollX = useRef(new Animated.Value(0)).current;
+  
+  // ============================================
+  // CELL WIDTHS - Setiap jam dibagi 2 untuk 30 menit
+  // ============================================
   const CELL_WIDTHS = {
     no: 40,
     activity: 200,
     status: 50,
-    hour: 60,
-    fixedTotal: 390, // no + activity + 3 status cells
+    hour: 80,        // Total width per jam
+    halfHour: 40,    // Width per 30 menit (setengah dari hour)
+    fixedTotal: 390,
   };
+  
   const hoursWidth = useMemo(
     () => (Array.isArray(shiftHours) ? shiftHours.length : 0) * CELL_WIDTHS.hour,
     [shiftHours]
   );
+
+  // ============================================
+  // FIXED ROW HEIGHT - Tidak menggunakan dynamic measurement
+  // ============================================
+  const ROW_HEIGHT = 50;
 
   const getShiftHours = (shift) => {
     if (shift === "Shift 1") return [6, 7, 8, 9, 10, 11, 12, 13, 14];
@@ -118,79 +95,77 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
     return [];
   };
 
-  // cache timestamp submit (ms) supaya tidak parsing moment berulang
-  const getSubmitMs = (rec) => {
-    const raw = rec?.submitTime || rec?.submit_time || rec?.createdAt || rec?.created_at;
-    const m = parseWIBNaive(raw);
-    return m?.isValid?.() ? m.valueOf() : null;
-  };
-
-  const fetchData = async () => {
-    try {
-      setIsLoading(true);
-      const formattedDate = (item?.date ? String(item.date) : "")
-        .split("T")[0] || moment().format("YYYY-MM-DD");
-
-      const controller = new AbortController();
-      fetchData.controller = controller;
-      const { data: result, status } = await api.get(
-        `/cilt/reportCILTAll/PERFORMA RED AND GREEN/${encodeURIComponent(
-          item.plant
-        )}/${encodeURIComponent(item.line)}/${encodeURIComponent(
-          item.shift
-        )}/${encodeURIComponent(item.machine)}/${formattedDate}`,
-        { signal: controller.signal }
-      );
-      if (status !== 200) throw new Error(`HTTP Error: ${status}`);
-
-      setShiftHours(getShiftHours(item.shift));
-
-      if (Array.isArray(result) && result.length > 0) {
-        const enriched = result.map(r => ({ ...r, __ts: getSubmitMs(r) }));
-        setData(enriched);
-        setUniqueData(extractUniqueInspectionData(enriched));
-      } else {
-        setData([]);
-        setUniqueData([]);
-      }
-    } catch (error) {
-      if (error?.name === "CanceledError" || error?.code === "ERR_CANCELED") {
-      } else {
-        console.error("Error fetching data:", error);
-        setData([]);
-        setUniqueData([]);
-        setShiftHours(getShiftHours(item.shift));
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const normSlot = (s) => {
-    // normalisasi "timeSlot" -> "HH:MM - HH:MM"
-    const m = String(s ?? "").match(/(\d{1,2}):?(\d{2})\s*-\s*(\d{1,2}):?(\d{2})/);
-    if (!m) return undefined;
-    const h1 = String(parseInt(m[1], 10)).padStart(2, "0");
-    const m1 = m[2];
-    const h2 = String(parseInt(m[3], 10)).padStart(2, "0");
-    const m2 = m[4];
-    return `${h1}:${m1} - ${h2}:${m2}`;
-  };
-
   const isNonEmpty = (v) =>
     v !== undefined &&
     v !== null &&
     String(v).trim() !== "" &&
     String(v).trim() !== "-";
 
-  // Ekstraksi & merge semua snapshot CombinedInspectionData (tahan newline, dukung 30 menit)
-  const extractUniqueInspectionData = (records) => {
-    const uniqueActivities = {};
-    const safe = Array.isArray(records) ? [...records] : [];
-
+  // ============================================
+  // FETCH MASTER DATA
+  // ============================================
+  const fetchMasterData = async () => {
     try {
-      safe.sort((a, b) => (a?.__ts ?? 0) - (b?.__ts ?? 0));
-    } catch {}
+      const { data: masterData } = await api.get(
+        `/gnr-master?plant=${encodeURIComponent(item.plant)}&line=${encodeURIComponent(item.line)}&machine=${encodeURIComponent(item.machine)}&type=PERFORMA RED AND GREEN`
+      );
+      const activities = Array.isArray(masterData) ? masterData.filter(m => m.visibility !== false) : [];
+      console.log(`📊 Fetched ${activities.length} master activities`);
+      return activities;
+    } catch (error) {
+      console.error("Error fetching master data:", error);
+      return [];
+    }
+  };
+
+  // ============================================
+  // PARSE hourSlot untuk mendapatkan jam
+  // ============================================
+  const parseHourFromSlot = (hourSlot) => {
+    if (!hourSlot) return undefined;
+    const match = String(hourSlot).match(/^(\d{1,2})/);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+    return undefined;
+  };
+
+  // ============================================
+  // GENERATE 30-MIN SLOT KEYS untuk jam tertentu
+  // ============================================
+  const get30MinSlots = (hour) => {
+    const h = pad2(hour);
+    const nextH = pad2((hour + 1) % 24);
+    return {
+      first: `${h}:00 - ${h}:30`,   // 14:00 - 14:30
+      second: `${h}:30 - ${nextH}:00` // 14:30 - 15:00
+    };
+  };
+
+  // ============================================
+  // EXTRACT UNIQUE INSPECTION DATA
+  // ============================================
+  const extractUniqueInspectionData = (records, masterList = []) => {
+    const uniqueActivities = {};
+
+    // 1) Inisialisasi dari MASTER DATA
+    masterList.forEach((master, idx) => {
+      const key = `master|${master.activity}`;
+      uniqueActivities[key] = {
+        activity: master.activity,
+        good: master.good ?? "-",
+        need: master.need ?? "-",
+        reject: master.reject ?? "-",
+        periode: master.frekuensi || "Tiap Jam",
+        results: {},        // { 14: "1050", 15: "1100" } - untuk Tiap Jam
+        actualTimes: {},    // { 14: ["14:02"], 15: ["15:05"] }
+        picture: {},
+        results30: {},      // { "14:00 - 14:30": "G", "14:30 - 15:00": "N" } - untuk 30 menit
+      };
+    });
+
+    // 2) Parse data dari CombinedInspectionData
+    const safe = Array.isArray(records) ? [...records] : [];
 
     for (const record of safe) {
       try {
@@ -202,45 +177,76 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
           try {
             arr = JSON.parse(txt);
           } catch {
-            arr = [];
+            continue;
           }
 
           for (const inspection of arr) {
-            const key = `${inspection.id}|${inspection.activity}`;
-            if (!uniqueActivities[key]) {
-              uniqueActivities[key] = {
+            let matchKey = Object.keys(uniqueActivities).find(k =>
+              uniqueActivities[k].activity === inspection.activity
+            );
+
+            if (!matchKey) {
+              matchKey = `data|${inspection.activity}`;
+              uniqueActivities[matchKey] = {
                 activity: inspection.activity,
-                standard: inspection.standard,
                 good: inspection.good ?? "-",
                 need: inspection.need ?? "-",
                 reject: inspection.reject ?? "-",
-                results: {},    // per jam
-                results30: {},  // per 30 menit
-                picture: {},    // foto per jam
+                periode: inspection.periode || "Tiap Jam",
+                results: {},
+                actualTimes: {},
+                picture: {},
+                results30: {},
               };
             }
 
-            // simpan per JAM jika ada nilai
-            {
-              const selectedH =
-                selectedHourFromInspection(inspection) ??
-                selectedHourFromRecord(record);
-              if (selectedH !== undefined && isNonEmpty(inspection.results)) {
-                uniqueActivities[key].results[selectedH] = String(inspection.results);
-                if (inspection.picture) {
-                  uniqueActivities[key].picture[selectedH] = inspection.picture;
+            // Check if this is 30-minute data
+            const is30Min = inspection.periode && 
+              String(inspection.periode).toLowerCase().includes("30");
+
+            if (is30Min) {
+              // Handle 30 menit data - simpan ke results30 dengan key timeSlot
+              const timeSlot = inspection.timeSlot || inspection.time_slot;
+              if (timeSlot && isNonEmpty(inspection.results)) {
+                const sKey = normSlot(timeSlot);
+                if (sKey) {
+                  uniqueActivities[matchKey].results30[sKey] = String(inspection.results);
+                  uniqueActivities[matchKey].periode = "30 menit";
+                  
+                  // Simpan actual time
+                  const hour = parseHourFromSlot(timeSlot);
+                  if (hour !== undefined && inspection.time) {
+                    if (!uniqueActivities[matchKey].actualTimes[hour]) {
+                      uniqueActivities[matchKey].actualTimes[hour] = [];
+                    }
+                    const timeStr = String(inspection.time);
+                    if (!uniqueActivities[matchKey].actualTimes[hour].includes(timeStr)) {
+                      uniqueActivities[matchKey].actualTimes[hour].push(timeStr);
+                    }
+                  }
                 }
               }
-            }
+            } else {
+              // Handle Tiap Jam data
+              const hourSlot = inspection.hourSlot || inspection.hour_slot;
+              const hour = parseHourFromSlot(hourSlot);
 
-            // simpan per 30 MENIT
-            if (
-              inspection.periode &&
-              String(inspection.periode).toLowerCase().includes("30")
-            ) {
-              const sKey = normSlot(inspection.timeSlot);
-              if (sKey && isNonEmpty(inspection.results)) {
-                uniqueActivities[key].results30[sKey] = String(inspection.results);
+              if (hour !== undefined && isNonEmpty(inspection.results)) {
+                uniqueActivities[matchKey].results[hour] = String(inspection.results);
+
+                if (inspection.time) {
+                  if (!uniqueActivities[matchKey].actualTimes[hour]) {
+                    uniqueActivities[matchKey].actualTimes[hour] = [];
+                  }
+                  const timeStr = String(inspection.time);
+                  if (!uniqueActivities[matchKey].actualTimes[hour].includes(timeStr)) {
+                    uniqueActivities[matchKey].actualTimes[hour].push(timeStr);
+                  }
+                }
+
+                if (inspection.picture) {
+                  uniqueActivities[matchKey].picture[hour] = inspection.picture;
+                }
               }
             }
           }
@@ -250,60 +256,93 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
       }
     }
 
-    return Object.values(uniqueActivities);
+    const result = Object.values(uniqueActivities);
+    console.log(`📊 Extracted ${result.length} unique activities`);
+    return result;
   };
 
-  // --- Scope kunci per halaman/PO ---
-  const scopeKey = useMemo(() => {
-    const d = (item?.date || "").split("T")[0];
-    return `cilt_actual_locks:${item?.processOrder}|${d}|${item?.shift}|${item?.line}|${item?.machine}`;
-  }, [item]);
+  const normSlot = (s) => {
+    const m = String(s ?? "").match(/(\d{1,2}):?(\d{2})\s*-\s*(\d{1,2}):?(\d{2})/);
+    if (!m) return undefined;
+    const h1 = String(parseInt(m[1], 10)).padStart(2, "0");
+    const m1 = m[2];
+    const h2 = String(parseInt(m[3], 10)).padStart(2, "0");
+    const m2 = m[4];
+    return `${h1}:${m1} - ${h2}:${m2}`;
+  };
 
-  // Load kunci saat mount / scope berubah
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const raw = await AsyncStorage.getItem(scopeKey);
-        if (!cancelled) {
-          setActualLocks(raw ? JSON.parse(raw) : {});
-          setLocksReady(true);
-        }
-      } catch {
-        if (!cancelled) {
-          setActualLocks({});
-          setLocksReady(true);
-        }
+  // ============================================
+  // KUMPULKAN ACTUAL TIMES PER JAM
+  // ============================================
+  const actualTimesPerHour = useMemo(() => {
+    const result = {};
+    shiftHours.forEach(h => {
+      result[h] = new Set();
+    });
+
+    uniqueData.forEach(row => {
+      if (row.actualTimes) {
+        Object.entries(row.actualTimes).forEach(([hourStr, times]) => {
+          const hour = parseInt(hourStr, 10);
+          if (result[hour] && Array.isArray(times)) {
+            times.forEach(t => result[hour].add(t));
+          }
+        });
       }
-    })();
-    return () => { cancelled = true; };
-  }, [scopeKey]);
+    });
 
-  // Simpan kunci dengan debounce, dan skip saat sedang back
-  const locksSaveTimerRef = useRef(null);
-  useEffect(() => {
-    if (!locksReady || leavingRef.current) return;
-    if (locksSaveTimerRef.current) clearTimeout(locksSaveTimerRef.current);
-    locksSaveTimerRef.current = setTimeout(() => {
-      AsyncStorage.setItem(scopeKey, JSON.stringify(actualLocks)).catch(() => {});
-    }, 300);
-    return () => {
-      if (locksSaveTimerRef.current) clearTimeout(locksSaveTimerRef.current);
-    };
-  }, [actualLocks, locksReady, scopeKey]);
+    const sorted = {};
+    Object.keys(result).forEach(h => {
+      sorted[h] = Array.from(result[h]).sort();
+    });
 
-  // Key stabil untuk setiap record
-  const recordKey = (rec) => {
-    return String(
-      rec?.id ??
-      rec?.ID ??
-      rec?.recordId ??
-      rec?.RecordID ??
-      rec?.InputID ??
-      rec?.input_id ??
-      rec?.cilt_id ??
-      `${rec?.submitBy || rec?.createdBy || rec?.user || "unknown"}|${rec?.submitTime || rec?.createdAt || "ts"}`
-    );
+    return sorted;
+  }, [uniqueData, shiftHours]);
+
+  const fetchData = async () => {
+    try {
+      setIsLoading(true);
+
+      const master = await fetchMasterData();
+      setMasterActivities(master);
+
+      const formattedDate = (item?.date ? String(item.date) : "")
+        .split("T")[0] || moment().format("YYYY-MM-DD");
+
+      const controller = new AbortController();
+      fetchData.controller = controller;
+
+      const { data: result, status } = await api.get(
+        `/cilt/reportCILTAll/PERFORMA RED AND GREEN/${encodeURIComponent(
+          item.plant
+        )}/${encodeURIComponent(item.line)}/${encodeURIComponent(
+          item.shift
+        )}/${encodeURIComponent(item.machine)}/${formattedDate}`,
+        { signal: controller.signal }
+      );
+
+      if (status !== 200) throw new Error(`HTTP Error: ${status}`);
+
+      setShiftHours(getShiftHours(item.shift));
+
+      if (Array.isArray(result) && result.length > 0) {
+        setData(result);
+        setUniqueData(extractUniqueInspectionData(result, master));
+      } else {
+        setData([]);
+        setUniqueData(extractUniqueInspectionData([], master));
+      }
+    } catch (error) {
+      if (error?.name === "CanceledError" || error?.code === "ERR_CANCELED") {
+      } else {
+        console.error("Error fetching data:", error);
+        setData([]);
+        setUniqueData(extractUniqueInspectionData([], masterActivities));
+        setShiftHours(getShiftHours(item.shift));
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -312,25 +351,9 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
     });
     return () => {
       task.cancel?.();
-      try { fetchData.controller?.abort?.(); } catch {}
+      try { fetchData.controller?.abort?.(); } catch { }
     };
   }, [item]);
-
-  // Setelah data di-load, tetapkan kunci yang belum ada
-  useEffect(() => {
-    if (!locksReady) return;
-    if (!Array.isArray(data) || data.length === 0) return;
-    let changed = false;
-    const next = { ...actualLocks };
-    for (const rec of data) {
-      const k = recordKey(rec);
-      if (next[k] == null) {
-        const h = intendedHourForRecord(rec);
-        if (h != null) { next[k] = h; changed = true; }
-      }
-    }
-    if (changed) setActualLocks(next);
-  }, [data, locksReady]);
 
   const handlePress = (image) => {
     setSelectedImage(image);
@@ -379,11 +402,17 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
   };
 
   const getResultColor = (result, good, reject) => {
+    if (!result || String(result).trim() === "") return "#f8f9fa";
+
     if (["G", "N", "R"].includes(result)) {
       if (result === "G") return "#d4edda";
       if (result === "N") return "#fff3cd";
       if (result === "R") return "#f8d7da";
     }
+
+    if (String(result).toUpperCase() === "OK") return "#d4edda";
+    if (String(result).toUpperCase() === "NOT OK") return "#f8d7da";
+
     const evalResult = evaluateValue(result, good, reject);
     if (evalResult === "good") return "#d4edda";
     if (evalResult === "need") return "#fff3cd";
@@ -395,108 +424,6 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
     const separatorIndices = [13, 20, 39];
     return separatorIndices.includes(index);
   };
-
-  const _stripTZ = (s) => String(s ?? "").replace(/([Zz]|[+-]\d{2}:?\d{2})$/, "");
-  const parseWIBNaive = (ts) => {
-    if (ts == null) return moment.invalid();
-    if (typeof ts === "number") return moment(ts).tz("Asia/Jakarta");
-    const raw = _stripTZ(ts);
-    const m = raw.match(/(\d{4}-\d{2}-\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?/);
-    if (m) {
-      const [, d, HH, MM, SS = "00"] = m;
-      return moment.tz(`${d} ${HH}:${MM}:${SS}`, "YYYY-MM-DD HH:mm:ss", "Asia/Jakarta");
-    }
-    return moment.tz(raw, "Asia/Jakarta");
-  };
-  const hourFromHourGroup = (hg) => {
-    const m = String(hg ?? "").match(/\d{1,2}/);
-    return m ? parseInt(m[0], 10) : null;
-  };
-  const _parseHourLoose = (s) => {
-    const m = String(s ?? "").match(/\b(\d{1,2})(?::\d{2})?\b/);
-    if (!m) return undefined;
-    const h = Number(m[1]);
-    return Number.isFinite(h) ? h : undefined;
-  };
-  const selectedHourFromInspection = (ins) => {
-    const candidates = [
-      ins?.hourSlot, ins?.hour_slot,
-      ins?.timeSlot, ins?.time_slot,
-      ins?.hour, ins?.selectedHour, ins?.hourSelected
-    ];
-    for (const c of candidates) {
-      const h = _parseHourLoose(c);
-      if (h !== undefined) return h;
-    }
-    return undefined;
-  };
-  const selectedHourFromRecord = (rec) => {
-    const g =
-      rec?.HourGroup ??
-      rec?.hourGroup ??
-      rec?.hour_slot ??
-      rec?.hourSlot ??
-      rec?.timeSlot ??
-      rec?.selectedHour ??
-      rec?.hour;
-    const rg = String(g ?? "");
-    const mRange = rg.match(/(\d{1,2})(?::\d{2})?\s*[-–]\s*(\d{1,2})/);
-    if (mRange) return Number(mRange[1]);
-    return _parseHourLoose(rg);
-  };
-  const hourFromSubmitTime = (rec) => {
-    const t = rec?.__ts;
-    if (t == null) return undefined;
-    const H = moment.tz(t, "Asia/Jakarta").hour();
-    const hours = (Array.isArray(shiftHours) && shiftHours.length > 0)
-      ? shiftHours
-      : getShiftHours(item.shift);
-    return hours.includes(H) ? H : undefined;
-  };
-
-  // Urutan prioritas: item inspection -> submitTime -> header record
-  const intendedHourForRecord = (rec) => {
-    const inspections = parseCombinedInspections(rec);
-    for (let i = inspections.length - 1; i >= 0; i--) {
-      const h = selectedHourFromInspection(inspections[i]);
-      if (h !== undefined) return h;
-    }
-    const h3 = hourFromSubmitTime(rec);
-    if (h3 !== undefined) return h3;
-    const h2 = selectedHourFromRecord(rec);
-    if (h2 !== undefined) return h2;
-    return undefined;
-  };
-
-  const parseCombinedInspections = (rec) => {
-    const chunks = String(rec?.CombinedInspectionData || "").match(/\[[\s\S]*?\]/g) || [];
-    const out = [];
-    for (const txt of chunks) {
-      try {
-        const arr = JSON.parse(txt);
-        if (Array.isArray(arr)) out.push(...arr);
-      } catch {}
-    }
-    return out;
-  };
-
-  // --- Pemetaan chip "Actual Time" berdasarkan kunci yang sudah tersimpan ---
-  const actualTimeMap = useMemo(() => {
-    const map = new Map();
-    if (!locksReady) return map;
-    for (const rec of data) {
-      const k = recordKey(rec);
-      const h = actualLocks[k]; // gunakan jam terkunci
-      if (h == null) continue;
-      if (!map.has(h)) map.set(h, []);
-      map.get(h).push(rec);
-    }
-    for (const entry of map) {
-      const arr = entry[1];
-      arr.sort((a, b) => (a.__ts ?? 0) - (b.__ts ?? 0));
-    }
-    return map;
-  }, [data, actualLocks, locksReady]);
 
   // === Half-hour helper (untuk PDF) ===
   const getHalfHourSlots = (hours) =>
@@ -515,10 +442,12 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
     const nextH = String((hour + 1) % 24).padStart(2, "0");
     const slot = mm === "00" ? `${h}:00 - ${h}:30` : `${h}:30 - ${nextH}:00`;
 
+    // Check 30 menit data first
     if (itemRow?.results30 && itemRow.results30[slot] !== undefined) {
       return itemRow.results30[slot];
     }
 
+    // Fallback to hourly data
     const r = itemRow?.results?.[h] ?? itemRow?.results?.[Number(h)];
     if (r === undefined || r === null || String(r).trim() === "") return "";
 
@@ -542,9 +471,9 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
         <table class="general-info-table">
           <tr>
             <td><strong>Date:</strong> ${moment(
-              item.date,
-              "YYYY-MM-DD HH:mm:ss.SSS"
-            ).format("DD/MM/YY HH:mm:ss")}</td>
+      item.date,
+      "YYYY-MM-DD HH:mm:ss.SSS"
+    ).format("DD/MM/YY HH:mm:ss")}</td>
             <td><strong>Product:</strong> ${item.product}</td>
           </tr>
           <tr>
@@ -564,44 +493,32 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
 
     const halfHourSlots = getHalfHourSlots(shiftHours);
 
-    const actualByHour = {};
-    for (const rec of data) {
-      const k = recordKey(rec);
-      const h = actualLocks[k];
-      if (h == null) continue;
-      (actualByHour[h] ||= []).push(rec);
-    }
-    for (const k of Object.keys(actualByHour)) {
-      actualByHour[+k].sort((a, b) => (a.__ts ?? 0) - (b.__ts ?? 0));
-    }
-
     const actualTimeRow = `
       <tr>
         <td colspan="5" style="font-weight: bold; text-align: center;">Actual Time</td>
         ${halfHourSlots
-          .map(({ hour, mm }) => {
-            const hNum = parseInt(hour, 10);
-            if (mm === "30") {
-              return `<td style="text-align:center; font-weight:bold; background:#f8f9fa">-</td>`;
-            }
-            const related = actualByHour[hNum] || [];
-            if (!related.length) {
-              return `<td style="text-align:center; font-weight:bold; background:#f8f9fa">-</td>`;
-            }
-            const chips = related
-              .map((rec) => {
-                const s = moment.tz(rec.__ts, "Asia/Jakarta");
-                const late = Math.abs(s.hour() - hNum) >= 1;
-                const bg = late ? "#ffebee" : "#e8f5e9";
-                const color = late ? "#d32f2f" : "#2e7d32";
-                return `<div style="background:${bg};color:${color};font-weight:bold;padding:2px 4px;margin:2px;border-radius:3px;display:inline-block;">${s.format(
-                  "HH:mm"
-                )}</div>`;
-              })
-              .join("");
-            return `<td style="text-align:center; background:#f8f9fa">${chips}</td>`;
-          })
-          .join("")}
+        .map(({ hour, mm }) => {
+          const hNum = parseInt(hour, 10);
+          if (mm === "30") {
+            return `<td style="text-align:center; font-weight:bold; background:#f8f9fa">-</td>`;
+          }
+          const times = actualTimesPerHour[hNum] || [];
+          if (!times.length) {
+            return `<td style="text-align:center; font-weight:bold; background:#f8f9fa">-</td>`;
+          }
+          const chips = times
+            .map((timeStr) => {
+              const [hh] = timeStr.split(":");
+              const timeHour = parseInt(hh, 10);
+              const late = Math.abs(timeHour - hNum) >= 1;
+              const bg = late ? "#ffebee" : "#e8f5e9";
+              const color = late ? "#d32f2f" : "#2e7d32";
+              return `<div style="background:${bg};color:${color};font-weight:bold;padding:2px 4px;margin:2px;border-radius:3px;display:inline-block;">${timeStr}</div>`;
+            })
+            .join("");
+          return `<td style="text-align:center; background:#f8f9fa">${chips}</td>`;
+        })
+        .join("")}
       </tr>
     `;
 
@@ -615,15 +532,15 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
         <td class="col-need">${row.need ?? "-"}</td>
         <td class="col-red">${row.reject ?? "-"}</td>
         ${getHalfHourSlots(shiftHours)
-          .map(({ hour, mm }) => {
-            const rawValue = getResultAtHalfHour(row, +hour, mm, {
-              duplicateHourlyToBoth: true,
-            });
-            const bg = getHalfHourBg(rawValue, row.good, row.reject);
-            return `<td class="col-shift" style="background-color:${bg}; font-weight:bold; text-align:center;">${rawValue || ""
-              }</td>`;
-          })
-          .join("")}
+            .map(({ hour, mm }) => {
+              const rawValue = getResultAtHalfHour(row, +hour, mm, {
+                duplicateHourlyToBoth: true,
+              });
+              const bg = getHalfHourBg(rawValue, row.good, row.reject);
+              return `<td class="col-shift" style="background-color:${bg}; font-weight:bold; text-align:center;">${rawValue || ""
+                }</td>`;
+            })
+            .join("")}
       </tr>
     `;
       })
@@ -671,8 +588,8 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
                     <th class="col-need">N</th>
                     <th class="col-red">R</th>
                     ${getHalfHourSlots(shiftHours)
-                      .map(({ hour, mm }) => `<th class="col-shift">${hour}:${mm}</th>`)
-                      .join("")}
+        .map(({ hour, mm }) => `<th class="col-shift">${hour}:${mm}</th>`)
+        .join("")}
                   </tr>
                 </thead>
                 <tbody>
@@ -693,6 +610,99 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
     } catch (error) {
       console.error("Error generating PDF:", error);
     }
+  };
+
+  // ============================================
+  // RENDER CELL untuk setiap jam
+  // Jika periode 30 menit, tampilkan 2 sub-cell
+  // ============================================
+  const renderHourCell = (row, hour, rkey) => {
+    const is30Min = row.periode && String(row.periode).toLowerCase().includes("30");
+    
+    if (is30Min) {
+      // Render 2 sub-cells untuk 30 menit
+      const slots = get30MinSlots(hour);
+      const val1 = row.results30?.[slots.first] || "";
+      const val2 = row.results30?.[slots.second] || "";
+      
+      return (
+        <View 
+          key={`cell-${rkey}-${hour}`} 
+          style={[styles.splitCell, { width: CELL_WIDTHS.hour }]}
+        >
+          {/* Sub-cell 1: XX:00 - XX:30 */}
+          <View style={[
+            styles.halfCell,
+            { backgroundColor: getResultColor(val1, row.good, row.reject) }
+          ]}>
+            <Text style={[styles.cellText, { fontWeight: val1 ? "bold" : "normal", fontSize: 11 }]}>
+              {val1}
+            </Text>
+          </View>
+          
+          {/* Divider */}
+          <View style={styles.cellDivider} />
+          
+          {/* Sub-cell 2: XX:30 - (XX+1):00 */}
+          <View style={[
+            styles.halfCell,
+            { backgroundColor: getResultColor(val2, row.good, row.reject) }
+          ]}>
+            <Text style={[styles.cellText, { fontWeight: val2 ? "bold" : "normal", fontSize: 11 }]}>
+              {val2}
+            </Text>
+          </View>
+        </View>
+      );
+    } else {
+      // Render single cell untuk Tiap Jam
+      const val = row.results?.[hour] || "";
+      return (
+        <TouchableOpacity
+          key={`cell-${rkey}-${hour}`}
+          style={[
+            styles.cell,
+            {
+              width: CELL_WIDTHS.hour,
+              backgroundColor: getResultColor(val, row.good, row.reject),
+            }
+          ]}
+          onPress={() => row.picture?.[hour] && handlePress(row.picture[hour])}
+          disabled={!row.picture?.[hour]}
+        >
+          <Text style={[styles.cellText, { fontWeight: val ? "bold" : "normal" }]}>
+            {val}
+          </Text>
+        </TouchableOpacity>
+      );
+    }
+  };
+
+  // ============================================
+  // RENDER HEADER untuk jam (dengan sub-header 30 menit)
+  // ============================================
+  const renderHourHeaders = () => {
+    return shiftHours.map((hour, index) => (
+      <View 
+        key={`header-${hour}-${index}`}
+        style={[styles.hourHeaderContainer, { width: CELL_WIDTHS.hour }]}
+      >
+        {/* Main hour header */}
+        <View style={styles.hourHeaderMain}>
+          <Text style={styles.headerText}>{pad2(hour)}:00</Text>
+        </View>
+        {/* Sub-headers for 30 min */}
+        <View style={styles.hourHeaderSub}>
+          <View style={styles.halfHeader}>
+            <Text style={styles.subHeaderText}>:00</Text>
+          </View>
+          <View style={styles.halfHeaderDivider} />
+          <View style={styles.halfHeader}>
+            <Text style={styles.subHeaderText}>:30</Text>
+          </View>
+        </View>
+      </View>
+    ));
   };
 
   return (
@@ -753,9 +763,8 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
           <View style={styles.tableWrapper}>
             {/* Sticky Header Container */}
             <View style={styles.stickyContainer}>
-              {/* KIRI fixed (label) + KANAN header ikut translateX(scrollX) */}
               <View style={{ flexDirection: "row" }}>
-                {/* KIRI: dua baris fixed */}
+                {/* KIRI: fixed headers */}
                 <View style={{ width: CELL_WIDTHS.fixedTotal }}>
                   <View style={[styles.actualTimeLabel, { height: actualTimeHeight }]}>
                     <Text style={styles.actualTimeText}>Actual Time</Text>
@@ -779,7 +788,7 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
                   </View>
                 </View>
 
-                {/* KANAN: header TIDAK discroll; ikut body via translateX */}
+                {/* KANAN: scrollable headers */}
                 <View style={{ flex: 1, overflow: "hidden" }}>
                   <Animated.View
                     style={{
@@ -787,25 +796,25 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
                       transform: [{ translateX: Animated.multiply(scrollX, -1) }],
                     }}
                   >
-                    {/* Baris actual time (abu) */}
+                    {/* Baris actual time */}
                     <View
                       style={[styles.actualTimeContent, { backgroundColor: "#f8f9fa" }]}
                       onLayout={(e) => setActualTimeHeight(e.nativeEvent.layout.height)}
                     >
                       {shiftHours.map((hour, idx) => {
-                        const relatedItems = actualTimeMap.get(Number(hour)) || [];
+                        const timesForHour = actualTimesPerHour[hour] || [];
                         return (
                           <View
                             key={`time-${hour}-${idx}`}
                             style={[styles.actualTimeCell, { width: CELL_WIDTHS.hour }]}
                           >
-                            {relatedItems.length === 0 ? (
+                            {timesForHour.length === 0 ? (
                               <Text style={styles.actualTimeEmpty}>-</Text>
                             ) : (
-                              relatedItems.map((rec, idy) => {
-                                const s = moment.tz(rec.__ts, "Asia/Jakarta");
-                                const actualStr = s.format("HH:mm");
-                                const isLate = Math.abs(s.hour() - Number(hour)) >= 1;
+                              timesForHour.map((timeStr, idy) => {
+                                const [hh] = timeStr.split(":");
+                                const timeHour = parseInt(hh, 10);
+                                const isLate = Math.abs(timeHour - Number(hour)) >= 1;
                                 return (
                                   <View
                                     key={`time-chip-${hour}-${idy}`}
@@ -820,7 +829,7 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
                                         { color: isLate ? "#d32f2f" : "#2e7d32" },
                                       ]}
                                     >
-                                      {actualStr}
+                                      {timeStr}
                                     </Text>
                                   </View>
                                 );
@@ -831,23 +840,16 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
                       })}
                     </View>
 
-                    {/* Baris header jam (hijau) */}
-                    <View style={{ flexDirection: "row", backgroundColor: "#3bcd6b", minHeight: 45 }}>
-                      {shiftHours.map((hour, index) => (
-                        <View
-                          key={`header-${hour}-${index}`}
-                          style={[styles.headerCell, { width: CELL_WIDTHS.hour, borderRightColor: "rgba(255,255,255,0.3)" }]}
-                        >
-                          <Text style={styles.headerText}>{pad2(hour)}:00</Text>
-                        </View>
-                      ))}
+                    {/* Baris header jam dengan sub-header */}
+                    <View style={styles.hourHeaderRow}>
+                      {renderHourHeaders()}
                     </View>
                   </Animated.View>
                 </View>
               </View>
             </View>
 
-            {/* Konten (scroll vertikal + satu scroll horizontal untuk seluruh body kanan) */}
+            {/* Konten table */}
             <ScrollView
               ref={verticalScrollRef}
               style={styles.tableContent}
@@ -855,33 +857,45 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
               nestedScrollEnabled={true}
             >
               <View style={{ flexDirection: "row" }}>
-                {/* KIRI: kolom fixed semua baris */}
+                {/* KIRI: kolom fixed */}
                 <View>
                   {uniqueData.map((row, index) => {
                     const rkey = rowKey(row, index);
+                    const isSeparatorRow = shouldShowSeparator(index);
                     return (
-                      <View key={`fixed-${rkey}`}
-                        onLayout={(e) => setLH(index, e.nativeEvent.layout.height)}>
+                      <View key={`fixed-${rkey}`}>
                         <View style={[
                           styles.tableRow,
                           index % 2 === 1 && styles.tableRowAlt,
-                          { height: rowHeight(index) }
+                          { height: ROW_HEIGHT }
                         ]}>
                           <View style={styles.fixedColumns}>
-                            <View style={[styles.cell, { width: CELL_WIDTHS.no }]}><Text style={styles.cellText}>{index + 1}</Text></View>
-                            <View style={[styles.cell, { width: CELL_WIDTHS.activity }]}><Text style={styles.activityText}>{row.activity}</Text></View>
-                            <View style={[styles.cell, { width: CELL_WIDTHS.status }]}><Text style={styles.cellText}>{row.good ?? "-"}</Text></View>
-                            <View style={[styles.cell, { width: CELL_WIDTHS.status }]}><Text style={styles.cellText}>{row.need ?? "-"}</Text></View>
-                            <View style={[styles.cell, { width: CELL_WIDTHS.status }]}><Text style={styles.cellText}>{row.reject ?? "-"}</Text></View>
+                            <View style={[styles.cell, { width: CELL_WIDTHS.no }]}>
+                              <Text style={styles.cellText}>{index + 1}</Text>
+                            </View>
+                            <View style={[styles.cell, { width: CELL_WIDTHS.activity }]}>
+                              <Text style={styles.activityText} numberOfLines={2}>
+                                {row.activity}
+                              </Text>
+                            </View>
+                            <View style={[styles.cell, { width: CELL_WIDTHS.status }]}>
+                              <Text style={styles.cellText}>{row.good ?? "-"}</Text>
+                            </View>
+                            <View style={[styles.cell, { width: CELL_WIDTHS.status }]}>
+                              <Text style={styles.cellText}>{row.need ?? "-"}</Text>
+                            </View>
+                            <View style={[styles.cell, { width: CELL_WIDTHS.status }]}>
+                              <Text style={styles.cellText}>{row.reject ?? "-"}</Text>
+                            </View>
                           </View>
                         </View>
-                        {shouldShowSeparator(index) && <View style={styles.sectionSeparator} />}
+                        {isSeparatorRow && <View style={styles.sectionSeparator} />}
                       </View>
                     );
                   })}
                 </View>
 
-                {/* KANAN: Animated.ScrollView sebagai satu-satunya sumber scroll horizontal */}
+                {/* KANAN: scrollable cells */}
                 <Animated.ScrollView
                   ref={hBodyRef}
                   horizontal
@@ -896,39 +910,19 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
                   <View>
                     {uniqueData.map((row, index) => {
                       const rkey = rowKey(row, index);
+                      const isSeparatorRow = shouldShowSeparator(index);
                       return (
                         <View key={`cells-${rkey}`}>
                           <View style={[
                             styles.tableRow,
                             index % 2 === 1 && styles.tableRowAlt,
-                            { height: rowHeight(index) }
+                            { height: ROW_HEIGHT }
                           ]}>
                             <View style={styles.scrollableContent}>
-                              {shiftHours.map((hour, idx) => {
-                                const val = row.results?.[hour];
-                                return (
-                                  <TouchableOpacity
-                                    key={`cell-${rkey}-${hour}-${idx}`}
-                                    style={[
-                                      styles.cell,
-                                      {
-                                        width: CELL_WIDTHS.hour,
-                                        backgroundColor: getResultColor(val, row.good, row.reject),
-                                        height: '100%'
-                                      }
-                                    ]}
-                                    onPress={() => row.picture?.[hour] && handlePress(row.picture[hour])}
-                                    disabled={!row.picture?.[hour]}
-                                  >
-                                    <Text style={[styles.cellText, { fontWeight: val ? "bold" : "normal" }]}>
-                                      {val || ""}
-                                    </Text>
-                                  </TouchableOpacity>
-                                );
-                              })}
+                              {shiftHours.map((hour) => renderHourCell(row, hour, rkey))}
                             </View>
                           </View>
-                          {shouldShowSeparator(index) && <View style={styles.sectionSeparator} />}
+                          {isSeparatorRow && <View style={styles.sectionSeparator} />}
                         </View>
                       );
                     })}
@@ -1057,15 +1051,16 @@ const styles = StyleSheet.create({
     padding: 4,
     borderRightWidth: 1,
     borderRightColor: "#e0e0e0",
+    minHeight: 50,
   },
   actualTimeBox: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
     borderRadius: 4,
-    marginVertical: 2,
+    marginVertical: 1,
   },
   actualTimeValue: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "600",
   },
   actualTimeEmpty: {
@@ -1092,14 +1087,47 @@ const styles = StyleSheet.create({
     fontSize: 13,
     textAlign: "center",
   },
+  // Hour header with sub-headers
+  hourHeaderRow: {
+    flexDirection: "row",
+    backgroundColor: "#3bcd6b",
+  },
+  hourHeaderContainer: {
+    borderRightWidth: 1,
+    borderRightColor: "rgba(255,255,255,0.3)",
+  },
+  hourHeaderMain: {
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.3)",
+  },
+  hourHeaderSub: {
+    flexDirection: "row",
+    height: 20,
+  },
+  halfHeader: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  halfHeaderDivider: {
+    width: 1,
+    backgroundColor: "rgba(255,255,255,0.3)",
+  },
+  subHeaderText: {
+    color: "#fff",
+    fontWeight: "500",
+    fontSize: 10,
+  },
   tableContent: {
-    maxHeight: 757.7,
+    maxHeight: 700,
   },
   tableRow: {
     flexDirection: "row",
     borderBottomWidth: 1,
     borderBottomColor: "#e0e0e0",
-    minHeight: 45,
     alignItems: "stretch",
   },
   tableRowAlt: {
@@ -1114,21 +1142,37 @@ const styles = StyleSheet.create({
   cell: {
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 5,
-    paddingVertical: 8,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
     borderRightWidth: 1,
     borderRightColor: "#e0e0e0",
   },
+  // Split cell for 30-minute data
+  splitCell: {
+    flexDirection: "row",
+    borderRightWidth: 1,
+    borderRightColor: "#e0e0e0",
+  },
+  halfCell: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 4,
+    paddingHorizontal: 2,
+  },
+  cellDivider: {
+    width: 1,
+    backgroundColor: "#ccc",
+  },
   cellText: {
-    fontSize: 13,
+    fontSize: 12,
     textAlign: "center",
     color: "#333",
   },
   activityText: {
-    fontSize: 13,
+    fontSize: 11,
     color: "#333",
-    paddingHorizontal: 10,
-    flexWrap: "wrap"
+    paddingHorizontal: 6,
   },
   sectionSeparator: {
     height: 3,
