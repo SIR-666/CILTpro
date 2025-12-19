@@ -3,7 +3,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Picker } from "@react-native-picker/picker";
 import * as ScreenOrientation from "expo-screen-orientation";
 import moment from "moment-timezone";
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useFocusEffect } from "@react-navigation/native";
 import {
   ActivityIndicator,
@@ -162,6 +162,7 @@ const CILTinspection = ({ route, navigation }) => {
   const [lineOptions, setLineOptions] = useState([]);
   const [machineOptions, setMachineOptions] = useState([]);
   const [packageOptions, setPackageOptions] = useState([]);
+  const [packageMasterRaw, setPackageMasterRaw] = useState([]);
   // Cache untuk menyimpan data inspection per package type
   const [packageDataCache, setPackageDataCache] = useState({});
   // Cache untuk menyimpan description data (khusus Segregasi)
@@ -171,6 +172,8 @@ const CILTinspection = ({ route, navigation }) => {
   const [customMachines, setCustomMachines] = useState([]);
   const [customPackages, setCustomPackages] = useState([]);
   const [isCustomDataLoaded, setIsCustomDataLoaded] = useState(false);
+
+  const savedSelectionsRef = useRef({ plant: "", line: "", machine: "" });
 
   const mergedMachineOptions = useMemo(() => {
     const base = Array.isArray(machineOptions) ? machineOptions : [];
@@ -241,6 +244,7 @@ const CILTinspection = ({ route, navigation }) => {
       setCustomPackages(packages);
       console.log(`Loaded ${packages.length} custom packages`);
       setIsCustomDataLoaded(true);
+      await fetchPackageMaster();
 
     } catch (error) {
       console.error("Failed to fetch custom data:", error);
@@ -251,54 +255,28 @@ const CILTinspection = ({ route, navigation }) => {
     }
   };
 
-  // fetchPackageMaster function
-  const fetchPackageMaster = async (selectedLine = null) => {
+  const fetchPackageMaster = async () => {
     try {
       const response = await api.get("/package-master");
-      const data = response.data;
+      const data = Array.isArray(response.data) ? response.data : [];
+      setPackageMasterRaw(data);
 
-      // Merge plant options: package_master custom_plants
+      // Merge plant options: package_master + custom_plants
       const packageMasterPlants = [...new Set(data.map((item) => item.plant).filter(Boolean))];
       const mergedPlants = [...new Set([...packageMasterPlants, ...customPlants])].filter(Boolean);
       setPlantOptions(mergedPlants.sort());
 
-      // Merge machine options: package_master custom_machines
+      // Merge machine options: package_master + custom_machines
       const packageMasterMachines = [...new Set(data.map((item) => item.machine).filter(Boolean))];
       const mergedMachines = [...new Set([...packageMasterMachines, ...customMachines])].filter(Boolean);
       setMachineOptions(mergedMachines.sort());
 
-      // Line options (hanya dari package_master, karena custom package terikat ke line existing)
+      // Line options (hanya dari package_master)
       const uniqueLines = [...new Set(data.map((item) => item.line).filter(Boolean))];
       setLineOptions(uniqueLines.sort());
 
-      const filteredPackagesFromMaster = data.filter((item) => {
-        const matchPlant =
-          plant ? item.plant?.toUpperCase() === plant.toUpperCase() : true;
-        const matchLine =
-          selectedLine
-            ? item.line?.toUpperCase() === selectedLine.toUpperCase()
-            : true;
-        const matchMachine =
-          machine
-            ? item.machine?.toUpperCase() === machine.toUpperCase()
-            : true;
-
-        return matchPlant && matchLine && matchMachine;
-      });
-
-      const filteredCustomPackages = selectedLine
-        ? customPackages.filter(
-          (item) =>
-            item.line?.toUpperCase().trim() === selectedLine.toUpperCase().trim()
-        )
-        : customPackages;
-
-      // Merge package options dari package_master custom
-      const packageMasterPackages = [...new Set(filteredPackagesFromMaster.map((item) => item.package).filter(Boolean))];
-      const customPackageNames = filteredCustomPackages.map(item => item.package).filter(Boolean);
-      const mergedPackages = [...new Set([...packageMasterPackages, ...customPackageNames])].filter(Boolean);
-
-      setPackageOptions(mergedPackages.sort());
+      // JANGAN set packageOptions di sini - biarkan useEffect filtering yang handle
+      console.log("Package master loaded:", data.length, "items");
     } catch (error) {
       console.error("Failed to fetch /package-master:", error);
     }
@@ -311,8 +289,34 @@ const CILTinspection = ({ route, navigation }) => {
       );
     };
 
+    const loadSavedSelections = async () => {
+      const savedPlant = await AsyncStorage.getItem("plant");
+      const savedLine = await AsyncStorage.getItem("line");
+      const savedMachine = await AsyncStorage.getItem("machine");
+      const savedProduct = await AsyncStorage.getItem("product");
+
+      // Simpan ke ref untuk digunakan di filtering
+      savedSelectionsRef.current = {
+        plant: savedPlant || "",
+        line: savedLine || "",
+        machine: savedMachine || ""
+      };
+
+      if (savedPlant) setPlant(savedPlant);
+      if (savedLine) setLine(savedLine);
+      if (savedMachine) setMachine(savedMachine);
+      if (savedProduct) {
+        setBaseProduct(savedProduct);
+        setProduct(savedProduct);
+      }
+      return { savedPlant, savedLine, savedMachine };
+    };
+
     const initializeData = async () => {
       await lockOrientation();
+      const saved = await loadSavedSelections();
+      console.log("Loaded saved selections:", saved);
+      console.log("Ref values:", savedSelectionsRef.current);
       await fetchCustomData();
     };
     initializeData();
@@ -320,27 +324,66 @@ const CILTinspection = ({ route, navigation }) => {
   }, []);
 
   useEffect(() => {
-    if (!line) return;
-    if (!isCustomDataLoaded) return;
+    if (!packageMasterRaw.length) {
+      setPackageOptions([]);
+      return;
+    }
 
-    console.log(`Fetching package master for line: ${line}`);
-    fetchPackageMaster(line);
-  }, [line, isCustomDataLoaded, customPackages]);
+    // Gunakan nilai dari state, ATAU dari ref jika state masih kosong (initial load)
+    const effectivePlant = plant || savedSelectionsRef.current.plant;
+    const effectiveLine = line || savedSelectionsRef.current.line;
+    const effectiveMachine = machine || savedSelectionsRef.current.machine;
 
-  useEffect(() => {
-    const loadDate = async () => {
-      setPlant(await AsyncStorage.getItem("plant"));
-      setLine(await AsyncStorage.getItem("line"));
-      const savedMachine = await AsyncStorage.getItem("machine");
-      if (savedMachine) setMachine(savedMachine);
-      const savedProduct = await AsyncStorage.getItem("product");
-      if (savedProduct) {
-        setBaseProduct(savedProduct);
-        setProduct(savedProduct);
-      }
-    };
-    loadDate();
-  }, []);
+    // Skip filtering jika tidak ada filter sama sekali
+    if (!effectivePlant && !effectiveLine && !effectiveMachine) {
+      console.log("No filters set, showing empty packages");
+      setPackageOptions([]);
+      return;
+    }
+
+    // Filter dari package master dengan kombinasi plant + line + machine
+    const filteredMaster = packageMasterRaw.filter(item => {
+      const matchPlant = effectivePlant
+        ? item.plant?.toUpperCase().trim() === effectivePlant.toUpperCase().trim()
+        : true;
+      const matchLine = effectiveLine
+        ? item.line?.toUpperCase().trim() === effectiveLine.toUpperCase().trim()
+        : true;
+      const matchMachine = effectiveMachine
+        ? item.machine?.toUpperCase().trim() === effectiveMachine.toUpperCase().trim()
+        : true;
+
+      return matchPlant && matchLine && matchMachine;
+    });
+
+    // Filter custom packages dengan kombinasi line + machine
+    const filteredCustom = customPackages.filter(item => {
+      const matchLine = effectiveLine
+        ? item.line?.toUpperCase().trim() === effectiveLine.toUpperCase().trim()
+        : true;
+      const matchMachine = effectiveMachine && item.machine
+        ? item.machine?.toUpperCase().trim() === effectiveMachine.toUpperCase().trim()
+        : true;
+
+      return matchLine && matchMachine;
+    });
+
+    const mergedPackages = [
+      ...new Set([
+        ...filteredMaster.map(i => i.package),
+        ...filteredCustom.map(i => i.package),
+      ].filter(Boolean)),
+    ];
+
+    console.log("Final filtered packages:", mergedPackages);
+
+    setPackageOptions(mergedPackages.sort());
+
+    // Reset packageType jika tidak ada dalam options yang baru
+    if (packageType && !mergedPackages.includes(packageType)) {
+      setPackageType("");
+    }
+  }, [plant, line, machine, packageMasterRaw, customPackages, packageType]);
 
   const shiftOptions = [
     { label: "Shift 1", value: "Shift 1" },
@@ -350,8 +393,10 @@ const CILTinspection = ({ route, navigation }) => {
 
   useFocusEffect(
     useCallback(() => {
-      refreshCustomDataSilently();
-    }, [line])
+      if (!isCustomDataLoaded && packageMasterRaw.length === 0) {
+        refreshCustomDataSilently();
+      }
+    }, [isCustomDataLoaded, packageMasterRaw.length])
   );
 
   // function untuk manual refresh custom data
@@ -369,7 +414,6 @@ const CILTinspection = ({ route, navigation }) => {
   const refreshCustomDataSilently = async () => {
     try {
       console.log("Auto refreshing custom data on screen focus...");
-      setIsCustomDataLoaded(false);
       await fetchCustomData();
     } catch (error) {
       console.error("Error auto refreshing custom data:", error);
@@ -622,7 +666,6 @@ const CILTinspection = ({ route, navigation }) => {
 
               // Always save description data for SEGREGASI package, even if partially filled
               if (packageType === "SEGREGASI") {
-                console.log("=== SAVING DESCRIPTION DATA ===");
                 console.log("segregationDescriptionData:", segregationDescriptionData);
 
                 // Save description data even if partially filled or empty
@@ -635,10 +678,6 @@ const CILTinspection = ({ route, navigation }) => {
                   lastModifiedTime: moment().tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm:ss")
                 }));
                 order.descriptionDataWithMeta = JSON.stringify(descriptionWithMeta);
-
-                console.log("order.descriptionData:", order.descriptionData);
-                console.log("order.descriptionDataWithMeta:", order.descriptionDataWithMeta);
-                console.log("=== END DESCRIPTION DATA ===");
               }
 
               console.log("Submitting order:", order);
@@ -715,6 +754,7 @@ const CILTinspection = ({ route, navigation }) => {
   const resetForm = async () => {
     try {
       // Bersihkan storage yang menyimpan pilihan terakhir
+      savedSelectionsRef.current = { plant: "", line: "", machine: "" };
       await AsyncStorage.multiRemove(["plant", "line", "machine", "product"]);
 
       // Jika ada storage paket khusus, bersihkan juga

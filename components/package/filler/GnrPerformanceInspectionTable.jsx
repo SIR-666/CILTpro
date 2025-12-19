@@ -618,13 +618,10 @@ const GnrPerformanceInspectionTable = ({
     const current30MinSlot =
       selected30MinSlotRef.current || selected30MinSlot || "";
 
-    console.log("=== SAVE DATA BEFORE SUBMIT ===");
     console.log("hourlyData slots:", Object.keys(hourlyData));
     console.log("saved30MinData slots:", Object.keys(saved30MinData));
 
-    // ============================================
     // BUILD COMPLETE SNAPSHOT DARI SEMUA JAM
-    // ============================================
     const completeSnapshot = [];
     let idCounter = 1;
 
@@ -652,12 +649,12 @@ const GnrPerformanceInspectionTable = ({
             isGroupHeader: baseItem.isGroupHeader,
             isSubItem: baseItem.isSubItem,
             groupName: baseItem.groupName,
-            // Data spesifik per jam - PENTING!
+            // Data spesifik per jam
             results: itemData.results ?? "",
             user: itemData.user || username,
             time: itemData.time || nowTimeStr(),
             done: !!itemData.results,
-            hourSlot: slot,  // ← PENTING: slot jam yang benar untuk setiap entry
+            hourSlot: slot,  // slot jam yang benar untuk setiap entry
             timeSlot: "",
             evaluatedResult: itemData.evaluatedResult || ""
           });
@@ -695,7 +692,7 @@ const GnrPerformanceInspectionTable = ({
             time: itemData.time || nowTimeStr(),
             done: true,
             hourSlot: "",
-            timeSlot: slot,  // ← PENTING: slot 30 menit yang benar
+            timeSlot: slot,  // slot 30 menit yang benar
             evaluatedResult: itemData.evaluatedResult || ""
           });
 
@@ -733,7 +730,7 @@ const GnrPerformanceInspectionTable = ({
       }
     });
 
-    // === UPDATE EXPIRY TIME SEMUA SLOT ===
+    // UPDATE EXPIRY TIME SEMUA SLOT
     const updatedExpiry = { ...dataExpiryTimes };
     Object.keys(hourlyData).forEach(slot => {
       updatedExpiry[`hourly_${slot}`] = getNextShift1CutoffTs();
@@ -743,7 +740,7 @@ const GnrPerformanceInspectionTable = ({
     });
     setDataExpiryTimes(updatedExpiry);
 
-    // === SIMPAN KE STORAGE ===
+    // SIMPAN KE STORAGE
     const hourlyKey = getStorageKey("hourly");
     const thirtyMinKey = getStorageKey("30min");
     const expiryKey = getStorageKey("expiry");
@@ -1387,9 +1384,7 @@ const GnrPerformanceInspectionTable = ({
     }
   }, [selectedHourlySlot, selected30MinSlot, isUserActive, hasUnsavedData]);
 
-  // ============================================
   // onDataChange - Kirim COMPLETE SNAPSHOT dari semua jam
-  // ============================================
   useEffect(() => {
     // Build complete snapshot untuk dikirim ke parent
     const buildCompleteSnapshotForParent = () => {

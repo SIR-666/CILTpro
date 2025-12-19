@@ -15,16 +15,112 @@ import {
 } from "react-native";
 import { COLORS } from "../../constants/theme";
 
+const esc = (s = "") => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+const headerMeta = { frm: "FIL - 010 - 02", rev: "-", berlaku: "11-Jun-25", hal: "1 dari 3" };
+
+// Helper: Check if row has meaningful data
+const isRowFilled = (r) => {
+  return r && (
+    String(r.jam || "").trim() !== "" || 
+    String(r.boxNo || "").trim() !== "" || 
+    String(r.pdPaper || "").trim() !== "" || 
+    String(r.qtyLabel || "").trim() !== ""
+  );
+};
+
+// EXPORT: Generate PDF HTML untuk dipakai di ListCILT
+export const generatePDFHTML = (item) => {
+  let inspectionData = [];
+  try { inspectionData = JSON.parse(item.inspectionData); } catch (e) { inspectionData = []; }
+  
+  // Filter hanya row yang memiliki data
+  const filledData = Array.isArray(inspectionData) ? inspectionData.filter(isRowFilled) : [];
+  const cekAlergenKemasan = Array.isArray(inspectionData) && !!inspectionData[0]?.cekAlergenKemasan;
+
+  const rows = filledData.length > 0 ? filledData.map((r, i) => `
+    <tr>
+      <td style="padding: 12px 8px;">${i + 1}</td>
+      <td style="padding: 12px 8px;">${esc(r.jam)}</td>
+      <td style="padding: 12px 8px;">${esc(r.boxNo)}</td>
+      <td style="padding: 12px 8px;">${esc(r.pdPaper)}</td>
+      <td style="padding: 12px 8px;">${esc(r.qtyLabel)}</td>
+      <td style="padding: 12px 8px;">${esc(r.user)}</td>
+      <td style="padding: 12px 8px;">${esc(r.time)}</td>
+    </tr>
+  `).join("") : `<tr><td colspan="7" style="text-align: center; padding: 20px; color: #666; font-style: italic;">Tidak ada data yang diinput</td></tr>`;
+
+  return `
+    <section class="report-section paper-section">
+      <div class="header-container">
+        <table class="header-main-table">
+          <tr>
+            <td class="logo-section"><div class="logo-green">Greenfields</div></td>
+            <td class="company-section">PT. GREENFIELDS INDONESIA</td>
+            <td class="meta-section">
+              <table class="meta-info-table">
+                <tr><td class="meta-label">FRM</td><td>:</td><td>${headerMeta.frm}</td></tr>
+                <tr><td class="meta-label">Rev</td><td>:</td><td>${headerMeta.rev}</td></tr>
+                <tr><td class="meta-label">Berlaku</td><td>:</td><td>${headerMeta.berlaku}</td></tr>
+                <tr><td class="meta-label">Hal</td><td>:</td><td>${headerMeta.hal}</td></tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        <table class="header-title-table">
+          <tr><td class="title-label">JUDUL</td><td class="title-content">PEMAKAIAN PAPER</td></tr>
+        </table>
+      </div>
+
+      <div class="report-info">
+        <p><strong>Process Order:</strong> ${esc(item.processOrder)}</p>
+        <table class="general-info-table">
+          <tr><td><strong>Date:</strong> ${moment(item.date).format("DD/MM/YY HH:mm:ss")}</td><td><strong>Product:</strong> ${esc(item.product)}</td></tr>
+          <tr><td><strong>Plant:</strong> ${esc(item.plant)}</td><td><strong>Line:</strong> ${esc(item.line)}</td></tr>
+          <tr><td><strong>Machine:</strong> ${esc(item.machine)}</td><td><strong>Shift:</strong> ${esc(item.shift)}</td></tr>
+          <tr><td><strong>Package:</strong> ${esc(item.packageType)}</td><td><strong>Group:</strong> </td></tr>
+        </table>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;margin:8px 0;">
+        <div></div>
+        <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 0;">PEMAKAIAN PAPER</h2>
+        <div style="justify-self:end;display:flex;align-items:center;gap:8px;">
+          <div style="width:14px;height:14px;border:2px solid #111;display:flex;align-items:center;justify-content:center;">
+            ${cekAlergenKemasan ? "✔" : ""}
+          </div>
+          <span style="font-weight:700;">CEK LABEL ALERGEN KEMASAN</span>
+        </div>
+      </div>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th style="padding: 12px 8px; min-width: 40px;">No</th>
+            <th style="padding: 12px 8px; min-width: 100px;">Jam</th>
+            <th style="padding: 12px 8px; min-width: 100px;">Box No.</th>
+            <th style="padding: 12px 8px; min-width: 120px;">PD. Paper</th>
+            <th style="padding: 12px 8px; min-width: 100px;">Qty Label</th>
+            <th style="padding: 12px 8px; min-width: 80px;">User</th>
+            <th style="padding: 12px 8px; min-width: 80px;">Time</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </section>
+  `;
+};
+
+// COMPONENT
 const DetailLaporanPaperUsage = ({ route, navigation }) => {
   const { item } = route.params;
   const [selectedImage, setSelectedImage] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
 
   const { width } = Dimensions.get("window");
-  const modalImageSize = width * 0.8; // 80% of screen width
+  const modalImageSize = width * 0.8;
 
-  // Parse the inspection data (string to object)
   const inspectionData = JSON.parse(item.inspectionData);
+  // Filter data untuk tampilan
+  const filledInspectionData = Array.isArray(inspectionData) ? inspectionData.filter(isRowFilled) : [];
   const cekAlergenKemasan = Array.isArray(inspectionData) && !!inspectionData[0]?.cekAlergenKemasan;
 
   const handleLanjutkanDraft = (item) => {
@@ -32,143 +128,39 @@ const DetailLaporanPaperUsage = ({ route, navigation }) => {
   };
 
   const printToFile = async () => {
-    // Format Data Tambahan dengan layout dua kolom
-    const formattedData = `
-      <p><strong>Process Order:</strong> ${item.processOrder}</p>
-      <table class="general-info-table">
-        <tr>
-          <td><strong>Date:</strong> ${moment(
-      item.date,
-      "YYYY-MM-DD HH:mm:ss.SSS"
-    ).format("DD/MM/YY HH:mm:ss")}</td>
-          <td><strong>Product:</strong> ${item.product}</td>
-        </tr>
-        <tr>
-          <td><strong>Plant:</strong> ${item.plant}</td>
-          <td><strong>Line:</strong> ${item.line}</td>
-        </tr>
-        <tr>
-          <td><strong>Machine:</strong> ${item.machine}</td>
-          <td><strong>Shift:</strong> ${item.shift}</td>
-        </tr>
-        <tr>
-          <td><strong>Package:</strong> ${item.packageType}</td>
-          <td><strong>Group:</strong>  </td>
-        </tr>
-      </table>
-    `;
-
-    // Badge/box "Cek Alergen"
-    const alergenBox = `
-      <div style="display:flex;align-items:center;gap:8px;margin:4px 0 8px 0;">
-        <div style="width:14px;height:14px;border:2px solid #111;display:flex;align-items:center;justify-content:center;">
-          ${cekAlergenKemasan ? "✓" : ""}
-        </div>
-        <span style="font-weight:700;">CEK LABEL ALERGEN KEMASAN</span>
-      </div>
-    `;
-
-    // Mapping inspectionData ke dalam tabel
-    const inspectionRows = inspectionData
-      .map((item, index) => {
-        return `
-        <tr>
-          <td>${index + 1}</td>
-          <td>${item.jam}</td>
-          <td>${item.boxNo}</td>
-          <td>${item.pdPaper}</td>
-          <td>${item.qtyLabel}</td>
-          <td>${item.user}</td>
-          <td>${item.time}</td>
-        </tr>
-      `;
-      })
-      .join("");
-
-    // HTML untuk file yang akan dicetak
     const html = `
       <html>
         <head>
-          <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
           <style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
+            body { font-family: Arial, sans-serif; margin: 20px; font-size: 12px; }
             h2 { text-align: center; }
-            .report-info { text-align: left; margin-bottom: 12px; }
-            
-            p {
-              margin-bottom: 0; /* Hilangkan margin bawah dari paragraf */
-            }
-
-            .row {
-              display: flex;
-              gap: 10px; /* Jarak antar elemen dalam row */
-              margin-top: 0; /* Hilangkan margin atas agar lebih dekat */
-            }
-  
-            .general-info-table {
-              width: 100%; 
-              border-collapse: collapse; 
-              margin-top: 3px;
-            }
-  
-            .general-info-table td { 
-              border: 1px solid black; 
-              padding: 5px; 
-              text-align: left; 
-              vertical-align: top; 
-            }
-  
-            table { 
-              width: 100%; 
-              border-collapse: collapse; 
-              margin-top: 10px; 
-            }
-  
-            th, td { 
-              border: 1px solid black; 
-              padding: 8px; 
-              text-align: left; 
-            }
-  
-            th { 
-              background-color: #f2f2f2; 
-            }
-  
-            img { 
-              display: block; 
-              margin: auto; 
-            }
+            .header-main-table { width: 100%; border-collapse: collapse; border: 1px solid #000; }
+            .header-main-table td { border: 1px solid #000; padding: 8px; }
+            .logo-section { width: 120px; background-color: #90EE90; text-align: center; }
+            .logo-green { font-weight: bold; font-size: 16px; color: #2d5016; }
+            .company-section { text-align: center; font-weight: bold; font-size: 14px; }
+            .meta-section { width: 150px; font-size: 10px; }
+            .meta-info-table td { border: none; padding: 2px; }
+            .meta-label { font-weight: 600; width: 50px; }
+            .header-title-table { width: 100%; border-collapse: collapse; border: 1px solid #000; border-top: none; }
+            .header-title-table td { border: 1px solid #000; padding: 8px; }
+            .title-label { width: 120px; text-align: center; background-color: #f5f5f5; }
+            .title-content { text-align: center; font-weight: bold; font-size: 12px; }
+            .report-info { margin-bottom: 12px; }
+            .general-info-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            .general-info-table td { border: 1px solid black; padding: 5px; }
+            .data-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            .data-table th, .data-table td { border: 1px solid black; padding: 12px 8px; text-align: center; min-height: 40px; }
+            .data-table th { background-color: #f2f2f2; }
           </style>
         </head>
-        <body>
-          <h2>PT. GREENFIELDS INDONESIA</h2>
-          <div class="report-info">
-            ${formattedData}
-            ${alergenBox}
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>No</th>
-                <th>Jam</th>
-                <th>Box No.</th>
-                <th>PD. Paper</th>
-                <th>Qty Label</th>
-                <th>User</th>
-                <th>Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${inspectionRows}
-            </tbody>
-          </table>
-        </body>
+        <body>${generatePDFHTML(item)}</body>
       </html>
     `;
 
     try {
       const { uri } = await Print.printToFileAsync({ html });
-      console.log("File has been saved to:", uri);
       await shareAsync(uri, { UTI: ".pdf", mimeType: "application/pdf" });
     } catch (error) {
       console.error("Error generating PDF:", error);
@@ -178,184 +170,67 @@ const DetailLaporanPaperUsage = ({ route, navigation }) => {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView>
-        {/* Header Information */}
         <View style={styles.header}>
           <Text style={styles.title}>Detail Data</Text>
-          <Text style={styles.infoTextBold}>
-            Date:{"              "}
-            <Text style={styles.infoText}>
-              {moment(item.date, "YYYY-MM-DD HH:mm:ss.SSS").format(
-                "DD/MM/YY HH:mm:ss"
-              )}
-            </Text>
-          </Text>
-          <Text style={styles.infoTextBold}>
-            PO:{"                 "}
-            <Text style={styles.infoText}>{item.processOrder}</Text>
-          </Text>
-          <Text style={styles.infoTextBold}>
-            Package: {"     "}{" "}
-            <Text style={styles.infoText}>{item.packageType}</Text>
-          </Text>
-          <Text style={styles.infoTextBold}>
-            Plant: {"           "}{" "}
-            <Text style={styles.infoText}>{item.plant}</Text>
-          </Text>
-          <Text style={styles.infoTextBold}>
-            Line: {"              "}
-            <Text style={styles.infoText}>{item.line}</Text>
-          </Text>
-          <Text style={styles.infoTextBold}>
-            Shift: {"             "}
-            <Text style={styles.infoText}>{item.shift}</Text>
-          </Text>
-          <Text style={styles.infoTextBold}>
-            Product: {"       "}
-            <Text style={styles.infoText}>{item.product}</Text>
-          </Text>
-          <Text style={styles.infoTextBold}>
-            Machine: {"     "}{" "}
-            <Text style={styles.infoText}>{item.machine}</Text>
-          </Text>
-          <Text style={styles.infoTextBold}>
-            Created At:{"  "}
-            <Text style={styles.infoText}>
-              {" "}
-              {moment(item.createdAt, "YYYY-MM-DD HH:mm:ss.SSS").format(
-                "DD/MM/YY HH:mm:ss"
-              )}
-            </Text>
-          </Text>
-          <Text style={styles.infoTextBold}>
-            Updated At:{" "}
-            <Text style={styles.infoText}>
-              {" "}
-              {moment(item.updatedAt, "YYYY-MM-DD HH:mm:ss.SSS").format(
-                "DD/MM/YY HH:mm:ss"
-              )}
-            </Text>
-          </Text>
-          <Text style={styles.infoTextBold}>
-            Cek Alergen:{"  "}
-            <Text style={styles.infoText}>{cekAlergenKemasan ? "✓ (Dicek)" : "Tidak"}</Text>
-          </Text>
+          <Text style={styles.infoTextBold}>Date:{"              "}<Text style={styles.infoText}>{moment(item.date, "YYYY-MM-DD HH:mm:ss.SSS").format("DD/MM/YY HH:mm:ss")}</Text></Text>
+          <Text style={styles.infoTextBold}>PO:{"                 "}<Text style={styles.infoText}>{item.processOrder}</Text></Text>
+          <Text style={styles.infoTextBold}>Package: {"     "} <Text style={styles.infoText}>{item.packageType}</Text></Text>
+          <Text style={styles.infoTextBold}>Plant: {"           "} <Text style={styles.infoText}>{item.plant}</Text></Text>
+          <Text style={styles.infoTextBold}>Line: {"              "}<Text style={styles.infoText}>{item.line}</Text></Text>
+          <Text style={styles.infoTextBold}>Shift: {"             "}<Text style={styles.infoText}>{item.shift}</Text></Text>
+          <Text style={styles.infoTextBold}>Product: {"       "}<Text style={styles.infoText}>{item.product}</Text></Text>
+          <Text style={styles.infoTextBold}>Machine: {"     "} <Text style={styles.infoText}>{item.machine}</Text></Text>
+          <Text style={styles.infoTextBold}>Created At:{"  "}<Text style={styles.infoText}> {moment(item.createdAt, "YYYY-MM-DD HH:mm:ss.SSS").format("DD/MM/YY HH:mm:ss")}</Text></Text>
+          <Text style={styles.infoTextBold}>Updated At: <Text style={styles.infoText}> {moment(item.updatedAt, "YYYY-MM-DD HH:mm:ss.SSS").format("DD/MM/YY HH:mm:ss")}</Text></Text>
+          <Text style={styles.infoTextBold}>Cek Alergen:{"  "}<Text style={styles.infoText}>{cekAlergenKemasan ? "✔ (Dicek)" : "Tidak"}</Text></Text>
+          <Text style={styles.infoTextBold}>Data Count: <Text style={styles.infoText}> {filledInspectionData.length} entries</Text></Text>
         </View>
 
         {item.status === 1 ? (
-          <>
-            <View>
-              <TouchableOpacity
-                style={[styles.submitButton]}
-                onPress={() => handleLanjutkanDraft(item)}
-              >
-                <Text style={styles.submitButtonText}>LANJUTKAN DRAFT</Text>
-              </TouchableOpacity>
-            </View>
-          </>
+          <TouchableOpacity style={styles.submitButton} onPress={() => handleLanjutkanDraft(item)}>
+            <Text style={styles.submitButtonText}>LANJUTKAN DRAFT</Text>
+          </TouchableOpacity>
         ) : (
-          <>
-            <View>
-              <TouchableOpacity
-                style={[styles.submitButton]}
-                onPress={printToFile}
-              >
-                <Text style={styles.submitButtonText}>DOWNLOAD REPORT</Text>
-              </TouchableOpacity>
-            </View>
-          </>
+          <TouchableOpacity style={styles.submitButton} onPress={printToFile}>
+            <Text style={styles.submitButtonText}>DOWNLOAD REPORT</Text>
+          </TouchableOpacity>
         )}
 
         <View style={styles.wrapper}>
-          {/* Table Container */}
           <View style={styles.table}>
-            {/* Table Head */}
             <View style={styles.tableHead}>
-              {/* Header Caption */}
-              <View style={{ width: "5%" }}>
-                <Text style={styles.tableCaption}>No</Text>
-              </View>
-              <View style={{ width: "15%" }}>
-                <Text style={styles.tableCaption}>Jam</Text>
-              </View>
-              <View style={{ width: "20%" }}>
-                <Text style={styles.tableCaption}>Box No.</Text>
-              </View>
-              <View style={{ width: "20%" }}>
-                <Text style={styles.tableCaption}>PD. Paper</Text>
-              </View>
-              <View style={{ width: "20%" }}>
-                <Text style={styles.tableCaption}>Qty Label</Text>
-              </View>
-              <View style={{ width: "10%" }}>
-                <Text style={styles.tableCaption}>User</Text>
-              </View>
-              <View style={{ width: "10%" }}>
-                <Text style={styles.tableCaption}>Time</Text>
-              </View>
+              <View style={{ width: "5%" }}><Text style={styles.tableCaption}>No</Text></View>
+              <View style={{ width: "15%" }}><Text style={styles.tableCaption}>Jam</Text></View>
+              <View style={{ width: "20%" }}><Text style={styles.tableCaption}>Box No.</Text></View>
+              <View style={{ width: "20%" }}><Text style={styles.tableCaption}>PD. Paper</Text></View>
+              <View style={{ width: "20%" }}><Text style={styles.tableCaption}>Qty Label</Text></View>
+              <View style={{ width: "10%" }}><Text style={styles.tableCaption}>User</Text></View>
+              <View style={{ width: "10%" }}><Text style={styles.tableCaption}>Time</Text></View>
             </View>
 
-            {/* Table Body */}
-            {inspectionData.map((item, index) => {
-              return (
-                <View key={index} style={styles.tableBody}>
-                  {/* Header Caption */}
-                  <View style={{ width: "5%" }}>
-                    {/* <Text style={styles.tableData}>Done</Text> */}
-                    <View style={[styles.tableData, styles.centeredContent]}>
-                      <Text style={styles.tableData}>{index + 1}</Text>
-                    </View>
-                  </View>
-                  <View style={{ width: "15%" }}>
-                    <Text style={styles.tableData}>{item.jam}</Text>
-                  </View>
-                  <View style={{ width: "20%" }}>
-                    <Text style={styles.tableData}>{item.boxNo ?? "-"}</Text>
-                  </View>
-                  <View style={{ width: "20%" }}>
-                    <Text style={styles.tableData}>{item.pdPaper ?? "-"}</Text>
-                  </View>
-                  <View style={{ width: "20%" }}>
-                    <Text style={styles.tableData}>{item.qtyLabel ?? "-"}</Text>
-                  </View>
-                  <View style={{ width: "10%" }}>
-                    <Text style={styles.tableData}>{item.user}</Text>
-                  </View>
-                  <View style={{ width: "10%" }}>
-                    <Text style={styles.tableData}>{item.time}</Text>
-                  </View>
-                </View>
-              );
-            })}
+            {filledInspectionData.length > 0 ? filledInspectionData.map((dataItem, index) => (
+              <View key={index} style={styles.tableBody}>
+                <View style={{ width: "5%" }}><Text style={styles.tableData}>{index + 1}</Text></View>
+                <View style={{ width: "15%" }}><Text style={styles.tableData}>{dataItem.jam}</Text></View>
+                <View style={{ width: "20%" }}><Text style={styles.tableData}>{dataItem.boxNo ?? "-"}</Text></View>
+                <View style={{ width: "20%" }}><Text style={styles.tableData}>{dataItem.pdPaper ?? "-"}</Text></View>
+                <View style={{ width: "20%" }}><Text style={styles.tableData}>{dataItem.qtyLabel ?? "-"}</Text></View>
+                <View style={{ width: "10%" }}><Text style={styles.tableData}>{dataItem.user}</Text></View>
+                <View style={{ width: "10%" }}><Text style={styles.tableData}>{dataItem.time}</Text></View>
+              </View>
+            )) : (
+              <View style={styles.tableBody}>
+                <View style={{ width: "100%" }}><Text style={[styles.tableData, { fontStyle: 'italic', color: '#666' }]}>Tidak ada data yang diinput</Text></View>
+              </View>
+            )}
           </View>
         </View>
-
-        {/* Image Modal (Show if Image is Clicked) */}
       </ScrollView>
-      <Modal
-        visible={modalVisible}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => {
-          setModalVisible(false);
-        }}
-      >
-        <TouchableOpacity
-          style={styles.modalContainerAdaTemuan}
-          activeOpacity={1}
-          onPressOut={() => setModalVisible(false)}
-        >
+
+      <Modal visible={modalVisible} transparent={true} animationType="fade" onRequestClose={() => setModalVisible(false)}>
+        <TouchableOpacity style={styles.modalContainerAdaTemuan} activeOpacity={1} onPressOut={() => setModalVisible(false)}>
           <View style={styles.modalView}>
-            {selectedImage && (
-              <Image
-                source={{ uri: selectedImage }}
-                style={{
-                  width: modalImageSize,
-                  height: modalImageSize,
-                  marginVertical: 10,
-                  borderRadius: 5,
-                }}
-              />
-            )}
+            {selectedImage && <Image source={{ uri: selectedImage }} style={{ width: modalImageSize, height: modalImageSize, marginVertical: 10, borderRadius: 5 }} />}
           </View>
         </TouchableOpacity>
       </Modal>
@@ -364,159 +239,20 @@ const DetailLaporanPaperUsage = ({ route, navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-    padding: 20,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: "bold",
-    marginBottom: 20,
-    textAlign: "center",
-  },
-  infoTextBold: {
-    fontSize: 16,
-    marginBottom: 5,
-  },
-  infoText: {
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  tableContainer: {
-    borderWidth: 1,
-    borderColor: "#EAEAEA",
-    borderRadius: 5,
-    overflow: "hidden",
-    marginTop: 20,
-  },
-  tableHeader: {
-    flexDirection: "row",
-    backgroundColor: "#f8f8f8",
-    borderBottomWidth: 1,
-    borderBottomColor: "#EAEAEA",
-    paddingVertical: 10,
-  },
-  tableRow: {
-    flexDirection: "row",
-    borderBottomWidth: 1,
-    borderBottomColor: "#EAEAEA",
-    backgroundColor: "#fff",
-    paddingVertical: 10, // Added to match the header's padding
-  },
-  tableCell: {
-    flex: 1, // Ensures each cell takes up equal width
-    textAlign: "center",
-    paddingVertical: 10, // Adjust for vertical alignment
-    paddingHorizontal: 5, // Adjust for horizontal padding
-    borderLeftWidth: 1,
-    borderLeftColor: "#EAEAEA",
-  },
-  tableCellHeader: {
-    flex: 1, // Same as the content cells to ensure equal width
-    textAlign: "center",
-    fontWeight: "bold",
-    paddingVertical: 10, // Ensure the same padding as in the content cells
-    paddingHorizontal: 5,
-    borderLeftWidth: 1,
-    borderLeftColor: "#EAEAEA",
-  },
-  green: {
-    backgroundColor: "#d4edda", // Light green background
-    color: "#155724", // Dark green text
-    paddingVertical: 10,
-  },
-  red: {
-    backgroundColor: "#f8d7da", // Light red background
-    color: "#721c24", // Dark red text
-    paddingVertical: 10,
-  },
-  wrapper: {
-    justifyContent: "center",
-    alignItems: "center",
-    flex: 1,
-  },
-  table: {
-    width: "100%", // Make table take the full width
-    margin: 15,
-  },
-  tableHead: {
-    flexDirection: "row",
-    backgroundColor: "#3bcd6b",
-    padding: 20,
-    width: "100%",
-  },
-  tableBody: {
-    flexDirection: "row",
-    padding: 20,
-    width: "100%",
-  },
-  tableCaption: {
-    color: "#fff",
-    fontWeight: "bold",
-    textAlign: "center",
-  },
-  tableData: {
-    fontSize: 16,
-    textAlign: "center", // Center-align text in cells
-  },
-  centeredContent: {
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  linkText: {
-    color: "#007bff", // Blue color for links
-    textDecorationLine: "underline", // Underline to indicate it's clickable
-  },
-  modalContainerAdaTemuan: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.5)",
-  },
-  modalView: {
-    margin: 20,
-    backgroundColor: "white",
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-    alignItems: "center",
-  },
-  submitButton: {
-    backgroundColor: COLORS.blue,
-    padding: 15,
-    borderRadius: 5,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  submitButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  red: {
-    color: "red",
-    fontWeight: "bold",
-  },
-  yellow: {
-    color: "orange",
-    fontWeight: "bold",
-  },
-  green: {
-    color: "green",
-    fontWeight: "bold",
-  },
-  black: {
-    color: "black",
-    fontWeight: "bold",
-  },
+  container: { flex: 1, backgroundColor: "#fff", padding: 20 },
+  title: { fontSize: 24, fontWeight: "bold", marginBottom: 20, textAlign: "center" },
+  infoTextBold: { fontSize: 16, marginBottom: 5 },
+  infoText: { fontSize: 16, fontWeight: "bold" },
+  wrapper: { justifyContent: "center", alignItems: "center", flex: 1 },
+  table: { width: "100%", margin: 15 },
+  tableHead: { flexDirection: "row", backgroundColor: "#3bcd6b", padding: 20, width: "100%" },
+  tableBody: { flexDirection: "row", padding: 20, width: "100%" },
+  tableCaption: { color: "#fff", fontWeight: "bold", textAlign: "center" },
+  tableData: { fontSize: 16, textAlign: "center" },
+  submitButton: { backgroundColor: COLORS.blue, padding: 15, borderRadius: 5, alignItems: "center", marginTop: 8 },
+  submitButtonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
+  modalContainerAdaTemuan: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(0,0,0,0.5)" },
+  modalView: { margin: 20, backgroundColor: "white", borderRadius: 20, padding: 20, alignItems: "center" },
 });
 
 export default DetailLaporanPaperUsage;

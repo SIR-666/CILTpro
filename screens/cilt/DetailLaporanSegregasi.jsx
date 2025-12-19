@@ -21,20 +21,19 @@ const formatDDMonYY = (dateLike) => {
   return `${pad2(d.getDate())}-${monthsShort[d.getMonth()]}-${String(d.getFullYear()).slice(-2)}`;
 };
 
-// Cek ada konten description
-const hasDescriptionContent = (descData) => {
-  if (!descData || !Array.isArray(descData)) return false;
-  return descData.some((item) =>
-    item.flavour ||
-    item.kodeProd ||
-    item.kodeExp ||
-    item.startTime ||
-    item.stopTime ||
-    item.startNum ||
-    item.stopNum ||
-    item.counterOutfeed ||
-    item.totalOutfeed ||
-    item.waste
+const hasDescriptionContent = (rows) => {
+  if (!rows || !Array.isArray(rows)) return false;
+  return rows.some((r) =>
+    r.flavour ||
+    r.kodeProd ||
+    r.kodeExp ||
+    r.startTime ||
+    r.stopTime ||
+    r.startNum ||
+    r.stopNum ||
+    r.counterOutfeed ||
+    r.totalOutfeed ||
+    r.waste
   );
 };
 
@@ -67,11 +66,7 @@ const DetailLaporanSegregasi = ({ route }) => {
       );
     }
 
-    // Cari descriptionData (umumnya tersimpan di entry pertama)
-    const descriptionData =
-      inspectionData[0]?.descriptionData && Array.isArray(inspectionData[0].descriptionData)
-        ? inspectionData[0].descriptionData
-        : [];
+    const descriptionData = inspectionData;
 
     return (
       <View style={styles.contentWrapper}>
@@ -124,7 +119,7 @@ const DetailLaporanSegregasi = ({ route }) => {
         <Text style={styles.title}>SEGREGASI & DESCRIPTION</Text>
         <Text style={styles.description}>Pencatatan segregasi produk, status peralatan, dan data produksi.</Text>
 
-        {/* ========== DESCRIPTION (gaya sama persis dengan form) ========== */}
+        {/* DESCRIPTION */}
         <View style={styles.descContainer}>
           <View style={styles.descHeaderBar}>
             <Text style={[styles.segHeaderCell, styles.segHeaderCellNarrow]}>Flavour</Text>
@@ -135,106 +130,89 @@ const DetailLaporanSegregasi = ({ route }) => {
 
           {hasDescriptionContent(descriptionData) ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.segGrid}>
-              {[0, 1, 2].map((i) => {
-                const d = descriptionData[i] || {
-                  flavour: "",
-                  kodeProd: "",
-                  kodeExp: "",
-                  startTime: "",
-                  stopTime: "",
-                  counterOutfeed: "",
-                  totalOutfeed: "",
-                  waste: "",
-                  startNum: "",
-                  stopNum: "",
-                  lastModifiedBy: "",
-                  lastModifiedTime: "",
-                };
+              {descriptionData.map((d, i) => (
+                <View key={i} style={styles.descCol}>
+                  <Text style={styles.descEntryTitle}>Entry {i + 1}</Text>
 
-                return (
-                  <View key={i} style={styles.descCol}>
-                    <Text style={styles.descEntryTitle}>Kolom {i + 1}</Text>
-
-                    {d.lastModifiedBy ? (
-                      <View style={styles.auditTrail}>
-                        <Text style={styles.auditText}>User: {d.lastModifiedBy}</Text>
-                        <Text style={styles.auditText}>Time: {d.lastModifiedTime}</Text>
-                      </View>
-                    ) : null}
-
-                    <View style={styles.fieldGroup}>
-                      <Text style={styles.smallLabel}>Flavour</Text>
-                      <View style={[styles.autoShell, styles.inputDisabled]}>
-                        <Text style={styles.autoText}>{d.flavour || "-"}</Text>
-                      </View>
+                  {d.lastModifiedBy ? (
+                    <View style={styles.auditTrail}>
+                      <Text style={styles.auditText}>User: {d.lastModifiedBy}</Text>
+                      <Text style={styles.auditText}>Time: {d.lastModifiedTime}</Text>
                     </View>
+                  ) : null}
 
-                    <View style={styles.fieldGroup}>
-                      <Text style={styles.smallLabel}>Kode Prod.</Text>
-                      <View style={styles.autoShell}>
-                        <Text style={styles.autoText}>{d.kodeProd || "-"}</Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.fieldGroup}>
-                      <Text style={styles.smallLabel}>Kode Exp</Text>
-                      <View style={styles.autoShell}>
-                        <Text style={styles.autoText}>{d.kodeExp || "-"}</Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.fieldGroup}>
-                      <Text style={styles.smallLabel}>Start</Text>
-                      <View style={styles.autoShell}>
-                        <Text style={styles.autoText}>{d.startTime || "-"}</Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.fieldGroup}>
-                      <Text style={styles.smallLabel}>Stop</Text>
-                      <View style={styles.autoShell}>
-                        <Text style={styles.autoText}>{d.stopTime || "-"}</Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.fieldGroup}>
-                      <Text style={styles.smallLabel}>Outfeed</Text>
-                      <View style={styles.autoShell}>
-                        <Text style={styles.autoText}>{d.counterOutfeed || "-"}</Text>
-                      </View>
-                      <Text style={styles.helpText}>Auto/Manual per hitungan</Text>
-                    </View>
-
-                    <View style={styles.fieldGroup}>
-                      <Text style={styles.smallLabel}>Total Outfeed</Text>
-                      <View style={styles.autoShell}>
-                        <Text style={styles.autoText}>{d.totalOutfeed || "-"}</Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.fieldGroup}>
-                      <Text style={styles.smallLabel}>Waste</Text>
-                      <View style={styles.autoShell}>
-                        <Text style={styles.autoText}>{d.waste || "-"}</Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.fieldGroup}>
-                      <Text style={styles.smallLabel}>Start (Numeric)</Text>
-                      <View style={styles.autoShell}>
-                        <Text style={styles.autoText}>{d.startNum || "-"}</Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.fieldGroup}>
-                      <Text style={styles.smallLabel}>Stop (Numeric)</Text>
-                      <View style={styles.autoShell}>
-                        <Text style={styles.autoText}>{d.stopNum || "-"}</Text>
-                      </View>
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.smallLabel}>Flavour</Text>
+                    <View style={[styles.autoShell, styles.inputDisabled]}>
+                      <Text style={styles.autoText}>{d.flavour || "-"}</Text>
                     </View>
                   </View>
-                );
-              })}
+
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.smallLabel}>Kode Prod.</Text>
+                    <View style={styles.autoShell}>
+                      <Text style={styles.autoText}>{d.kodeProd || "-"}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.smallLabel}>Kode Exp</Text>
+                    <View style={styles.autoShell}>
+                      <Text style={styles.autoText}>{d.kodeExp || "-"}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.smallLabel}>Start</Text>
+                    <View style={styles.autoShell}>
+                      <Text style={styles.autoText}>{d.startTime || "-"}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.smallLabel}>Stop</Text>
+                    <View style={styles.autoShell}>
+                      <Text style={styles.autoText}>{d.stopTime || "-"}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.smallLabel}>Outfeed</Text>
+                    <View style={styles.autoShell}>
+                      <Text style={styles.autoText}>{d.counterOutfeed || "-"}</Text>
+                    </View>
+                    <Text style={styles.helpText}>Auto/Manual per hitungan</Text>
+                  </View>
+
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.smallLabel}>Total Outfeed</Text>
+                    <View style={styles.autoShell}>
+                      <Text style={styles.autoText}>{d.totalOutfeed || "-"}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.smallLabel}>Waste</Text>
+                    <View style={styles.autoShell}>
+                      <Text style={styles.autoText}>{d.waste || "-"}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.smallLabel}>Start (Numeric)</Text>
+                    <View style={styles.autoShell}>
+                      <Text style={styles.autoText}>{d.startNum || "-"}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.smallLabel}>Stop (Numeric)</Text>
+                    <View style={styles.autoShell}>
+                      <Text style={styles.autoText}>{d.stopNum || "-"}</Text>
+                    </View>
+                  </View>
+                </View>
+              ))}
             </ScrollView>
           ) : (
             <View style={styles.noDescriptionData}>
@@ -243,7 +221,7 @@ const DetailLaporanSegregasi = ({ route }) => {
           )}
         </View>
 
-        {/* ========== SEGREGASI (tampilan ringkas per entry) ========== */}
+        {/* SEGREGASI */}
         <View style={styles.segregasiContainer}>
           <View style={styles.segHeaderBar}>
             <Text style={[styles.segHeaderCell, styles.segHeaderCellNarrow]}>Type</Text>
@@ -311,33 +289,32 @@ const DetailLaporanSegregasi = ({ route }) => {
     );
   };
 
-  // PDF (tetap)
+  // PDF 
   const printToFile = async () => {
     const rows = inspectionData
       .map((entry, i) => {
-        const descData = inspectionData[0]?.descriptionData || [];
+        const descData = inspectionData;
         const descHtml =
           descData.length > 0
             ? `<div style="margin-top:10px;"><strong>Description Data:</strong><br/>
                ${descData
               .map(
                 (desc, idx) => `
-                 <div style="margin:5px 0; padding:5px; border:1px solid #ddd;">
-                   <strong>Kolom ${idx + 1}:</strong><br/>
-                   Flavour: ${desc.flavour || '-'}<br/>
-                   Kode Prod: ${desc.kodeProd || '-'}<br/>
-                   Kode Exp: ${desc.kodeExp || '-'}<br/>
-                   Start: ${desc.startTime || '-'}<br/>
-                   Stop: ${desc.stopTime || '-'}<br/>
-                   Outfeed: ${desc.counterOutfeed || '-'}<br/>
-                   Total: ${desc.totalOutfeed || '-'}<br/>
-                   Waste: ${desc.waste || '-'}
-                 </div>`
+                <div style="margin:5px 0; padding:5px; border:1px solid #ddd;">
+                  <strong>Entry ${idx + 1}:</strong><br/>
+                  Flavour: ${desc.flavour || '-'}<br/>
+                  Kode Prod: ${desc.kodeProd || '-'}<br/>
+                  Kode Exp: ${desc.kodeExp || '-'}<br/>
+                  Start: ${desc.startTime || '-'}<br/>
+                  Stop: ${desc.stopTime || '-'}<br/>
+                  Outfeed: ${desc.counterOutfeed || '-'}<br/>
+                  Total: ${desc.totalOutfeed || '-'}<br/>
+                  Waste: ${desc.waste || '-'}
+                </div>`
               )
               .join("")}
              </div>`
             : "";
-
         return `
         <tr>
           <td>${i + 1}</td>
@@ -425,7 +402,7 @@ const DetailLaporanSegregasi = ({ route }) => {
   );
 };
 
-/* ========== Styles (disamakan dengan komponen form terbaru) ========== */
+/* Styles */
 const cardShadow = {
   shadowColor: "#000",
   shadowOpacity: 0.05,
@@ -462,7 +439,7 @@ const styles = StyleSheet.create({
   historyText: { fontSize: 12, color: "#666", marginBottom: 2 },
   historyBold: { fontWeight: "bold", color: "#333" },
 
-  /* ===== DESCRIPTION (match SegregasiInspectionTable) ===== */
+  /* DESCRIPTION */
   descContainer: { marginBottom: 16, padding: 12, backgroundColor: "#fff", borderWidth: 1, borderColor: "#E2E8F0", borderRadius: 8 },
   descHeaderBar: {
     flexDirection: "row",
@@ -491,7 +468,7 @@ const styles = StyleSheet.create({
   autoTextMuted: { fontSize: 12, color: "#9CA3AF" },
   helpText: { fontSize: 9, color: "#6B7280", marginTop: 4, fontStyle: "italic" },
 
-  /* ===== SEGREGASI ===== */
+  /* SEGREGASI */
   segregasiContainer: { marginTop: 8, padding: 12, backgroundColor: "#fff", borderWidth: 1, borderColor: "#E2E8F0", borderRadius: 8 },
   segHeaderBar: { flexDirection: "row", alignItems: "center", backgroundColor: "#DDF5E4", borderWidth: 1, borderColor: "#B6E3C5", borderRadius: 6, paddingVertical: 8, paddingHorizontal: 10, marginBottom: 10, gap: 8 },
   segCol: { width: 300, backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E5E7EB", borderRadius: 8, padding: 10, ...cardShadow, marginRight: 4 },
@@ -507,8 +484,7 @@ const styles = StyleSheet.create({
 
   auditTrail: { marginTop: 8, backgroundColor: "#F3F4F6", borderRadius: 6, padding: 6, borderLeftWidth: 3, borderLeftColor: "#9CA3AF" },
   auditText: { fontSize: 10, color: "#4B5563" },
-
-  /* NO DATA & BUTTON */
+  
   noDataContainer: { padding: 20, alignItems: "center" },
   noDataText: { fontSize: 14, color: "#666" },
   noDescriptionData: { padding: 10, alignItems: "center" },

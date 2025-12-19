@@ -3,7 +3,7 @@ import { StyleSheet, Text, TextInput, View, TouchableOpacity, Alert } from "reac
 import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-/** ====== GLOBAL JAM BUS ====== */
+/* GLOBAL JAM */
 const SHARED_JAM_LISTENERS = "__sharedJamListeners";
 function setSharedJamEvent(evt) {
   (globalThis[SHARED_JAM_LISTENERS] || []).forEach((fn) => {
@@ -52,11 +52,11 @@ const H2o2CheckInspectionTable = ({
   // Ref untuk track storage key terakhir (untuk flush saat ganti)
   const prevStorageKeyRef = useRef("");
 
-  /** ====== STORAGE KEYS ====== */
+  /* STORAGE KEYS */
   const getStorageKey = (po = processOrder, pd = product) =>
     `h2o2_usage_${po || "default"}_${pd || "no_product"}__${(username || "user").replace(/\s+/g, "_")}`;
 
-  /** ====== STORAGE OPERATIONS ====== */
+  /* STORAGE OPERATIONS */
   const loadDataFromStorage = async () => {
     try {
       const storageKey = getStorageKey();
@@ -118,13 +118,13 @@ const H2o2CheckInspectionTable = ({
     }
   };
 
-  /** ====== EXPOSE CLEAR FUNCTION ====== */
+  /* EXPOSE CLEAR FUNCTION */
   useEffect(() => {
     // Expose function untuk dipanggil dari parent setelah submit berhasil
     window.clearH2o2Storage = clearStorageData;
   }, [processOrder, product]);
 
-  /** ====== BUG FIX #1: FLUSH & LOAD SAAT STORAGE KEY BERUBAH ====== */
+  /* FLUSH & LOAD SAAT STORAGE KEY BERUBAH */
   useEffect(() => {
     const currentKey = getStorageKey();
     const prevKey = prevStorageKeyRef.current;
@@ -147,7 +147,7 @@ const H2o2CheckInspectionTable = ({
     }
   }, [processOrder, product, username]); // Trigger saat PO atau product berubah
 
-  /** ====== HANDLE INITIAL DATA DARI PARENT (jika ada) ====== */
+  /* HANDLE INITIAL DATA DARI PARENT (jika ada) */
   useEffect(() => {
     if (initialData && initialData.length > 0) {
       const hasData = initialData.some(r => 
@@ -169,20 +169,20 @@ const H2o2CheckInspectionTable = ({
     }
   }, []); // Mount only
 
-  /** ====== PROPAGASI KODE: ke baris di bawah yang SUDAH isi Jam ====== */
+  /* ke baris di bawah yang SUDAH isi Jam */
   const propagateKodeDownIfJamFilled = (data, fromIndex, value) => {
     const next = [...data];
     for (let i = fromIndex + 1; i < next.length; i++) {
       if (String(next[i].jam || "").trim()) {
         next[i].kode = value;
-        // BUG FIX #2: Mark propagated rows as saved juga
+        // Mark propagated rows as saved juga
         next[i].saved = String(value).trim() !== "";
       }
     }
     return next;
   };
 
-  /** ====== LISTEN SHARED JAM (user+PO+product sama) ====== */
+  /* LISTEN SHARED JAM (user+PO+product sama) */
   useEffect(() => {
     const applyShared = (evt) => {
       if (!evt) return;
@@ -235,7 +235,7 @@ const H2o2CheckInspectionTable = ({
     return unsub;
   }, [tableData, lastKode, username, processOrder, product]);
 
-  /** ====== INPUT HANDLER ====== */
+  /* INPUT HANDLER */
   const handleInputChange = (text, index, field) => {
     const now = new Date();
     const formattedTime = `${String(now.getHours()).padStart(2, "0")}:${String(
@@ -251,7 +251,7 @@ const H2o2CheckInspectionTable = ({
     if (field === "jam" && String(text).trim() !== "") {
       if (!String(updated[index].kode || "").trim() && lastKode) {
         updated[index].kode = lastKode;
-        // BUG FIX #2: Langsung mark saved saat auto-fill
+        // Langsung mark saved saat auto-fill
         updated[index].saved = true;
       }
       
@@ -287,7 +287,7 @@ const H2o2CheckInspectionTable = ({
       }
     }
 
-    // BUG FIX #2: KUNCI - Save langsung setiap ada perubahan apapun
+    // Save langsung setiap ada perubahan apapun
     // Tidak peduli field mana yang diisi, selama ada perubahan → langsung save
     setTableData(updated);
     onDataChange(updated);
@@ -316,7 +316,7 @@ const H2o2CheckInspectionTable = ({
     }
   };
 
-  /** ====== HAPUS ROW ====== */
+  /* HAPUS ROW */
   const removeRow = (index) => {
     if (showTimePickerIndex === index) setShowTimePickerIndex(null);
     
@@ -346,7 +346,7 @@ const H2o2CheckInspectionTable = ({
     saveDataToStorage(updated);
   };
 
-  /** ====== ROW STYLE HELPER ====== */
+  /* ROW STYLE HELPER */
   const getRowStyle = (item) => {
     if (item.saved && String(item.kode).trim() !== "") {
       return [styles.row, styles.savedRow];

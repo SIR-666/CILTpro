@@ -24,6 +24,15 @@ import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
 import * as Print from "expo-print";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { generatePDFHTML as htmlA3Flex } from "./DetailLaporanA3Flex";
+import { generatePDFHTML as htmlA3StartFinish } from "./DetailLaporanA3StartFinish";
+import { generatePDFHTML as htmlCombiXG } from "./DetailLaporanCombiXG";
+import { generatePDFHTML as htmlArtemaCardboard } from "./DetailLaporanArtemaCardboard";
+import { generatePDFHTML as htmlFransCasePacker } from "./DetailLaporanFransCasePacker";
+import { generatePDFHTML as htmlRobotPalletizer } from "./DetailLaporanRobotPalletizerFiller";
+import { generatePDFHTML as htmlH2O2Imported } from "./DetailLaporanH2O2Check";
+import { generatePDFHTML as htmlScrewCapImported } from "./DetailLaporanScrewCap";
+import { generatePDFHTML as htmlPaperUsageImported } from "./DetailLaporanPaperUsage";
 
 /* =========================================
  * ========== PDF HELPERS & TEMPLATES ======
@@ -140,6 +149,120 @@ const FRM_REV_MAP = {
   "CHECKLIST CILT": { frm: "FIL - 014", rev: "00", berlaku: "01-April-2025", hal: "1 dari 5" },
   CILTGIGR: { frm: "FIL - 015 - 01", rev: "-", berlaku: "11-Jun-25", hal: "1 dari 3" },
   CIP: { frm: "FIL - 009", rev: "00", berlaku: "21-Juli-2023", hal: "1 dari 3" },
+};
+
+const PACKAGE_CONFIG = {
+  // PACKAGES (dengan imported generator)
+  "PEMAKAIAN SCREW CAP": {
+    screen: "DetailLaporanScrewCap",
+    htmlGenerator: htmlScrewCapImported,
+  },
+  "PENGECEKAN H2O2 ( SPRAY )": {
+    screen: "DetailLaporanH2O2Check",
+    htmlGenerator: htmlH2O2Imported,
+  },
+  "PEMAKAIAN PAPER": {
+    screen: "DetailLaporanPaperUsage",
+    htmlGenerator: htmlPaperUsageImported,
+  },
+
+  // PACKAGES YANG TETAP PAKAI INLINE FUNCTION
+  // (karena logic kompleks dan terintegrasi dengan helper di ListCILT)
+  "PERFORMA RED AND GREEN": {
+    screen: "DetailLaporanShiftlyCILT",
+    htmlGenerator: null, // tetap pakai htmlShiftly inline
+  },
+  "CHECKLIST CILT": {
+    screen: "DetailLaporanChecklistCILT",
+    htmlGenerator: null, // tetap pakai htmlChecklist inline
+  },
+  "SEGREGASI": {
+    screen: "DetailLaporanSegregasi",
+    htmlGenerator: null, // tetap pakai htmlSegregasi inline
+  },
+  "CILTGIGR": {
+    screen: "DetailLaporanCILTGIGR",
+    htmlGenerator: null, // tetap pakai htmlCILTGIGR inline
+  },
+  "REPORT CIP": {
+    screen: "DetailReportCIP",
+    htmlGenerator: null, // tetap pakai htmlCIP inline (async)
+    useIdParam: true,
+  },
+
+  // PACKAGES (dengan imported generator)
+  // A3 Flex
+  "PENGECEKAN PRESSURE": {
+    screen: "DetailLaporanA3Flex",
+    htmlGenerator: htmlA3Flex,
+  },
+  "A3 FLEX PAGE 1": {
+    screen: "DetailLaporanA3Flex",
+    htmlGenerator: htmlA3Flex,
+  },
+  "A3 FLEX": {
+    screen: "DetailLaporanA3Flex",
+    htmlGenerator: htmlA3Flex,
+  },
+
+  // A3 Start/Finish
+  "START FINISH PRODUKSI": {
+    screen: "DetailLaporanA3StartFinish",
+    htmlGenerator: htmlA3StartFinish,
+  },
+  "START & FINISH PRODUKSI": {
+    screen: "DetailLaporanA3StartFinish",
+    htmlGenerator: htmlA3StartFinish,
+  },
+
+  // Combi XG Slim 24
+  "COMBI XG SLIM 24": {
+    screen: "DetailLaporanCombiXG",
+    htmlGenerator: htmlCombiXG,
+  },
+  "COMBI XG CHECK": {
+    screen: "DetailLaporanCombiXG",
+    htmlGenerator: htmlCombiXG,
+  },
+  "COMBI XG PRODUCT": {
+    screen: "DetailLaporanCombiXG",
+    htmlGenerator: htmlCombiXG,
+  },
+
+  // Artema Cardboard
+  "ARTEMA CARDBOARD": {
+    screen: "DetailLaporanArtemaCardboard",
+    htmlGenerator: htmlArtemaCardboard,
+  },
+  "ARTEMA SMS CARDBOARD": {
+    screen: "DetailLaporanArtemaCardboard",
+    htmlGenerator: htmlArtemaCardboard,
+  },
+
+  // Frans Case Packer
+  "FRANS CASE PACKER": {
+    screen: "DetailLaporanFransCasePacker",
+    htmlGenerator: htmlFransCasePacker,
+  },
+  "FRANS WP 25 CASE PACKER": {
+    screen: "DetailLaporanFransCasePacker",
+    htmlGenerator: htmlFransCasePacker,
+  },
+
+  // Robot Palletizer
+  "ROBOT PALLETIZER": {
+    screen: "DetailLaporanRobotPalletizerFiller",
+    htmlGenerator: htmlRobotPalletizer,
+  },
+  "ROBOT PALLETIZER FILLER": {
+    screen: "DetailLaporanRobotPalletizerFiller",
+    htmlGenerator: htmlRobotPalletizer,
+  },
+};
+
+const DEFAULT_PACKAGE_CONFIG = {
+  screen: "DetailLaporanPaperUsage",
+  htmlGenerator: htmlPaperUsageImported,
 };
 
 // Helper untuk memilih meta berdasar package + LINE
@@ -423,6 +546,9 @@ const getLatestPerformaData = async (item) => {
 
 const extractUniqueInspectionData = (records) => {
   const uniqueActivities = {};
+  // Kumpulkan semua actual times per jam
+  const allActualTimes = {};
+
   const safe = Array.isArray(records) ? [...records] : [];
 
   // Urutkan berdasarkan submitTime supaya yang terbaru dieksekusi terakhir
@@ -459,12 +585,26 @@ const extractUniqueInspectionData = (records) => {
             };
           }
 
+          // Ambil jam dari hourSlot atau timeSlot
+          const hKey = selectedHourFromInspection(inspection) ?? selectedHourFromRecord(record);
+
           // Tabel per JAM
-          {
-            const hKey = selectedHourFromInspection(inspection) ?? selectedHourFromRecord(record);
-            if (hKey !== undefined && isNonEmpty(inspection.results)) {
-              uniqueActivities[key].results[hKey] = inspection.results;
-              if (inspection.picture) uniqueActivities[key].picture[hKey] = inspection.picture;
+          if (hKey !== undefined && isNonEmpty(inspection.results)) {
+            uniqueActivities[key].results[hKey] = inspection.results;
+            if (inspection.picture) uniqueActivities[key].picture[hKey] = inspection.picture;
+
+            // Kumpulkan actual time dari inspection.time
+            if (inspection.time) {
+              if (!allActualTimes[hKey]) {
+                allActualTimes[hKey] = new Set();
+              }
+              // Ambil hanya HH:mm dari time string
+              const timeStr = String(inspection.time);
+              const timeMatch = timeStr.match(/(\d{1,2}):(\d{2})/);
+              if (timeMatch) {
+                const formattedTime = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
+                allActualTimes[hKey].add(formattedTime);
+              }
             }
           }
 
@@ -474,6 +614,19 @@ const extractUniqueInspectionData = (records) => {
             if (sKey && isNonEmpty(inspection.results)) {
               uniqueActivities[key].results30[sKey] = inspection.results;
             }
+
+            // Juga kumpulkan actual time untuk 30 menit
+            if (hKey !== undefined && inspection.time) {
+              if (!allActualTimes[hKey]) {
+                allActualTimes[hKey] = new Set();
+              }
+              const timeStr = String(inspection.time);
+              const timeMatch = timeStr.match(/(\d{1,2}):(\d{2})/);
+              if (timeMatch) {
+                const formattedTime = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
+                allActualTimes[hKey].add(formattedTime);
+              }
+            }
           }
         }
       }
@@ -482,7 +635,16 @@ const extractUniqueInspectionData = (records) => {
     }
   }
 
-  return Object.values(uniqueActivities);
+  // Convert Set to sorted Array
+  const actualTimesPerHour = {};
+  Object.keys(allActualTimes).forEach(h => {
+    actualTimesPerHour[h] = Array.from(allActualTimes[h]).sort();
+  });
+
+  return {
+    activities: Object.values(uniqueActivities),
+    actualTimesPerHour: actualTimesPerHour
+  };
 };
 
 /* =======================
@@ -627,8 +789,23 @@ const generateSpecialRecordDetails = (record, line) => {
 };
 
 /* =======================
- * ==== TEMPLATES =========
+ * ==== TEMPLATES ========
  * ======================= */
+
+const isSegregasiRowFilled = (r) => {
+  if (!r) return false;
+  // Row dianggap filled jika memiliki minimal type/prodType/equipment status atau description data
+  return (
+    String(r.type || "").trim() !== "" ||
+    String(r.prodType || "").trim() !== "" ||
+    r.magazine === true || r.wastafel === true || r.palletPm === true || r.conveyor === true ||
+    String(r.flavour || "").trim() !== "" ||
+    String(r.kodeProd || "").trim() !== "" ||
+    String(r.kodeExp || "").trim() !== "" ||
+    String(r.startTime || "").trim() !== "" ||
+    String(r.stopTime || "").trim() !== ""
+  );
+};
 
 /** ============
  * 1) SEGREGASI 
@@ -637,336 +814,147 @@ const generateSpecialRecordDetails = (record, line) => {
 const htmlSegregasi = (item) => {
   const inspectionData = parseInspection(item.inspectionData);
 
-  // Extract description data (usually stored in the first entry)
-  const descriptionData =
-    inspectionData[0]?.descriptionData && Array.isArray(inspectionData[0].descriptionData)
-      ? inspectionData[0].descriptionData
-      : [];
+  // Filter hanya row yang memiliki data bermakna
+  const filledData = inspectionData.filter(isSegregasiRowFilled);
 
-  // Check if description data has content
-  const hasDescriptionContent = (descData) => {
-    if (!descData || !Array.isArray(descData)) return false;
-    return descData.some(
-      (item) =>
-        item.flavour ||
-        item.kodeProd ||
-        item.kodeExp ||
-        item.startTime ||
-        item.stopTime ||
-        item.startNum ||
-        item.stopNum ||
-        item.counterOutfeed ||
-        item.totalOutfeed ||
-        item.waste
-    );
-  };
-
-  // Generate description section HTML
-  const descriptionSection = hasDescriptionContent(descriptionData)
-    ? descriptionData
-      .slice(0, 3)
-      .map(
-        (desc, idx) => `
-        <div class="desc-column">
-          <div class="desc-column-header">Kolom ${idx + 1}</div>
-          ${desc.lastModifiedBy ? `
+  // Generate combined section HTML - Description + Segregasi dalam satu entry
+  // karena pada SegregasiInspectionTable, data description dan segregasi ada dalam satu entry
+  const combinedSection = filledData.length > 0
+    ? filledData.map((entry, idx) => `
+        <div class="seg-column">
+          <div class="seg-column-header">Entry ${idx + 1}</div>
+          
+          ${entry.lastModifiedBy ? `
             <div class="audit-trail">
-              <div>User: ${esc(desc.lastModifiedBy)}</div>
-              <div>Time: ${esc(desc.lastModifiedTime)}</div>
+              <div>User: ${esc(entry.lastModifiedBy)}</div>
+              <div>Time: ${esc(entry.lastModifiedTime)}</div>
             </div>
           ` : ''}
-          
-          <table class="desc-detail-table">
+
+          <!-- Segregasi Info -->
+          <table class="seg-detail-table">
+            <tr>
+              <td class="seg-label">Type</td>
+              <td class="seg-value">${esc(entry.type || entry.job_type || "-")}</td>
+            </tr>
+            <tr>
+              <td class="seg-label">Prod Type</td>
+              <td class="seg-value">${esc(entry.prodType || "-")}</td>
+            </tr>
+            <tr>
+              <td class="seg-label">TO</td>
+              <td class="seg-value ${entry.type !== "Change Variant" ? "seg-value-disabled" : ""}">${entry.type === "Change Variant" ? esc(entry.to || "-") : "—"}</td>
+            </tr>
+          </table>
+
+          <!-- Description Info -->
+          <table class="desc-detail-table" style="margin-top: 10px;">
             <tr>
               <td class="desc-label">Flavour</td>
-              <td class="desc-value">${esc(desc.flavour || "-")}</td>
+              <td class="desc-value">${esc(entry.flavour || "-")}</td>
             </tr>
             <tr>
               <td class="desc-label">Kode Prod.</td>
-              <td class="desc-value">${esc(desc.kodeProd || "-")}</td>
+              <td class="desc-value">${esc(entry.kodeProd || "-")}</td>
             </tr>
             <tr>
               <td class="desc-label">Kode Exp</td>
-              <td class="desc-value">${esc(desc.kodeExp || "-")}</td>
+              <td class="desc-value">${esc(entry.kodeExp || "-")}</td>
             </tr>
             <tr>
               <td class="desc-label">Start</td>
-              <td class="desc-value">${esc(desc.startTime || "-")}</td>
+              <td class="desc-value">${esc(entry.startTime || "-")}</td>
             </tr>
             <tr>
               <td class="desc-label">Stop</td>
-              <td class="desc-value">${esc(desc.stopTime || "-")}</td>
+              <td class="desc-value">${esc(entry.stopTime || "-")}</td>
             </tr>
             <tr>
               <td class="desc-label">Outfeed</td>
-              <td class="desc-value">${esc(desc.counterOutfeed || "-")}</td>
+              <td class="desc-value">${esc(entry.counterOutfeed || "-")}</td>
             </tr>
             <tr>
-              <td class="desc-label-help">Total Outfeed</td>
-              <td class="desc-value">${esc(desc.totalOutfeed || "-")}</td>
+              <td class="desc-label">Total Outfeed</td>
+              <td class="desc-value">${esc(entry.totalOutfeed || "-")}</td>
             </tr>
             <tr>
               <td class="desc-label">Waste</td>
-              <td class="desc-value">${esc(desc.waste || "-")}</td>
+              <td class="desc-value">${esc(entry.waste || "-")}</td>
             </tr>
             <tr>
-              <td class="desc-label">Start (Machine)</td>
-              <td class="desc-value">${esc(desc.startNum || "-")}</td>
+              <td class="desc-label">Start Hours</td>
+              <td class="desc-value">${esc(entry.startNum || "-")}</td>
             </tr>
             <tr>
-              <td class="desc-label">Stop (Machine)</td>
-              <td class="desc-value">${esc(desc.stopNum || "-")}</td>
+              <td class="desc-label">Stop Hours</td>
+              <td class="desc-value">${esc(entry.stopNum || "-")}</td>
             </tr>
           </table>
+
+          <!-- Equipment Status -->
+          <div class="equipment-status">
+            <div class="equipment-title">Equipment Status</div>
+            <table class="equipment-table">
+              <tr>
+                <td class="eq-label">Magazine</td>
+                <td class="eq-checkbox">${entry.magazine ? "✓" : ""}</td>
+              </tr>
+              <tr>
+                <td class="eq-label">Wastafel</td>
+                <td class="eq-checkbox">${entry.wastafel ? "✓" : ""}</td>
+              </tr>
+              <tr>
+                <td class="eq-label">Pallet PM</td>
+                <td class="eq-checkbox">${entry.palletPm ? "✓" : ""}</td>
+              </tr>
+              <tr>
+                <td class="eq-label">Conveyor</td>
+                <td class="eq-checkbox">${entry.conveyor ? "✓" : ""}</td>
+              </tr>
+            </table>
+          </div>
+
+          ${entry.user && entry.time ? `
+            <div class="audit-trail" style="margin-top: 8px;">
+              <div>User: ${esc(entry.user)}</div>
+              <div>Time: ${esc(entry.time)}</div>
+            </div>
+          ` : ''}
         </div>
-      `
-      )
-      .join("")
-    : '<div class="no-description-data">No description data entered</div>';
-
-  // Generate segregasi section HTML
-  const segregasiRows = inspectionData
-    .map(
-      (entry, idx) => `
-    <div class="seg-column">
-      <div class="seg-column-header">Entry ${idx + 1}</div>
-      
-      <table class="seg-detail-table">
-        <tr>
-          <td class="seg-label">Type</td>
-          <td class="seg-value">${esc(entry.type || entry.job_type || "-")}</td>
-        </tr>
-        <tr>
-          <td class="seg-label">Prod Type</td>
-          <td class="seg-value">${esc(entry.prodType || "-")}</td>
-        </tr>
-        <tr>
-          <td class="seg-label">TO</td>
-          <td class="seg-value ${entry.type !== "Change Variant" ? "seg-value-disabled" : ""}">${entry.type === "Change Variant" ? esc(entry.to || "-") : "—"
-        }</td>
-        </tr>
-      </table>
-
-      <div class="equipment-status">
-        <div class="equipment-title">Equipment Status</div>
-        <table class="equipment-table">
-          <tr>
-            <td class="eq-label">Magazine</td>
-            <td class="eq-checkbox">${entry.magazine ? "✓" : ""}</td>
-          </tr>
-          <tr>
-            <td class="eq-label">Wastafel</td>
-            <td class="eq-checkbox">${entry.wastafel ? "✓" : ""}</td>
-          </tr>
-          <tr>
-            <td class="eq-label">Pallet PM</td>
-            <td class="eq-checkbox">${entry.palletPm ? "✓" : ""}</td>
-          </tr>
-          <tr>
-            <td class="eq-label">Conveyor</td>
-            <td class="eq-checkbox">${entry.conveyor ? "✓" : ""}</td>
-          </tr>
-        </table>
-      </div>
-
-      ${entry.user && entry.time ? `
-        <div class="audit-trail">
-          <div>User: ${esc(entry.user)}</div>
-          <div>Time: ${esc(entry.time)}</div>
-        </div>
-      ` : ''}
-    </div>
-  `
-    )
-    .join("");
+      `).join("")
+    : '<div class="no-description-data">No data entered</div>';
 
   return `
     <section class="report-section segregasi-section">
       <div class="report-date">${formatDDMonYY(item.date)}</div>
       ${renderPDFHeader("SEGREGASI", item.line, "SEGREGASI & DESCRIPTION")}
-      <h2 style="fontWeight: 'bold', textAlign: 'center', fontSize: 18, marginVertical: 8">SEGREGASI & DESCRIPTION</h2>
+      <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">SEGREGASI & DESCRIPTION</h2>
       
-      <!-- DESCRIPTION SECTION -->
-      <div class="description-container">
-        <div class="desc-header-bar">
-          <div class="desc-header-cell desc-header-narrow">Flavour</div>
-          <div class="desc-header-cell">Kode Prod</div>
-          <div class="desc-header-cell">Kode Exp</div>
-          <div class="desc-header-cell desc-header-wide">Detail</div>
-        </div>
-        <div class="desc-grid">
-          ${descriptionSection}
-        </div>
-      </div>
-
-      <!-- SEGREGASI SECTION -->
+      <!-- COMBINED DATA SECTION (Description + Segregasi digabung dalam satu entry) -->
       <div class="segregasi-container">
         <div class="seg-header-bar">
           <div class="seg-header-cell seg-header-narrow">Type</div>
           <div class="seg-header-cell">Prod Type</div>
           <div class="seg-header-cell">TO</div>
-          <div class="seg-header-cell seg-header-wide">Equipment Status</div>
+          <div class="seg-header-cell seg-header-wide">Equipment Status & Detail</div>
         </div>
         <div class="seg-grid">
-          ${segregasiRows}
+          ${combinedSection}
         </div>
       </div>
-    </section>
-  `;
-};
-
-/** =========================
- * 2) PEMAKAIAN SCREW CAP
- * =========================
- */
-const htmlScrewCap = (item) => {
-  const rows = parseInspection(item.inspectionData)
-    .map(
-      (r, i) => `
-      <tr>
-        <td>${i + 1}</td>
-        <td>${esc(r.jam)}</td>
-        <td>${esc(r.ofNo)}</td>
-        <td>${esc(r.boxNo)}</td>
-        <td>${esc(r.qtyLabel)}</td>
-        <td>${esc(r.user)}</td>
-        <td>${esc(r.time)}</td>
-      </tr>
-    `
-    )
-    .join("");
-
-  return `
-    <section class="report-section screwcap-section">
-      ${renderPDFHeader("PEMAKAIAN SCREW CAP", item.line, "PEMAKAIAN SCREW CAP")}
-      <div class="report-date">${formatDDMonYY(item.date)}</div>
-      <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">PEMAKAIAN SCREW CAP</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>No</th><th>Jam</th><th>Of No.</th><th>Box No.</th><th>Qty Label</th><th>User</th><th>Time</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </section>
-  `;
-};
-
-/** ===================
- * 3) PEMAKAIAN PAPER
- * ====================
- */
-const htmlPaperUsage = (item) => {
-  const parsed = parseInspection(item.inspectionData);
-  const cekAlergenKemasan = Array.isArray(parsed) && !!parsed[0]?.cekAlergenKemasan;
-  const rows = parsed
-    .map(
-      (r, i) => `
-      <tr>
-        <td>${i + 1}</td>
-        <td>${esc(r.jam)}</td>
-        <td>${esc(r.boxNo)}</td>
-        <td>${esc(r.pdPaper)}</td>
-        <td>${esc(r.qtyLabel)}</td>
-        <td>${esc(r.user)}</td>
-        <td>${esc(r.time)}</td>
-      </tr>
-    `
-    )
-    .join("");
-
-  return `
-    <section class="report-section paper-section">
-      ${renderPDFHeader("PEMAKAIAN PAPER", item.line, "PEMAKAIAN PAPER")}
-      <div class="report-date">${formatDDMonYY(item.date)}</div>
-      <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;margin:8px 0;">
-        <div></div>
-        <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 0;">PEMAKAIAN PAPER</h2>
-        <div style="justify-self:end;display:flex;align-items:center;gap:8px;">
-          <div style="width:14px;height:14px;border:2px solid #111;display:flex;align-items:center;justify-content:center;">
-            ${cekAlergenKemasan ? "✓" : ""}
-          </div>
-          <span style="font-weight:700;">CEK LABEL ALERGEN KEMASAN</span>
-        </div>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th>No</th><th>Jam</th><th>Box No.</th><th>PD. Paper</th><th>Qty Label</th><th>User</th><th>Time</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </section>
-  `;
-};
-
-/** ==============
- * 4) H2O2 CHECK
- * ===============
- */
-const htmlH2O2 = (item) => {
-  const rows = parseInspection(item.inspectionData)
-    .map(
-      (r, i) => `
-      <tr>
-        <td>${i + 1}</td>
-        <td>${esc(r.jam)}</td>
-        <td>${esc(r.konsentrasi)}</td>
-        <td>${esc(r.volume)}</td>
-        <td>${esc(r.kode)}</td>
-        <td>${esc(r.user)}</td>
-        <td>${esc(r.time)}</td>
-      </tr>
-    `
-    )
-    .join("");
-
-  return `
-    <section class="report-section h2o2-section">
-      ${renderPDFHeader("PENGECEKAN H2O2 ( SPRAY )", item.line, "PENGECEKAN H2O2 (SPRAY)")}
-      <div class="report-date">${formatDDMonYY(item.date)}</div>
-      <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">PENGECEKAN H2O2 (SPRAY)</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>No</th><th>Jam Pengecekan</th><th>Konsentrasi (&gt;35-50%) (MCCP 03)</th><th>Volume</th><th>Kode Operator</th><th>User</th><th>Time</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
     </section>
   `;
 };
 
 /** =======================
- * 5) PERFORMA RED & GREEN 
+ * 2) PERFORMA RED & GREEN 
  * ========================
- * === UPDATE PENTING ===
  */
 const htmlShiftly = async (item) => {
-  // Get latest PERFORMA data
   const latestData = await getLatestPerformaData(item);
-  const uniqueData = extractUniqueInspectionData(latestData);
+  // extractUniqueInspectionData sekarang return object
+  const { activities: uniqueData, actualTimesPerHour } = extractUniqueInspectionData(latestData);
   const shiftHours = getShiftHours(item.shift);
-
-  // gunakan kunci yang sama dengan DetailLaporanShiftly
-  const scopeKey = scopeKeyForItem(item);
-  const actualLocks = await loadAndEnsureLocks(scopeKey, latestData, shiftHours);
-
-  // kelompokan actual time berdasar JAM TERKUNCI
-  const actualByHour = {};
-  for (const rec of latestData) {
-    const k = recordKey(rec);
-    const h = actualLocks[k];
-    if (h == null) continue;
-    if (!actualByHour[h]) actualByHour[h] = [];
-    actualByHour[h].push(rec);
-  }
-  Object.keys(actualByHour).forEach((h) => {
-    actualByHour[h].sort((a, b) => parseWIBNaive(a.submitTime).diff(parseWIBNaive(b.submitTime)));
-  });
 
   const performaHeader = renderPDFHeader("PERFORMA RED AND GREEN", item.line, "PERFORMA RED AND GREEN");
 
@@ -995,25 +983,26 @@ const htmlShiftly = async (item) => {
     </div>
   `;
 
-  // === UPDATED: Actual Time Row memakai actualByHour (jam terkunci)
+  // Actual Time Row menggunakan actualTimesPerHour dari inspection.time
   const actualTimeRow = `
     <tr>
       <td colspan="5" style="font-weight: bold; text-align: center; background-color: #f8f9fa;">Actual Time</td>
       ${shiftHours
       .map((hour) => {
-        const list = actualByHour[hour] || [];
-        if (list.length === 0) {
+        const times = actualTimesPerHour[hour] || [];
+        if (times.length === 0) {
           return `<td style="text-align:center; background:#f8f9fa; padding:4px;">-</td>`;
         }
-        const chips = list
-          .map((rec) => {
-            const ts = parseWIBNaive(rec.submitTime);
-            const label = ts.format("HH:mm");
-            // terlambat jika HH submit berbeda >= 1 jam dari slot kunci
-            const isLate = Math.abs(ts.hour() - Number(hour)) >= 1;
+        const chips = times
+          .map((timeStr) => {
+            // Parse jam dari timeStr (format HH:mm)
+            const [hh] = timeStr.split(":");
+            const timeHour = parseInt(hh, 10);
+            // Terlambat jika jam berbeda >= 1 dari slot
+            const isLate = Math.abs(timeHour - Number(hour)) >= 1;
             const bg = isLate ? "#ffebee" : "#e8f5e9";
             const fg = isLate ? "#d32f2f" : "#2e7d32";
-            return `<div style="background:${bg};color:${fg};font-weight:bold;padding:2px;margin-bottom:2px;border-radius:3px;display:inline-block;">${label}</div>`;
+            return `<div style="background:${bg};color:${fg};font-weight:bold;padding:2px 4px;margin:2px;border-radius:3px;display:inline-block;">${timeStr}</div>`;
           })
           .join("");
         return `<td style="text-align:center; background:#f8f9fa; padding:2px; vertical-align:top;">${chips}</td>`;
@@ -1073,7 +1062,7 @@ const htmlShiftly = async (item) => {
     <section class="report-section performa-section">
       <div class="report-date">${formatDDMonYY(item.date)}</div>
       ${performaHeader}
-      <h2 style="fontWeight: 'bold', textAlign: 'center', fontSize: 18, marginVertical: 8">PERFORMA RED AND GREEN</h2>
+      <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">PERFORMA RED AND GREEN</h2>
       <div class="legend">
         <span><i class="dot" style="background: #CFF5D0"></i> G (Good)</span>
         <span><i class="dot" style="background: #FFE9B0"></i> N (Need Attention)</span>
@@ -1106,7 +1095,7 @@ const htmlShiftly = async (item) => {
 };
 
 /** ================
- * 6 CHECKLIST CILT
+ * 3 CHECKLIST CILT
  * ================= */
 const checklistLayerCss = `
   <style>
@@ -1456,7 +1445,7 @@ const htmlCILTGIGR = (item) => {
  * =======
  */
 const htmlCIP = async (cipSummary) => {
-  // --- 1) Pastikan data detail tersedia ---
+  // 1) Pastikan data detail tersedia
   let header = { ...(cipSummary || {}) };
   let steps = header.steps || [];
   let specialRecords = header.specialRecords || [];
@@ -1480,13 +1469,13 @@ const htmlCIP = async (cipSummary) => {
     }
   }
 
-  // --- 2) Header PDF (judul berbeda untuk LINE A vs B/C/D) ---
+  // 2) Header PDF (judul berbeda untuk LINE A vs B/C/D)
   const cipHeaderTitle =
     String(header.line || "").toUpperCase() === "LINE A"
       ? "LAPORAN CIP MESIN GALDI RG 280 UCS (LINE A)"
       : "LAPORAN CIP MESIN GALDI (LINE B,C,D)";
 
-  // --- 3) MAIN INFO (sama seperti layar Detail) ---
+  // 3) MAIN INFO (sama seperti layar Detail)
   const mainInfoSection = `
     <div class="cip-main-info">
       <div class="cip-info-title">CIP Report Detail</div>
@@ -1526,7 +1515,7 @@ const htmlCIP = async (cipSummary) => {
     </div>
   `;
 
-  // --- 4) SECTION: CIP Steps (robust mapping) ---
+  // 4) SECTION: CIP Steps (robust mapping)
   const stepsSection =
     steps && steps.length > 0
       ? `
@@ -1587,7 +1576,7 @@ const htmlCIP = async (cipSummary) => {
   `
       : "";
 
-  // --- 5) SECTION: COP/SOP/SIP (LINE A) ---
+  // 5) SECTION: COP/SOP/SIP (LINE A)
   const copSection =
     Array.isArray(header.copRecords) && header.copRecords.length > 0
       ? `
@@ -1633,7 +1622,7 @@ const htmlCIP = async (cipSummary) => {
   `
       : "";
 
-  // --- 6) SECTION: DRYING/FOAMING/DISINFECT (LINE B/C/D) ---
+  // 6) SECTION: DRYING/FOAMING/DISINFECT (LINE B/C/D)
   const specialSection =
     ["LINE B", "LINE C", "LINE D"].includes(String(header.line || "").toUpperCase()) &&
       Array.isArray(specialRecords) &&
@@ -1665,7 +1654,7 @@ const htmlCIP = async (cipSummary) => {
   `
       : "";
 
-  // --- 7) Susun halaman CIP ---
+  // 7) Susun halaman CIP
   return `
     <section class="report-section cip-section-main">
       ${renderPDFHeader("CIP", header.line, cipHeaderTitle)}
@@ -1683,18 +1672,34 @@ const htmlCIP = async (cipSummary) => {
 
 // Router template - Updated to handle async PERFORMA
 const htmlByPackage = async (item) => {
-  const t = item.packageType || "";
-  if (t === "SEGREGASI") return htmlSegregasi(item);
-  if (t === "PEMAKAIAN SCREW CAP") return htmlScrewCap(item);
-  if (t === "PEMAKAIAN PAPER") return htmlPaperUsage(item);
-  if (t === "PENGECEKAN H2O2 ( SPRAY )") return htmlH2O2(item);
-  if (t === "PERFORMA RED AND GREEN") return await htmlShiftly(item); // async
-  if (t === "CHECKLIST CILT") return htmlChecklist(item);
-  if (t === "CILTGIGR") return htmlCILTGIGR(item);
-  return "";
+  const packageType = item.packageType;
+  const config = PACKAGE_CONFIG[packageType];
+
+  // Prioritas 1: Gunakan imported generator jika ada
+  if (config?.htmlGenerator) {
+    const html = config.htmlGenerator;
+    return typeof html === 'function' ? html(item) : html;
+  }
+
+  // Prioritas 2: Hanya untuk package yang memang perlu fungsi inline khusus
+  switch (packageType) {
+    case "SEGREGASI":
+      return htmlSegregasi(item);      // fungsi inline di ListCILT
+    case "PERFORMA RED AND GREEN":
+      return await htmlShiftly(item);       // fungsi inline di ListCILT (async)
+    case "CHECKLIST CILT":
+      return htmlChecklist(item);      // fungsi inline di ListCILT
+    case "CILTGIGR":
+      return htmlCILTGIGR(item);
+    case "REPORT CIP":
+      return await htmlCIP(item);     // fungsi inline di ListCILT
+    default:
+      // Untuk package yang tidak dikenali, gunakan default
+      return `<div class="package-error">No template found for package: ${esc(packageType)}</div>`;
+  }
 };
 
-/* ===== Global CSS untuk PDF - base (tetap) ===== */
+/* Global CSS untuk PDF - base (tetap) */
 const globalPdfCss = `
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; font-size: 12px; }
@@ -1781,10 +1786,20 @@ const globalPdfCss = `
     .slot-half {
       flex:1; text-align:center; padding:6px 0;
     }
+      .package-error {
+     padding: 20px;
+     text-align: center;
+     background-color: #fee;
+     border: 2px solid #f99;
+     border-radius: 8px;
+     margin: 20px 0;
+     color: #c00;
+     font-weight: bold;
+   }
 </style>
 `;
 
-/* ===== Segregasi-specific styles ===== */
+/* Segregasi-specific styles */
 const segregasiPdfStyles = `
   <style>
   .segregasi-section { 
@@ -1845,7 +1860,7 @@ const segregasiPdfStyles = `
   </style>
 `;
 
-/* ===== Checklist-specific styles ===== */
+/* Checklist-specific styles */
 const checklistPdfStyles = `
   <style>
   .checklist-section { page-break-inside: avoid; margin-bottom: 25px; }
@@ -1879,7 +1894,7 @@ const checklistPdfStyles = `
   </style>
 `;
 
-/* ===== CIP-specific styles ===== */
+/* CIP-specific styles */
 const cipPdfStyles = `
   <style>
   /* CIP Report specific styles */
@@ -2183,7 +2198,7 @@ const cipPdfStyles = `
   </style>
 `;
 
-/* ===== PERFORMA-specific styles ===== */
+/* PERFORMA-specific styles */
 const performaPdfStyles = `
   <style>
   /* PERFORMA Report specific styles matching DetailLaporanShiftly */
@@ -2350,7 +2365,7 @@ const performaPdfStyles = `
 const updatedGlobalPdfCssWithAll = globalPdfCss + segregasiPdfStyles + checklistPdfStyles + cipPdfStyles + performaPdfStyles;
 
 /* =======================
- * ========== Grouping CHECKLIST CILT ==========
+ * Grouping CHECKLIST CILT 
  * ======================= */
 
 // Kelompokkan semua item CHECKLIST CILT => satu item per (plant,line,machine, bulan)
@@ -2449,7 +2464,7 @@ const mergeChecklistCILTMonthly = (items) => {
 };
 
 /* =======================
- * ===== Helpers utk REPORT CIP =====
+ * Helpers utk REPORT CIP 
  * ======================= */
 
 const toMoment = (val) => {
@@ -2487,9 +2502,9 @@ const CIP_PRODUCT_LABELS = {
 };
 const labelCipProduct = (raw) => CIP_PRODUCT_LABELS[String(raw || "").toUpperCase()] || humanize(raw || "-");
 
-/* =========================================
- * ============== KOMPONEN LAYAR ===========
- * ========================================= */
+/* ===============
+ * KOMPONEN LAYAR
+ * =============== */
 
 const ListCILT = ({ navigation }) => {
   const [selectedDate, setSelectedDate] = useState(null);
@@ -2563,7 +2578,7 @@ const ListCILT = ({ navigation }) => {
     []
   );
 
-  /* ---------- Lifecycle ---------- */
+  /* Lifecycle */
   useEffect(() => {
     fetchDataFromAPI();
     const unsubscribe = navigation.addListener("focus", () => {
@@ -2692,7 +2707,7 @@ const ListCILT = ({ navigation }) => {
     return unsub;
   }, [navigation, selectedPackage, mapCipToRow]);
 
-  /* ---------- API Calls ---------- */
+  /* API CALLS */
   const fetchDataFromAPI = async () => {
     setIsLoading(true);
     try {
@@ -2801,7 +2816,7 @@ const ListCILT = ({ navigation }) => {
     }
   };
 
-  /* ---------- Download & PDF ---------- */
+  /* Download & PDF */
   const handleDownloadByShift = async () => {
     if (!selectedShift) {
       Alert.alert("Error", "Silakan pilih shift terlebih dahulu untuk download data");
@@ -3064,11 +3079,11 @@ const ListCILT = ({ navigation }) => {
     `;
   };
 
-  /* ---------- List & Filter ---------- */
+  /* List & Filter */
   // helper: deteksi package CILT (aman terhadap null / variasi kapital)
   const isChecklistCILT = (pkg) => String(pkg || "").toUpperCase().includes("CHECKLIST CILT");
 
-  // --- REPLACE: cara menyiapkan baris untuk tabel
+  // cara menyiapkan baris untuk tabel
   const baseRows = dataGreentag; // baris paket-paket CILT existing (CHECKLIST CILT, SEGREGASI, dll.)
   let rowsForTable;
 
@@ -3232,7 +3247,7 @@ const ListCILT = ({ navigation }) => {
       );
     }
 
-    // ✅ CILT Items logic (hanya dieksekusi jika BUKAN CIP)
+    // CILT Items logic (hanya dieksekusi jika BUKAN CIP)
     const coorApproved = item.approval_coor === 1;
     const spvApproved = item.approval_spv === 1;
     const rejected =
@@ -3472,20 +3487,14 @@ const ListCILT = ({ navigation }) => {
   };
 
   const handleDetailPress = (item) => {
-    if (item.packageType === "PERFORMA RED AND GREEN") {
-      navigation.navigate("DetailLaporanShiftlyCILT", { item });
-    } else if (item.packageType === "PEMAKAIAN SCREW CAP") {
-      navigation.navigate("DetailLaporanScrewCap", { item });
-    } else if (item.packageType === "PENGECEKAN H2O2 ( SPRAY )") {
-      navigation.navigate("DetailLaporanH2O2Check", { item });
-    } else if (item.packageType === "CHECKLIST CILT") {
-      navigation.navigate("DetailLaporanChecklistCILT", { item });
-    } else if (item.packageType === "SEGREGASI") {
-      navigation.navigate("DetailLaporanSegregasi", { item });
-    } else if (item.packageType === "REPORT CIP") {
-      navigation.navigate("DetailReportCIP", { cipReportId: Number(item.id) });
+    const packageType = item.packageType;
+    const config = PACKAGE_CONFIG[packageType] || DEFAULT_PACKAGE_CONFIG;
+
+    if (config.useIdParam) {
+      // Special case for CIP
+      navigation.navigate(config.screen, { cipReportId: Number(item.id) });
     } else {
-      navigation.navigate("DetailLaporanPaperUsage", { item });
+      navigation.navigate(config.screen, { item });
     }
   };
 
@@ -3760,9 +3769,9 @@ const ListCILT = ({ navigation }) => {
   );
 };
 
-/* ====================
- * ====== Styles ======
- * ==================== */
+/* ======
+ * Styles 
+ * ====== */
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff" },
