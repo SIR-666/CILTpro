@@ -10,7 +10,7 @@ import {
 import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-/** ====== GLOBAL JAM BUS (event dengan sumber, index, user, processOrder, product) ====== */
+/* GLOBAL JAM BUS (event dengan sumber, index, user, processOrder, product) */
 const SHARED_JAM_LISTENERS = "__sharedJamListeners";
 function setSharedJamEvent(evt) {
   (globalThis[SHARED_JAM_LISTENERS] || []).forEach((fn) => {
@@ -59,7 +59,7 @@ const PaperUsageInspectionTable = ({
   const [showTimePickerIndex, setShowTimePickerIndex] = useState(null);
   const [showDatePickerIndex, setShowDatePickerIndex] = useState(null);
 
-  // guard anti “ping-pong”
+  // guard
   const applyingExternalRef = useRef(false);
   // tahan emit saat init/hydrate
   const suppressEmitRef = useRef(false);
@@ -203,7 +203,7 @@ const PaperUsageInspectionTable = ({
     onDataChangeRef.current?.(payload);
   }, [tableData, cekAlergenKemasan]); // (tanpa onDataChange)
 
-  /** ====== LISTEN shared jam (user, PO, product harus sama; bukan event sendiri) ====== */
+  /* LISTEN shared jam (user, PO, product harus sama; bukan event sendiri) */
   useEffect(() => {
     const applyShared = (evt) => {
       if (!evt) return;
@@ -347,7 +347,7 @@ const PaperUsageInspectionTable = ({
     setTableData(updated); // effect akan emit (tidak suppressed)
   };
 
-  /** ====== HAPUS ROW ====== */
+  /* HAPUS ROW */
   const removeRow = (index) => {
     if (showTimePickerIndex === index) setShowTimePickerIndex(null);
     if (showDatePickerIndex === index) setShowDatePickerIndex(null);
@@ -383,7 +383,7 @@ const PaperUsageInspectionTable = ({
 
   return (
     <View style={styles.table}>
-      {/* === Baris Checkbox Alergen === */}
+      {/* Baris Checkbox Alergen */}
       <View style={styles.alergenRow}>
         <TouchableOpacity
           onPress={() => {

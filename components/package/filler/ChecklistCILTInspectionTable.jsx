@@ -69,7 +69,7 @@ const ChecklistCILTInspectionTable = ({
   };
 
   const fetchInspection = async (plant, line, machine, type) => {
-    console.log(`🔄 Fetching Checklist CILT for: Plant=${plant}, Line=${line}, Machine=${machine}, Type=${type}`);
+    console.log(`Fetching Checklist CILT for: Plant=${plant}, Line=${line}, Machine=${machine}, Type=${type}`);
 
     try {
       setIsLoading(true);
@@ -82,7 +82,7 @@ const ChecklistCILTInspectionTable = ({
       }
 
       const visibleData = response.data.filter(item => item.visibility !== false);
-      console.log(`📊 Found ${response.data.length} total records, ${visibleData.length} visible for Line ${line}`);
+      console.log(`Found ${response.data.length} total records, ${visibleData.length} visible for Line ${line}`);
       const formattedData = visibleData.map((item) => ({
         job_type: item.job_type,
         componen: item.componen,
@@ -135,7 +135,7 @@ const ChecklistCILTInspectionTable = ({
 
     if (plant && line && machine && type) {
       if (paramsChanged || inspectionData.length === 0) {
-        console.log(`🔄 Params changed or empty data, fetching for Line ${line}...`);
+        console.log(`Params changed or empty data, fetching for Line ${line}...`);
         fetchInspection(plant, line, machine, type);
       }
     }
@@ -150,14 +150,14 @@ const ChecklistCILTInspectionTable = ({
 
   useEffect(() => {
     if (initialData.length > 0 && inspectionData.length === 0) {
-      console.log(`📦 Loading from initialData for Line ${line}:`, initialData.length);
+      console.log(`Loading from initialData for Line ${line}:`, initialData.length);
       setInspectionData(initialData);
     }
   }, [initialData]);
 
   useEffect(() => {
     globalThis.checklistForceRefresh = () => {
-      console.log(`🔄 Force refreshing Checklist data for Line ${line}...`);
+      console.log(`Force refreshing Checklist data for Line ${line}...`);
       if (plant && line && machine && type) {
         fetchInspection(plant, line, machine, type);
       }

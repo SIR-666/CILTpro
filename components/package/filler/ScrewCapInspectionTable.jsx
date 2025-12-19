@@ -134,7 +134,7 @@ const ScrewCapInspectionTable = ({
     onDataChange(updated);
   };
 
-  /** ====== HAPUS ROW ====== */
+  /* HAPUS ROW */
   const removeRow = (index) => {
     if (showTimePickerIndex === index) setShowTimePickerIndex(null);
 

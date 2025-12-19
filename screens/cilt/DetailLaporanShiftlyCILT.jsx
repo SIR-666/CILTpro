@@ -32,7 +32,7 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
   const [selectedImage, setSelectedImage] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
 
-  // ==== FAST BACK ====
+  // FAST BACK
   const leavingRef = useRef(false);
 
   useFocusEffect(
@@ -65,10 +65,8 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
 
   // SCROLL: header kanan ikut body via Animated translateX
   const scrollX = useRef(new Animated.Value(0)).current;
-  
-  // ============================================
+
   // CELL WIDTHS - Setiap jam dibagi 2 untuk 30 menit
-  // ============================================
   const CELL_WIDTHS = {
     no: 40,
     activity: 200,
@@ -77,15 +75,13 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
     halfHour: 40,    // Width per 30 menit (setengah dari hour)
     fixedTotal: 390,
   };
-  
+
   const hoursWidth = useMemo(
     () => (Array.isArray(shiftHours) ? shiftHours.length : 0) * CELL_WIDTHS.hour,
     [shiftHours]
   );
 
-  // ============================================
-  // FIXED ROW HEIGHT - Tidak menggunakan dynamic measurement
-  // ============================================
+  // ROW HEIGHT
   const ROW_HEIGHT = 50;
 
   const getShiftHours = (shift) => {
@@ -101,16 +97,14 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
     String(v).trim() !== "" &&
     String(v).trim() !== "-";
 
-  // ============================================
   // FETCH MASTER DATA
-  // ============================================
   const fetchMasterData = async () => {
     try {
       const { data: masterData } = await api.get(
         `/gnr-master?plant=${encodeURIComponent(item.plant)}&line=${encodeURIComponent(item.line)}&machine=${encodeURIComponent(item.machine)}&type=PERFORMA RED AND GREEN`
       );
       const activities = Array.isArray(masterData) ? masterData.filter(m => m.visibility !== false) : [];
-      console.log(`📊 Fetched ${activities.length} master activities`);
+      console.log(`Fetched ${activities.length} master activities`);
       return activities;
     } catch (error) {
       console.error("Error fetching master data:", error);
@@ -118,9 +112,7 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
     }
   };
 
-  // ============================================
   // PARSE hourSlot untuk mendapatkan jam
-  // ============================================
   const parseHourFromSlot = (hourSlot) => {
     if (!hourSlot) return undefined;
     const match = String(hourSlot).match(/^(\d{1,2})/);
@@ -130,9 +122,7 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
     return undefined;
   };
 
-  // ============================================
-  // GENERATE 30-MIN SLOT KEYS untuk jam tertentu
-  // ============================================
+  // 30-MIN SLOT KEYS untuk jam tertentu
   const get30MinSlots = (hour) => {
     const h = pad2(hour);
     const nextH = pad2((hour + 1) % 24);
@@ -142,9 +132,7 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
     };
   };
 
-  // ============================================
   // EXTRACT UNIQUE INSPECTION DATA
-  // ============================================
   const extractUniqueInspectionData = (records, masterList = []) => {
     const uniqueActivities = {};
 
@@ -201,7 +189,7 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
             }
 
             // Check if this is 30-minute data
-            const is30Min = inspection.periode && 
+            const is30Min = inspection.periode &&
               String(inspection.periode).toLowerCase().includes("30");
 
             if (is30Min) {
@@ -212,7 +200,7 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
                 if (sKey) {
                   uniqueActivities[matchKey].results30[sKey] = String(inspection.results);
                   uniqueActivities[matchKey].periode = "30 menit";
-                  
+
                   // Simpan actual time
                   const hour = parseHourFromSlot(timeSlot);
                   if (hour !== undefined && inspection.time) {
@@ -257,7 +245,7 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
     }
 
     const result = Object.values(uniqueActivities);
-    console.log(`📊 Extracted ${result.length} unique activities`);
+    console.log(`Extracted ${result.length} unique activities`);
     return result;
   };
 
@@ -271,9 +259,7 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
     return `${h1}:${m1} - ${h2}:${m2}`;
   };
 
-  // ============================================
   // KUMPULKAN ACTUAL TIMES PER JAM
-  // ============================================
   const actualTimesPerHour = useMemo(() => {
     const result = {};
     shiftHours.forEach(h => {
@@ -425,7 +411,7 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
     return separatorIndices.includes(index);
   };
 
-  // === Half-hour helper (untuk PDF) ===
+  // Half-hour helper (untuk PDF)
   const getHalfHourSlots = (hours) =>
     hours.flatMap((h) => {
       const HH = String(h).padStart(2, "0");
@@ -612,22 +598,20 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
     }
   };
 
-  // ============================================
   // RENDER CELL untuk setiap jam
   // Jika periode 30 menit, tampilkan 2 sub-cell
-  // ============================================
   const renderHourCell = (row, hour, rkey) => {
     const is30Min = row.periode && String(row.periode).toLowerCase().includes("30");
-    
+
     if (is30Min) {
       // Render 2 sub-cells untuk 30 menit
       const slots = get30MinSlots(hour);
       const val1 = row.results30?.[slots.first] || "";
       const val2 = row.results30?.[slots.second] || "";
-      
+
       return (
-        <View 
-          key={`cell-${rkey}-${hour}`} 
+        <View
+          key={`cell-${rkey}-${hour}`}
           style={[styles.splitCell, { width: CELL_WIDTHS.hour }]}
         >
           {/* Sub-cell 1: XX:00 - XX:30 */}
@@ -639,10 +623,10 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
               {val1}
             </Text>
           </View>
-          
+
           {/* Divider */}
           <View style={styles.cellDivider} />
-          
+
           {/* Sub-cell 2: XX:30 - (XX+1):00 */}
           <View style={[
             styles.halfCell,
@@ -678,12 +662,10 @@ const DetailLaporanShiftly = ({ route, navigation }) => {
     }
   };
 
-  // ============================================
   // RENDER HEADER untuk jam (dengan sub-header 30 menit)
-  // ============================================
   const renderHourHeaders = () => {
     return shiftHours.map((hour, index) => (
-      <View 
+      <View
         key={`header-${hour}-${index}`}
         style={[styles.hourHeaderContainer, { width: CELL_WIDTHS.hour }]}
       >

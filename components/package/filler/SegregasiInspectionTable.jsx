@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, useLayoutEffect } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
   Pressable, Image, ScrollView
@@ -8,7 +8,7 @@ import { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import moment from "moment-timezone";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-/* ========== Utils ========== */
+/* Utils */
 const pad2 = (n) => String(n).padStart(2, "0");
 const formatDMY = (d) => `${pad2(d.getDate())}/${pad2(d.getMonth() + 1)}/${d.getFullYear()}`;
 const toDate = (val) => {
@@ -41,7 +41,7 @@ const isRowComplete = (r) => {
   return false;
 };
 
-/* ========== Reusable date/time input ========== */
+/* Reusable date/time input */
 const DateField = ({ value, onChange, placeholder = "dd/mm/yyyy" }) => {
   const openPicker = () => {
     const initial = value ? toDate(value) : new Date();
@@ -83,7 +83,7 @@ const TimeField = ({ value, onChange, placeholder = "HH:MM" }) => {
   );
 };
 
-/* ========== Header ========== */
+/* Header */
 const ReportHeader = ({
   companyName = "PT. GREENFIELDS INDONESIA",
   title = "LAPORAN PRODUKSI MESIN  GALDI 280 UCS",
@@ -111,7 +111,7 @@ const ReportHeader = ({
   </View>
 );
 
-/* ========== Main (merged) ========== */
+/* Main */
 const SegregasiInspectionTable = ({
   username,
   onDataChange,
@@ -128,6 +128,7 @@ const SegregasiInspectionTable = ({
   const isInitializingRef = useRef(false);
   const hadInitialDataRef = useRef(false);
   const isLoadingRef = useRef(false);
+  const skipNextStorageLoadRef = useRef(false);
   const lastLineNameRef = useRef(lineName);
 
   // base product penentu FLAVOUR (tetap mengikuti START)
@@ -141,7 +142,7 @@ const SegregasiInspectionTable = ({
     saveTimerRef.current = setTimeout(fn, delay);
   };
 
-  // ===== state rows
+  // state rows
   const makeEmptyRow = (i) => ({
     id: i,
     // DESCRIPTION
@@ -164,7 +165,7 @@ const SegregasiInspectionTable = ({
 
   const [manualTotalOutfeed, setManualTotalOutfeed] = useState({});
 
-  // ===== effectiveProduct untuk tujuan CV (hanya mempengaruhi prodType)
+  // effectiveProduct untuk tujuan CV (hanya mempengaruhi prodType)
   const effectiveProduct = useMemo(() => {
     let chosen = null;
     const toMinutes = (hhmm) =>
@@ -187,12 +188,35 @@ const SegregasiInspectionTable = ({
     if (typeof onEffectiveProductChange === "function") onEffectiveProductChange(effectiveProduct);
   }, [effectiveProduct, onEffectiveProductChange]);
 
-  // >>> PATCH: pastikan baseProductRef terisi dari prop product pertama kali
+  // Filter product options berdasarkan line (untuk dropdown TO di Change Variant)
+  const filteredProductOptions = useMemo(() => {
+    if (!lineName || !productOptions || !Array.isArray(productOptions)) return productOptions || [];
+
+    const upperLine = lineName.toUpperCase();
+
+    // LINE A, B, C - ESL
+    if (["LINE A", "LINE B", "LINE C"].includes(upperLine)) {
+      return productOptions.filter(p => {
+        const label = (p.label || p.value || "").toUpperCase();
+        return label.includes("GF MILK ESL") && !label.includes("1890");
+      });
+    }
+
+    // LINE D - ESL 1890
+    if (upperLine === "LINE D") {
+      return productOptions.filter(p => {
+        const label = (p.label || p.value || "").toUpperCase();
+        return label.includes("GF MILK ESL") && label.includes("1890");
+      });
+    }
+
+    return productOptions;
+  }, [productOptions, lineName]);
+
   useEffect(() => {
     if (!baseProductRef.current && product) baseProductRef.current = product;
   }, [product]);
 
-  // >>> PATCH: jika ada baris START, tetapkan baseProduct dari situ (sekali saat muncul)
   useEffect(() => {
     const firstStart = rows.find(r => r.type === "Start" && (r.prodType || product));
     if (firstStart && firstStart.prodType && baseProductRef.current !== firstStart.prodType) {
@@ -214,7 +238,7 @@ const SegregasiInspectionTable = ({
       : `segregasi_temp_${ln}_${po}_${eff}_${pkg}_${shf}__${usr}`;
   };
 
-  // ===== init once
+  // init once
   useEffect(() => {
     isInitializingRef.current = true;
     hadInitialDataRef.current = Array.isArray(initialData) && initialData.length > 0;
@@ -257,9 +281,13 @@ const SegregasiInspectionTable = ({
     return () => clearTimeout(t);
   }, []);
 
-  // ===== load on key change
+  // load on key change
   useEffect(() => {
     const load = async () => {
+      if (skipNextStorageLoadRef.current) {
+        skipNextStorageLoadRef.current = false;
+        return;
+      }
       if (!username || !lineName || !shift) return;
       try {
         isLoadingRef.current = true;
@@ -277,7 +305,6 @@ const SegregasiInspectionTable = ({
         if (storedLegacy) {
           const parsed = JSON.parse(storedLegacy);
           if (Array.isArray(parsed?.rows)) {
-            // BENAR
             const normalized = parsed.rows.map((d, i) => ({ ...makeEmptyRow(i + 1), ...(d || {}) }));
             setRows(normalized);
             await AsyncStorage.setItem(primaryKey, JSON.stringify({
@@ -296,7 +323,7 @@ const SegregasiInspectionTable = ({
     load();
   }, [lineName, shift, username, processOrder, packageType, storageBase]);
 
-  // ===== autosave
+  // autosave
   useEffect(() => {
     if (isInitializingRef.current || isLoadingRef.current) return;
     if (!username || !lineName || !shift) return;
@@ -312,7 +339,7 @@ const SegregasiInspectionTable = ({
     debounce(doSave, 250);
   }, [rows, lineName, shift, username, processOrder, packageType, storageBase]);
 
-  // ===== save on unmount
+  // save on unmount
   useEffect(() => {
     const key = getStorageKey("primary");
     return () => {
@@ -325,7 +352,7 @@ const SegregasiInspectionTable = ({
     };
   }, [lineName, shift, username, processOrder, packageType, storageBase, rows]);
 
-  // ===== clear API
+  // clear API
   const clearSegregasiStorage = useCallback(async () => {
     const key = getStorageKey("primary");
     await AsyncStorage.removeItem(key);
@@ -338,7 +365,7 @@ const SegregasiInspectionTable = ({
     return () => { if (typeof window !== "undefined") delete window.clearSegregasiStorage; delete global.clearSegregasiStorage; };
   }, [clearSegregasiStorage]);
 
-  // ===== sync to parent (stabilkan callback)
+  // sync to parent
   const onDataChangeRef = useRef(onDataChange);
   useEffect(() => { onDataChangeRef.current = onDataChange; }, [onDataChange]);
   const lastSigRef = useRef("");
@@ -350,7 +377,7 @@ const SegregasiInspectionTable = ({
     }
   }, [rows]);
 
-  // ===== append line suffix ke kodeProd ketika line berubah
+  // append line suffix ke kodeProd ketika line berubah
   useEffect(() => {
     if (!lineName || lineName === lastLineNameRef.current || isInitializingRef.current || isLoadingRef.current) return;
     lastLineNameRef.current = lineName;
@@ -368,10 +395,10 @@ const SegregasiInspectionTable = ({
     }));
   }, [lineName, username]);
 
-  // ===== handlers unified
+  // handlers unified
   const handleChange = useCallback((idx, field, value) => {
     if (isInitializingRef.current || isLoadingRef.current) return;
-
+    let pendingStorageBase = null;
     if (field === "totalOutfeed") setManualTotalOutfeed(prev => ({ ...prev, [idx]: true }));
 
     setRows(prev => {
@@ -399,21 +426,18 @@ const SegregasiInspectionTable = ({
 
         if (value === "Start") {
           // tetapkan base START product & flavour
-          const base = product || baseProductRef.current || row.prodType || row.flavour;
+          const base = row.prodType || product || baseProductRef.current || row.flavour;
           baseProductRef.current = base;
-          setStorageBase(base || "default");
+          pendingStorageBase = base || "default";
           row.prodType = base;
-          if (row.kodeProd) {
-            row.flavour = base;
-          } else {
-            row.flavour = base || "";
+          if (!row.kodeProd) {
             row.kodeProd = todayKodeProdWithSuffix(lineName);
           }
+          row.flavour = base || row.flavour || "";
           row.to = "";
         } else if (value === "Change Variant") {
           const prevEff = effectiveProduct || baseProductRef.current || product || "";
           row.prodType = prevEff;
-          if (row.kodeProd) row.flavour = "";
         } else if (value === "") {
           row.prodType = "";
           row.to = "";
@@ -423,7 +447,7 @@ const SegregasiInspectionTable = ({
         if (row.type === "Change Variant") {
           row.prodType = value || row.prodType;
           row.flavour = value || "";
-          if (row.flavour && !row.kodeProd) {
+          if (value && !row.kodeProd) {
             row.kodeProd = todayKodeProdWithSuffix(lineName);
           }
         }
@@ -443,9 +467,15 @@ const SegregasiInspectionTable = ({
       next[idx] = row;
       return next;
     });
+    if (pendingStorageBase !== null) {
+      skipNextStorageLoadRef.current = true;
+      setTimeout(() => {
+        setStorageBase(pendingStorageBase);
+      }, 0);
+    }
   }, [lineName, username, product, effectiveProduct]);
 
-  // ===== autosum totalOutfeed
+  // autosum totalOutfeed
   useEffect(() => {
     if (isInitializingRef.current || isLoadingRef.current) return;
     let changed = false;
@@ -465,7 +495,7 @@ const SegregasiInspectionTable = ({
     if (changed) setRows(updated);
   }, [rows, manualTotalOutfeed]);
 
-  // ===== auto-append row saat baris terakhir lengkap
+  // auto-append row saat baris terakhir lengkap
   useEffect(() => {
     if (isInitializingRef.current || isLoadingRef.current) return;
     if (!rows || rows.length === 0) return;
@@ -480,7 +510,7 @@ const SegregasiInspectionTable = ({
     }
   }, [rows]);
 
-  /* ===== Render ===== */
+  /* Render */
   return (
     <View style={styles.container}>
       <ReportHeader headerMeta={{
@@ -506,7 +536,7 @@ const SegregasiInspectionTable = ({
               </View>
             ) : null}
 
-            {/* ===== Description block ===== */}
+            {/* Description block */}
             <View style={styles.fieldGroup}>
               <Text style={styles.smallLabel}>Flavour</Text>
               <View style={[styles.autoShell, styles.inputDisabled]}>
@@ -568,7 +598,7 @@ const SegregasiInspectionTable = ({
               <TextInput style={styles.descriptionInput} value={r.stopNum} onChangeText={(t) => handleChange(i, "stopNum", t)} placeholder="Input number" keyboardType="number-pad" maxLength={8} />
             </View>
 
-            {/* ===== Segregasi block ===== */}
+            {/* Segregasi block */}
             <View style={styles.fieldGroup}>
               <Text style={styles.smallLabel}>Type</Text>
               <View style={styles.pickerShell}>
@@ -594,7 +624,7 @@ const SegregasiInspectionTable = ({
                 <View style={styles.pickerShell}>
                   <Picker selectedValue={r.to} style={[styles.picker, { textAlign: "center" }]} onValueChange={(v) => handleChange(i, "to", v)}>
                     <Picker.Item label="Select destination product" value="" />
-                    {(productOptions || []).map((op, idx2) => (
+                    {(filteredProductOptions || []).map((op, idx2) => (
                       <Picker.Item key={`${op.value}-${idx2}`} label={op.label || op.value} value={op.value} />
                     ))}
                   </Picker>
@@ -642,7 +672,7 @@ const SegregasiInspectionTable = ({
 
 export default SegregasiInspectionTable;
 
-/* ========== Styles ========== */
+/* Styles */
 const cardShadow = { shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 3, shadowOffset: { width: 0, height: 2 }, elevation: 2 };
 const styles = StyleSheet.create({
   container: { marginTop: 16, borderWidth: 1, borderColor: "#ccc", borderRadius: 8, backgroundColor: "#f9f9f9", padding: 12 },
