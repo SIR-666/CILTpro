@@ -53,6 +53,9 @@ const RobotPalletizerFillerInspectionTable = ({
     initialData = [],
     processOrder,
     product,
+    shift: parentShift,       // Shift dari parent
+    line: parentLine,         // Line dari parent  
+    machine: parentMachine,   // Machine dari parent
     shouldClearData = false,
 }) => {
     const isLoaded = useRef(false);
@@ -60,20 +63,20 @@ const RobotPalletizerFillerInspectionTable = ({
     const lastClearState = useRef(shouldClearData);
     const STORAGE_KEY = `robot_palletizer_${(username || "user").replace(/\s+/g, "_")}`;
 
-    // Header form
+    // Header form - auto-fill mesinLine dari parent
     const [formData, setFormData] = useState({
         mesinLine: "",
         kodeProd: "",
         kodeExpire: "",
     });
 
-    // Detail row generator
-    const makeEmptyRow = (i) => ({
+    // Detail row generator - shift kosong, akan di-fill saat expand
+    const makeEmptyRow = useCallback((i) => ({
         id: i,
-        shift: "",
+        shift: "",  // Shift akan di-fill saat expand
         var: "",
-        prpPaper: "",
-        adBlue: "",
+        iprp: "",
+        lclexp: "",
         vol: "",
         palletNo: "",
         cartonNo: "",
@@ -83,7 +86,7 @@ const RobotPalletizerFillerInspectionTable = ({
         keterangan: "",
         user: "",
         time: "",
-    });
+    }), []);
 
     // Detail rows
     const [tableData, setTableData] = useState(() => {
@@ -100,13 +103,32 @@ const RobotPalletizerFillerInspectionTable = ({
         tableData.length > 0 ? tableData[0].id : null
     );
 
+    // Auto-fill mesinLine ketika parentLine atau parentMachine berubah
+    useEffect(() => {
+        if (parentLine || parentMachine) {
+            const autoMesinLine = [parentMachine, parentLine].filter(Boolean).join(" / ");
+            setFormData(prev => ({
+                ...prev,
+                mesinLine: autoMesinLine, // Selalu update dari parent
+            }));
+        }
+    }, [parentLine, parentMachine]);
+
     useEffect(() => {
         const load = async () => {
             try {
                 const raw = await AsyncStorage.getItem(STORAGE_KEY);
                 if (raw) {
                     const d = JSON.parse(raw);
-                    if (d.formData) setFormData(d.formData);
+                    if (d.formData) {
+                        // mesinLine akan di-override oleh parent, jadi hanya load kodeProd & kodeExpire
+                        const autoMesinLine = [parentMachine, parentLine].filter(Boolean).join(" / ");
+                        setFormData({
+                            mesinLine: autoMesinLine,
+                            kodeProd: d.formData.kodeProd || "",
+                            kodeExpire: d.formData.kodeExpire || "",
+                        });
+                    }
                     if (d.rows) {
                         const rows = d.rows.map((r, i) => ({
                             ...makeEmptyRow(i + 1),
@@ -120,7 +142,14 @@ const RobotPalletizerFillerInspectionTable = ({
                 }
                 if (initialData.length > 0) {
                     const d = initialData[0];
-                    if (d.formData) setFormData(d.formData);
+                    if (d.formData) {
+                        const autoMesinLine = [parentMachine, parentLine].filter(Boolean).join(" / ");
+                        setFormData({
+                            mesinLine: autoMesinLine,
+                            kodeProd: d.formData.kodeProd || "",
+                            kodeExpire: d.formData.kodeExpire || "",
+                        });
+                    }
                     if (d.rows) setTableData(d.rows);
                 }
                 isLoaded.current = true;
@@ -182,8 +211,27 @@ const RobotPalletizerFillerInspectionTable = ({
                 return next;
             });
         },
-        [username]
+        [username, makeEmptyRow]
     );
+
+    // Handle expand accordion - auto-fill shift saat pertama kali expand
+    const handleExpand = useCallback((itemId) => {
+        setExpandedId(prev => {
+            const isOpening = prev !== itemId;
+            
+            // Jika sedang membuka (expand), auto-fill shift jika belum ada
+            if (isOpening && parentShift) {
+                setTableData(prevData => prevData.map(row => {
+                    if (row.id === itemId && !row.shift) {
+                        return { ...row, shift: parentShift };
+                    }
+                    return row;
+                }));
+            }
+            
+            return isOpening ? itemId : null;
+        });
+    }, [parentShift]);
 
     const removeRow = (index) => {
         setTableData((prev) => {
@@ -229,15 +277,16 @@ const RobotPalletizerFillerInspectionTable = ({
                 return [...prev, makeEmptyRow(nextId)];
             });
         }
-    }, [tableData]);
+    }, [tableData, makeEmptyRow]);
 
     // Function untuk reset semua data
     const clearAllData = useCallback(async () => {
         try {
             await AsyncStorage.removeItem(STORAGE_KEY);
 
+            const autoMesinLine = [parentMachine, parentLine].filter(Boolean).join(" / ");
             setFormData({
-                mesinLine: "",
+                mesinLine: autoMesinLine,
                 kodeProd: "",
                 kodeExpire: "",
             });
@@ -250,7 +299,7 @@ const RobotPalletizerFillerInspectionTable = ({
         } catch (error) {
             console.error("Error clearing Robot Palletizer data:", error);
         }
-    }, [STORAGE_KEY]);
+    }, [STORAGE_KEY, makeEmptyRow, parentLine, parentMachine]);
 
     // Detect perubahan shouldClearData
     useEffect(() => {
@@ -294,12 +343,11 @@ const RobotPalletizerFillerInspectionTable = ({
             <View style={styles.headerForm}>
                 <View style={styles.fieldGroup}>
                     <Text style={styles.label}>MESIN / LINE</Text>
-                    <TextInput
-                        style={styles.input}
-                        value={formData.mesinLine}
-                        placeholder="Mesin / Line"
-                        onChangeText={(text) => handleFormChange(text, "mesinLine")}
-                    />
+                    <View style={[styles.inputLocked, styles.inputAutoFilled]}>
+                        <Text style={styles.inputLockedText}>
+                            {formData.mesinLine || "-"}
+                        </Text>
+                    </View>
                 </View>
 
                 <View style={styles.fieldGroup}>
@@ -336,9 +384,7 @@ const RobotPalletizerFillerInspectionTable = ({
                         <View key={item.id || index} style={styles.accordionCard}>
                             {/* Header accordion */}
                             <TouchableOpacity
-                                onPress={() =>
-                                    setExpandedId(isOpen ? null : item.id)
-                                }
+                                onPress={() => handleExpand(item.id)}
                                 style={styles.accordionHeader}
                             >
                                 <View style={styles.accordionHeaderLeft}>
@@ -381,20 +427,18 @@ const RobotPalletizerFillerInspectionTable = ({
                                         </View>
                                     ) : null}
 
-                                    <View style={styles.fieldRow2}>
-                                        <View style={[styles.fieldGroup, styles.fieldHalf]}>
+                                    {/* Row 1: SHIFT (locked) & VAR (2 kolom) */}
+                                    <View style={styles.fieldRow}>
+                                        <View style={styles.fieldHalf}>
                                             <Text style={styles.label}>SHIFT</Text>
-                                            <TextInput
-                                                style={styles.input}
-                                                value={item.shift}
-                                                placeholder="Shift"
-                                                onChangeText={(text) =>
-                                                    handleInputChange(index, "shift", text)
-                                                }
-                                            />
+                                            <View style={[styles.inputLocked, styles.inputAutoFilled]}>
+                                                <Text style={styles.inputLockedText}>
+                                                    {item.shift || "-"}
+                                                </Text>
+                                            </View>
                                         </View>
 
-                                        <View style={[styles.fieldGroup, styles.fieldHalf]}>
+                                        <View style={styles.fieldHalf}>
                                             <Text style={styles.label}>VAR.</Text>
                                             <TextInput
                                                 style={styles.input}
@@ -407,45 +451,49 @@ const RobotPalletizerFillerInspectionTable = ({
                                         </View>
                                     </View>
 
-                                    <View style={styles.fieldGroup}>
-                                        <Text style={styles.label}>PRP PAPER</Text>
-                                        <TextInput
-                                            style={styles.input}
-                                            value={item.prpPaper}
-                                            placeholder="PRP Paper"
-                                            onChangeText={(text) =>
-                                                handleInputChange(index, "prpPaper", text)
-                                            }
-                                        />
+                                    {/* Row 2: IP/RP, LCL/EXP, VOL (3 kolom - proper spacing) */}
+                                    <View style={styles.fieldRow3}>
+                                        <View style={styles.fieldThird}>
+                                            <Text style={styles.label}>IP / RP</Text>
+                                            <TextInput
+                                                style={styles.input}
+                                                value={item.iprp}
+                                                placeholder="IP/RP"
+                                                onChangeText={(text) =>
+                                                    handleInputChange(index, "iprp", text)
+                                                }
+                                            />
+                                        </View>
+
+                                        <View style={styles.fieldThird}>
+                                            <Text style={styles.label}>LCL / EXP</Text>
+                                            <TextInput
+                                                style={styles.input}
+                                                value={item.lclexp}
+                                                placeholder="LCL/EXP"
+                                                onChangeText={(text) =>
+                                                    handleInputChange(index, "lclexp", text)
+                                                }
+                                            />
+                                        </View>
+
+                                        <View style={styles.fieldThird}>
+                                            <Text style={styles.label}>VOL</Text>
+                                            <TextInput
+                                                style={styles.input}
+                                                value={item.vol}
+                                                placeholder="Vol"
+                                                keyboardType="numeric"
+                                                onChangeText={(text) =>
+                                                    handleInputChange(index, "vol", text)
+                                                }
+                                            />
+                                        </View>
                                     </View>
 
-                                    <View style={styles.fieldGroup}>
-                                        <Text style={styles.label}>AD.BLUE</Text>
-                                        <TextInput
-                                            style={styles.input}
-                                            value={item.adBlue}
-                                            placeholder="Ad Blue"
-                                            onChangeText={(text) =>
-                                                handleInputChange(index, "adBlue", text)
-                                            }
-                                        />
-                                    </View>
-
-                                    <View style={styles.fieldGroup}>
-                                        <Text style={styles.label}>VOL</Text>
-                                        <TextInput
-                                            style={styles.input}
-                                            value={item.vol}
-                                            placeholder="Volume"
-                                            keyboardType="numeric"
-                                            onChangeText={(text) =>
-                                                handleInputChange(index, "vol", text)
-                                            }
-                                        />
-                                    </View>
-
-                                    <View style={styles.fieldRow2}>
-                                        <View style={[styles.fieldGroup, styles.fieldHalf]}>
+                                    {/* Row 3: PALLET NO & CARTON NO (2 kolom) */}
+                                    <View style={styles.fieldRow}>
+                                        <View style={styles.fieldHalf}>
                                             <Text style={styles.label}>PALLET NO.</Text>
                                             <TextInput
                                                 style={styles.input}
@@ -458,7 +506,7 @@ const RobotPalletizerFillerInspectionTable = ({
                                             />
                                         </View>
 
-                                        <View style={[styles.fieldGroup, styles.fieldHalf]}>
+                                        <View style={styles.fieldHalf}>
                                             <Text style={styles.label}>CARTON NO.</Text>
                                             <TextInput
                                                 style={styles.input}
@@ -472,9 +520,10 @@ const RobotPalletizerFillerInspectionTable = ({
                                         </View>
                                     </View>
 
-                                    <View style={styles.fieldRow2}>
-                                        <View style={[styles.fieldGroup, styles.fieldHalf]}>
-                                            <Text style={styles.label}>JAM LAHIR CTN</Text>
+                                    {/* Row 4: JUMLAH CTN & WAKTU JAM (2 kolom) */}
+                                    <View style={styles.fieldRow}>
+                                        <View style={styles.fieldHalf}>
+                                            <Text style={styles.label}>JUMLAH CTN</Text>
                                             <TextInput
                                                 style={styles.input}
                                                 value={item.ctn}
@@ -486,7 +535,7 @@ const RobotPalletizerFillerInspectionTable = ({
                                             />
                                         </View>
 
-                                        <View style={[styles.fieldGroup, styles.fieldHalf]}>
+                                        <View style={styles.fieldHalf}>
                                             <Text style={styles.label}>WAKTU JAM</Text>
                                             <TimeField
                                                 value={item.jam}
@@ -497,6 +546,7 @@ const RobotPalletizerFillerInspectionTable = ({
                                         </View>
                                     </View>
 
+                                    {/* Row 5: JUMLAH (full width) */}
                                     <View style={styles.fieldGroup}>
                                         <Text style={styles.label}>JUMLAH</Text>
                                         <TextInput
@@ -510,6 +560,7 @@ const RobotPalletizerFillerInspectionTable = ({
                                         />
                                     </View>
 
+                                    {/* Row 6: KETERANGAN (full width) */}
                                     <View style={styles.fieldGroup}>
                                         <Text style={styles.label}>KETERANGAN</Text>
                                         <TextInput
@@ -580,15 +631,6 @@ const styles = StyleSheet.create({
         padding: 12,
         flex: 1,
     },
-    description: {
-        fontSize: 12,
-        textAlign: "center",
-        marginTop: 12,
-        marginBottom: 16,
-        color: "#666",
-        fontStyle: "italic",
-        lineHeight: 16,
-    },
 
     // HEADER FORM MESIN / KODE / EXPIRE
     headerForm: {
@@ -633,6 +675,7 @@ const styles = StyleSheet.create({
     accordionTitle: {
         fontSize: 14,
         fontWeight: "700",
+        color: "#1e3a5f",
         marginBottom: 2,
     },
     accordionSub: {
@@ -670,69 +713,103 @@ const styles = StyleSheet.create({
     },
 
     auditTrail: {
-        marginBottom: 8,
-        padding: 6,
-        backgroundColor: "#f9fafb",
-        borderRadius: 4,
+        marginBottom: 12,
+        padding: 8,
+        backgroundColor: "#f0f9ff",
+        borderRadius: 6,
         borderWidth: 1,
-        borderColor: "#e5e7eb",
+        borderColor: "#bae6fd",
+        flexDirection: "row",
+        justifyContent: "space-between",
     },
     auditText: {
-        fontSize: 10,
-        color: "#555",
-        marginBottom: 2,
+        fontSize: 11,
+        color: "#0369a1",
     },
 
+    // Field styling
     fieldGroup: {
-        marginBottom: 10,
+        marginBottom: 12,
     },
     label: {
-        fontSize: 12,
+        fontSize: 11,
         fontWeight: "600",
-        marginBottom: 4,
-        color: "#333",
+        marginBottom: 6,
+        color: "#374151",
+        textTransform: "uppercase",
+        letterSpacing: 0.3,
     },
     input: {
         borderWidth: 1,
         borderColor: "#D1D5DB",
-        borderRadius: 6,
-        paddingHorizontal: 10,
-        paddingVertical: 8,
-        fontSize: 13,
-        color: "#333",
+        borderRadius: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        fontSize: 14,
+        color: "#1f2937",
         backgroundColor: "#fff",
     },
+    inputAutoFilled: {
+        backgroundColor: "#f0fdf4",
+        borderColor: "#86efac",
+    },
+    inputLocked: {
+        borderWidth: 1,
+        borderColor: "#D1D5DB",
+        borderRadius: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        backgroundColor: "#f3f4f6",
+        justifyContent: "center",
+    },
+    inputLockedText: {
+        fontSize: 14,
+        color: "#374151",
+        fontWeight: "500",
+    },
     textArea: {
-        minHeight: 70,
+        minHeight: 80,
         textAlignVertical: "top",
     },
 
-    fieldRow2: {
+    // Row layout - 2 kolom
+    fieldRow: {
         flexDirection: "row",
-        justifyContent: "space-between",
-        gap: 8,
+        marginBottom: 12,
+        gap: 12,
     },
     fieldHalf: {
         flex: 1,
     },
 
+    // Row layout - 3 kolom (proper spacing)
+    fieldRow3: {
+        flexDirection: "row",
+        marginBottom: 12,
+        gap: 8,
+    },
+    fieldThird: {
+        flex: 1,
+        minWidth: 0, // Prevent overflow
+    },
+
     deleteButton: {
         marginTop: 8,
         backgroundColor: "#ef4444",
-        padding: 10,
-        borderRadius: 6,
+        padding: 12,
+        borderRadius: 8,
         alignItems: "center",
     },
     deleteText: {
         color: "#fff",
         fontWeight: "600",
-        fontSize: 13,
+        fontSize: 14,
     },
 
     addButton: {
         marginTop: 6,
         backgroundColor: "#10b981",
-        padding: 12,
+        padding: 14,
         borderRadius: 8,
         alignItems: "center",
     },
