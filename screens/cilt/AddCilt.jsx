@@ -172,6 +172,9 @@ const CILTinspection = ({ route, navigation }) => {
   const [customMachines, setCustomMachines] = useState([]);
   const [customPackages, setCustomPackages] = useState([]);
   const [isCustomDataLoaded, setIsCustomDataLoaded] = useState(false);
+  // State untuk trigger clear data inspection setelah submit
+  const [shouldClearInspectionData, setShouldClearInspectionData] = useState(false);
+  const clearTriggerRef = useRef(0);
 
   const savedSelectionsRef = useRef({ plant: "", line: "", machine: "" });
 
@@ -476,6 +479,27 @@ const CILTinspection = ({ route, navigation }) => {
       } else if (packageType === "SEGREGASI" && globalThis.clearSegregasiStorage) {
         await globalThis.clearSegregasiStorage();
         console.log("Cleared segregasi storage after submit");
+
+        // Clear storage untuk Artema Cardboard
+        if (packageType === "LAPORAN ARTEMA & SMS CARDBOARD") {
+          const storageKey = `artema_cardboard_${(username || "user").replace(/\s+/g, "_")}`;
+          await AsyncStorage.removeItem(storageKey);
+          console.log("Cleared Artema Cardboard storage after submit");
+        }
+
+        // Clear storage untuk Frans Case Packer
+        if (packageType === "LAPORAN FRANS WP 25 CASE") {
+          const storageKey = `frans_casepacker_${(username || "user").replace(/\s+/g, "_")}`;
+          await AsyncStorage.removeItem(storageKey);
+          console.log("Cleared Frans Case Packer storage after submit");
+        }
+
+        // Clear storage untuk Robot Palletizer
+        if (packageType === "ROBOT PALLETIZER FILLER") {
+          const storageKey = `robot_palletizer_${(username || "user").replace(/\s+/g, "_")}`;
+          await AsyncStorage.removeItem(storageKey);
+          console.log("Cleared Robot Palletizer storage after submit");
+        }
       }
     } catch (error) {
       console.error("Error clearing package storage after submit:", error);
@@ -691,6 +715,15 @@ const CILTinspection = ({ route, navigation }) => {
 
                 // Clear storage spesifik untuk package dan product ini setelah submit berhasil
                 await clearPackageStorageAfterSubmit();
+
+                // Trigger clear untuk inspection components
+                clearTriggerRef.current += 1;
+                setShouldClearInspectionData(true);
+
+                // Reset trigger setelah delay singkat
+                setTimeout(() => {
+                  setShouldClearInspectionData(false);
+                }, 100);
 
                 if (packageType !== "PERFORMA RED AND GREEN") {
                   setPackageDataCache(prev => {
@@ -1194,6 +1227,7 @@ const CILTinspection = ({ route, navigation }) => {
                   username={username}
                   onDataChange={handleInspectionChange}
                   initialData={packageDataCache["LAPORAN ARTEMA & SMS CARDBOARD"] || []}
+                  shouldClearData={shouldClearInspectionData}
                 />
               )}
               {machine === "PACKER" && packageType === "LAPORAN FRANS WP 25 CASE" && (
@@ -1202,6 +1236,7 @@ const CILTinspection = ({ route, navigation }) => {
                   username={username}
                   onDataChange={handleInspectionChange}
                   initialData={packageDataCache["LAPORAN FRANS WP 25 CASE"] || []}
+                  shouldClearData={shouldClearInspectionData}
                 />
               )}
               {machine === "FILLER" && packageType === "INFORMASI PRODUK" && (
@@ -1233,6 +1268,7 @@ const CILTinspection = ({ route, navigation }) => {
                   onDataChange={handleInspectionChange}
                   initialData={packageDataCache["ROBOT PALLETIZER FILLER"] || []}
                   shift={shift}
+                  shouldClearData={shouldClearInspectionData}
                 />
               )}
             </View>
