@@ -28,6 +28,13 @@ import HomeCILT from "./home/HomeCILT";
 import HomeHO from "./home/HomeHO";
 import Onboarding from "./onboarding/Onboarding";
 
+export { default as DetailLaporanA3Flex } from "./cilt/DetailLaporanA3Flex";
+export { default as DetailLaporanA3StartFinish } from "./cilt/DetailLaporanA3StartFinish";
+export { default as DetailLaporanCombiXG } from "./cilt/DetailLaporanCombiXG";
+export { default as DetailLaporanArtemaCardboard } from "./cilt/DetailLaporanArtemaCardboard";
+export { default as DetailLaporanFransCasePacker } from "./cilt/DetailLaporanFransCasePacker";
+export { default as DetailLaporanRobotPalletizerFiller } from "./cilt/DetailLaporanRobotPalletizerFiller";
+
 export {
   AddCilt,
   AddDowntime,

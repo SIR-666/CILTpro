@@ -31,6 +31,12 @@ import {
   ListShiftHandOver,
   Onboarding,
   ShiftHandOver,
+  DetailLaporanA3Flex,
+  DetailLaporanA3StartFinish,
+  DetailLaporanCombiXG,
+  DetailLaporanArtemaCardboard,
+  DetailLaporanFransCasePacker,
+  DetailLaporanRobotPalletizerFiller,
 } from "./screens";
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -380,6 +386,36 @@ export default function App() {
         <Stack.Screen
           name="EditShiftHandOver"
           component={EditShiftHandOver}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="DetailLaporanA3Flex"
+          component={DetailLaporanA3Flex}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="DetailLaporanA3StartFinish"
+          component={DetailLaporanA3StartFinish}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="DetailLaporanCombiXG"
+          component={DetailLaporanCombiXG}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="DetailLaporanArtemaCardboard"
+          component={DetailLaporanArtemaCardboard}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="DetailLaporanFransCasePacker"
+          component={DetailLaporanFransCasePacker}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="DetailLaporanRobotPalletizerFiller"
+          component={DetailLaporanRobotPalletizerFiller}
           options={{ headerShown: false }}
         />
       </Stack.Navigator>
