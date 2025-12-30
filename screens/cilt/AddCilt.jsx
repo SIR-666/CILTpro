@@ -1268,6 +1268,8 @@ const CILTinspection = ({ route, navigation }) => {
                   onDataChange={handleInspectionChange}
                   initialData={packageDataCache["ROBOT PALLETIZER FILLER"] || []}
                   shift={shift}
+                  line={line}
+                  machine={machine}
                   shouldClearData={shouldClearInspectionData}
                 />
               )}
