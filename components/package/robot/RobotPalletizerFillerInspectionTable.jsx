@@ -53,9 +53,12 @@ const RobotPalletizerFillerInspectionTable = ({
     initialData = [],
     processOrder,
     product,
+    shouldClearData = false,
 }) => {
     const isLoaded = useRef(false);
     const saveTimer = useRef(null);
+    const lastClearState = useRef(shouldClearData);
+    const STORAGE_KEY = `robot_palletizer_${(username || "user").replace(/\s+/g, "_")}`;
 
     // Header form
     const [formData, setFormData] = useState({
@@ -96,8 +99,6 @@ const RobotPalletizerFillerInspectionTable = ({
     const [expandedId, setExpandedId] = useState(
         tableData.length > 0 ? tableData[0].id : null
     );
-
-    const STORAGE_KEY = `robot_palletizer_${(username || "user").replace(/\s+/g, "_")}`;
 
     useEffect(() => {
         const load = async () => {
@@ -229,6 +230,53 @@ const RobotPalletizerFillerInspectionTable = ({
             });
         }
     }, [tableData]);
+
+    // Function untuk reset semua data
+    const clearAllData = useCallback(async () => {
+        try {
+            await AsyncStorage.removeItem(STORAGE_KEY);
+
+            setFormData({
+                mesinLine: "",
+                kodeProd: "",
+                kodeExpire: "",
+            });
+
+            const emptyRows = [makeEmptyRow(1), makeEmptyRow(2), makeEmptyRow(3)];
+            setTableData(emptyRows);
+            setExpandedId(emptyRows[0].id);
+
+            console.log("Robot Palletizer data cleared successfully");
+        } catch (error) {
+            console.error("Error clearing Robot Palletizer data:", error);
+        }
+    }, [STORAGE_KEY]);
+
+    // Detect perubahan shouldClearData
+    useEffect(() => {
+        if (shouldClearData && shouldClearData !== lastClearState.current) {
+            clearAllData();
+            lastClearState.current = shouldClearData;
+        }
+    }, [shouldClearData, clearAllData]);
+
+    // Clear data saat screen focus jika ada flag
+    useFocusEffect(
+        useCallback(() => {
+            const checkClearFlag = async () => {
+                try {
+                    const clearFlag = await AsyncStorage.getItem(`${STORAGE_KEY}_clear`);
+                    if (clearFlag === 'true') {
+                        await clearAllData();
+                        await AsyncStorage.removeItem(`${STORAGE_KEY}_clear`);
+                    }
+                } catch (error) {
+                    console.error("Error checking clear flag:", error);
+                }
+            };
+            checkClearFlag();
+        }, [STORAGE_KEY, clearAllData])
+    );
 
     return (
         <View style={styles.container}>

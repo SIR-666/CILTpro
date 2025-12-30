@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef, memo, useMemo } from "react";
 import {
     View,
     Text,
@@ -9,22 +9,102 @@ import {
     LayoutAnimation,
     UIManager,
     Platform,
+    Modal,
 } from "react-native";
 import ReportHeader from "../../../components/ReportHeader";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "@react-navigation/native";
 
 if (Platform.OS === "android") {
     UIManager.setLayoutAnimationEnabledExperimental &&
         UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-const Section = ({ title, children, defaultOpen = false }) => {
+// TIME PICKER MODAL COMPONENT
+const TimePickerModal = memo(({ visible, onClose, onSelect, initialValue }) => {
+    const [hour, setHour] = useState("00");
+    const [minute, setMinute] = useState("00");
+
+    useEffect(() => {
+        if (visible && initialValue) {
+            const parts = initialValue.split(":");
+            if (parts.length === 2) {
+                setHour(parts[0]);
+                setMinute(parts[1]);
+            }
+        }
+    }, [visible, initialValue]);
+
+    const hours = useMemo(() => Array.from({ length: 24 }, (_, i) => i.toString().padStart(2, "0")), []);
+    const minutes = useMemo(() => Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, "0")), []);
+
+    const handleConfirm = useCallback(() => {
+        onSelect(`${hour}:${minute}`);
+        onClose();
+    }, [hour, minute, onSelect, onClose]);
+
+    return (
+        <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+            <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={onClose}>
+                <View style={styles.timePickerContainer} onStartShouldSetResponder={() => true}>
+                    <Text style={styles.timePickerTitle}>Pilih Jam</Text>
+                    <View style={styles.timePickerRow}>
+                        <View style={styles.timePickerColumn}>
+                            <Text style={styles.timePickerLabel}>Jam</Text>
+                            <ScrollView style={styles.timePickerScroll} showsVerticalScrollIndicator={false}>
+                                {hours.map((h) => (
+                                    <TouchableOpacity
+                                        key={h}
+                                        style={[styles.timeOption, hour === h && styles.timeOptionSelected]}
+                                        onPress={() => setHour(h)}
+                                    >
+                                        <Text style={[styles.timeOptionText, hour === h && styles.timeOptionTextSelected]}>
+                                            {h}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </ScrollView>
+                        </View>
+                        <Text style={styles.timeSeparator}>:</Text>
+                        <View style={styles.timePickerColumn}>
+                            <Text style={styles.timePickerLabel}>Menit</Text>
+                            <ScrollView style={styles.timePickerScroll} showsVerticalScrollIndicator={false}>
+                                {minutes.map((m) => (
+                                    <TouchableOpacity
+                                        key={m}
+                                        style={[styles.timeOption, minute === m && styles.timeOptionSelected]}
+                                        onPress={() => setMinute(m)}
+                                    >
+                                        <Text style={[styles.timeOptionText, minute === m && styles.timeOptionTextSelected]}>
+                                            {m}
+                                        </Text>
+                                    </TouchableOpacity>
+                                ))}
+                            </ScrollView>
+                        </View>
+                    </View>
+                    <View style={styles.timePickerButtons}>
+                        <TouchableOpacity style={styles.timePickerCancelBtn} onPress={onClose}>
+                            <Text style={styles.timePickerCancelText}>Batal</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={styles.timePickerConfirmBtn} onPress={handleConfirm}>
+                            <Text style={styles.timePickerConfirmText}>OK</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </TouchableOpacity>
+        </Modal>
+    );
+});
+
+// SECTION COMPONENT (MEMOIZED)
+const Section = memo(({ title, children, defaultOpen = false }) => {
     const [open, setOpen] = useState(defaultOpen);
 
-    const toggle = () => {
+    const toggle = useCallback(() => {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-        setOpen(!open);
-    };
+        setOpen((prev) => !prev);
+    }, []);
 
     return (
         <View style={styles.sectionCard}>
@@ -35,17 +115,193 @@ const Section = ({ title, children, defaultOpen = false }) => {
             {open && <View style={styles.sectionBody}>{children}</View>}
         </View>
     );
-};
+});
 
+// TEMPERATURE CELL COMPONENT (MEMOIZED)
+const TempCell = memo(({ rowIdx, col, cell, updateTemp }) => {
+    const handleHoseChange = useCallback((v) => updateTemp(rowIdx, col, "hose", v), [rowIdx, col, updateTemp]);
+    const handleNdlChange = useCallback((v) => updateTemp(rowIdx, col, "ndl", v), [rowIdx, col, updateTemp]);
+
+    return (
+        <View style={styles.tempCellWrapper}>
+            <TextInput
+                style={styles.tempHalfInput}
+                placeholder="H"
+                placeholderTextColor="#999"
+                value={cell.hose}
+                onChangeText={handleHoseChange}
+                keyboardType="numeric"
+                maxLength={4}
+            />
+            <Text style={styles.tempSlash}>/</Text>
+            <TextInput
+                style={styles.tempHalfInput}
+                placeholder="N"
+                placeholderTextColor="#999"
+                value={cell.ndl}
+                onChangeText={handleNdlChange}
+                keyboardType="numeric"
+                maxLength={4}
+            />
+        </View>
+    );
+});
+
+// TANK CELL COMPONENT (MEMOIZED)
+const TankCell = memo(({ col, value, updateTemp }) => {
+    const handleChange = useCallback((v) => updateTemp(0, col, "tank", v), [col, updateTemp]);
+
+    return (
+        <View style={styles.tankCellWrapper}>
+            <TextInput
+                style={styles.tankCellInput}
+                placeholder="T"
+                placeholderTextColor="#999"
+                value={value}
+                onChangeText={handleChange}
+                keyboardType="numeric"
+                maxLength={4}
+            />
+        </View>
+    );
+});
+
+// GLUE ROW COMPONENT (MEMOIZED)
+const GlueRow = memo(({ row, index, updateGlue, deleteGlue, onOpenTimePicker }) => {
+    const handleQtyChange = useCallback((v) => updateGlue(index, "qtyKg", v), [index, updateGlue]);
+    const handleDelete = useCallback(() => deleteGlue(index), [index, deleteGlue]);
+    const handleTimePress = useCallback(() => onOpenTimePicker(index, row.jam), [index, row.jam, onOpenTimePicker]);
+
+    return (
+        <View style={styles.dataRow}>
+            <Text style={[styles.dataCellText, { width: 40 }]}>{row.no}</Text>
+            <TouchableOpacity style={[styles.dataInputTouchable, { flex: 1 }]} onPress={handleTimePress}>
+                <Text style={[styles.dataInputText, !row.jam && styles.placeholderText]}>
+                    {row.jam || "Pilih Jam"}
+                </Text>
+            </TouchableOpacity>
+            <TextInput
+                style={[styles.dataInput, { flex: 1 }]}
+                value={row.qtyKg}
+                onChangeText={handleQtyChange}
+                keyboardType="numeric"
+                placeholder="0"
+                placeholderTextColor="#999"
+            />
+            <TouchableOpacity onPress={handleDelete} style={styles.deleteBtn}>
+                <Text style={styles.deleteText}>✕</Text>
+            </TouchableOpacity>
+        </View>
+    );
+});
+
+// LOSS ROW COMPONENT (MEMOIZED)
+const LossRow = memo(({ row, index, updateLoss, deleteLoss }) => {
+    const handleNamaChange = useCallback((v) => updateLoss(index, "namaProduk", v), [index, updateLoss]);
+    const handleCartonChange = useCallback((v) => updateLoss(index, "carton", v), [index, updateLoss]);
+    const handlePaperChange = useCallback((v) => updateLoss(index, "paper", v), [index, updateLoss]);
+    const handleDelete = useCallback(() => deleteLoss(index), [index, deleteLoss]);
+
+    return (
+        <View style={styles.dataRow}>
+            <TextInput
+                style={[styles.dataInput, { flex: 1.5 }]}
+                value={row.namaProduk}
+                onChangeText={handleNamaChange}
+                placeholder="Nama produk"
+                placeholderTextColor="#999"
+            />
+            <TextInput
+                style={[styles.dataInput, { flex: 1 }]}
+                value={row.carton}
+                onChangeText={handleCartonChange}
+                keyboardType="numeric"
+                placeholder="0"
+                placeholderTextColor="#999"
+            />
+            <TextInput
+                style={[styles.dataInput, { flex: 1 }]}
+                value={row.paper}
+                onChangeText={handlePaperChange}
+                keyboardType="numeric"
+                placeholder="0"
+                placeholderTextColor="#999"
+            />
+            <TouchableOpacity onPress={handleDelete} style={styles.deleteBtn}>
+                <Text style={styles.deleteText}>✕</Text>
+            </TouchableOpacity>
+        </View>
+    );
+});
+
+// PROBLEM ROW COMPONENT (MEMOIZED)
+const ProblemRow = memo(({ row, index, updateProblem, deleteProblem, onOpenTimePicker }) => {
+    const handleMasalahChange = useCallback((v) => updateProblem(index, "masalah", v), [index, updateProblem]);
+    const handleCorrectiveChange = useCallback((v) => updateProblem(index, "correctiveAction", v), [index, updateProblem]);
+    const handlePicChange = useCallback((v) => updateProblem(index, "pic", v), [index, updateProblem]);
+    const handleDelete = useCallback(() => deleteProblem(index), [index, deleteProblem]);
+
+    const handleStopPress = useCallback(() => onOpenTimePicker(index, "stop", row.stop), [index, row.stop, onOpenTimePicker]);
+    const handleStartPress = useCallback(() => onOpenTimePicker(index, "start", row.start), [index, row.start, onOpenTimePicker]);
+    const handleDurasiPress = useCallback(() => onOpenTimePicker(index, "durasi", row.durasi), [index, row.durasi, onOpenTimePicker]);
+
+    return (
+        <View style={styles.dataRow}>
+            <TouchableOpacity style={[styles.dataInputTouchable, { width: 70 }]} onPress={handleStopPress}>
+                <Text style={[styles.dataInputText, !row.stop && styles.placeholderText]}>
+                    {row.stop || "00:00"}
+                </Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.dataInputTouchable, { width: 70 }]} onPress={handleStartPress}>
+                <Text style={[styles.dataInputText, !row.start && styles.placeholderText]}>
+                    {row.start || "00:00"}
+                </Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.dataInputTouchable, { width: 70 }]} onPress={handleDurasiPress}>
+                <Text style={[styles.dataInputText, !row.durasi && styles.placeholderText]}>
+                    {row.durasi || "00:00"}
+                </Text>
+            </TouchableOpacity>
+            <TextInput
+                style={[styles.dataInput, { width: 200 }]}
+                value={row.masalah}
+                onChangeText={handleMasalahChange}
+                placeholder="Masalah"
+                placeholderTextColor="#999"
+            />
+            <TextInput
+                style={[styles.dataInput, { width: 200 }]}
+                value={row.correctiveAction}
+                onChangeText={handleCorrectiveChange}
+                placeholder="Corrective Action"
+                placeholderTextColor="#999"
+            />
+            <TextInput
+                style={[styles.dataInput, { width: 80 }]}
+                value={row.pic}
+                onChangeText={handlePicChange}
+                placeholder="PIC"
+                placeholderTextColor="#999"
+            />
+            <TouchableOpacity onPress={handleDelete} style={styles.deleteBtn}>
+                <Text style={styles.deleteText}>✕</Text>
+            </TouchableOpacity>
+        </View>
+    );
+});
+
+// MAIN COMPONENT
 const ArtemaCardboardInspectionTable = ({
     username,
     onDataChange,
     initialData = [],
+    shouldClearData = false,
 }) => {
     /* HEADER FIELDS */
     const STORAGE_KEY = `artema_cardboard_${(username || "user").replace(/\s+/g, "_")}`;
     const saveTimer = useRef(null);
     const isLoaded = useRef(false);
+    const lastClearState = useRef(shouldClearData);
     const [namaProduk, setNamaProduk] = useState("");
     const [lineMc, setLineMc] = useState("");
     const [hoursStop, setHoursStop] = useState("");
@@ -89,6 +345,94 @@ const ArtemaCardboardInspectionTable = ({
     );
 
     const [catatan, setCatatan] = useState("");
+
+    // Time Picker States
+    const [timePickerVisible, setTimePickerVisible] = useState(false);
+    const [timePickerTarget, setTimePickerTarget] = useState(null); // { type: 'glue'|'problem', index, field, value }
+
+    // Function untuk reset semua data ke nilai awal
+    const clearAllData = useCallback(async () => {
+        try {
+            // Clear AsyncStorage
+            await AsyncStorage.removeItem(STORAGE_KEY);
+
+            // Reset semua state ke nilai default
+            setNamaProduk("");
+            setLineMc("");
+            setHoursStop("");
+            setHoursStart("");
+            setKodeProduksi("");
+            setKodeKadaluwarsa("");
+            setStartProduksi("");
+            setStopProduksi("");
+
+            setTempHoseData(
+                Array(5).fill(null).map(() =>
+                    Array(12).fill(null).map(() => ({ hose: "", ndl: "", tank: "" }))
+                )
+            );
+
+            setGlueData(
+                Array(3).fill(null).map((_, idx) => ({
+                    no: idx + 1,
+                    jam: "",
+                    qtyKg: "",
+                }))
+            );
+
+            setLossData(
+                Array(3).fill(null).map(() => ({
+                    namaProduk: "",
+                    carton: "",
+                    paper: "",
+                }))
+            );
+
+            setProblemData(
+                Array(3).fill(null).map(() => ({
+                    stop: "",
+                    start: "",
+                    durasi: "",
+                    masalah: "",
+                    correctiveAction: "",
+                    pic: "",
+                }))
+            );
+
+            setCatatan("");
+
+            console.log("Data cleared successfully");
+        } catch (error) {
+            console.error("Error clearing data:", error);
+        }
+    }, [STORAGE_KEY]);
+
+    // Detect perubahan shouldClearData dari parent
+    useEffect(() => {
+        if (shouldClearData && shouldClearData !== lastClearState.current) {
+            clearAllData();
+            lastClearState.current = shouldClearData;
+        }
+    }, [shouldClearData, clearAllData]);
+
+    // Alternatif: Clear data saat screen focus dan ada flag tertentu
+    useFocusEffect(
+        useCallback(() => {
+            // Check jika ada flag clearAfterSubmit di AsyncStorage
+            const checkClearFlag = async () => {
+                try {
+                    const clearFlag = await AsyncStorage.getItem(`${STORAGE_KEY}_clear`);
+                    if (clearFlag === 'true') {
+                        await clearAllData();
+                        await AsyncStorage.removeItem(`${STORAGE_KEY}_clear`);
+                    }
+                } catch (error) {
+                    console.error("Error checking clear flag:", error);
+                }
+            };
+            checkClearFlag();
+        }, [STORAGE_KEY, clearAllData])
+    );
 
     /* INITIAL LOAD */
     useEffect(() => {
@@ -144,45 +488,6 @@ const ArtemaCardboardInspectionTable = ({
         load();
     }, []);
 
-    useEffect(() => {
-        const save = () => {
-            const payload = {
-                namaProduk,
-                lineMc,
-                hoursStop,
-                hoursStart,
-                kodeProduksi,
-                kodeKadaluwarsa,
-                startProduksi,
-                stopProduksi,
-                tempHoseData,
-                glueData,
-                lossData,
-                problemData,
-                catatan,
-                savedAt: new Date().toISOString(),
-            };
-            AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-        };
-
-        if (saveTimer.current) clearTimeout(saveTimer.current);
-        saveTimer.current = setTimeout(save, 300);
-    }, [
-        namaProduk,
-        lineMc,
-        hoursStop,
-        hoursStart,
-        kodeProduksi,
-        kodeKadaluwarsa,
-        startProduksi,
-        stopProduksi,
-        tempHoseData,
-        glueData,
-        lossData,
-        problemData,
-        catatan
-    ]);
-
     /* AUTO-SAVE with debounce */
     useEffect(() => {
         if (!isLoaded.current) return;
@@ -212,7 +517,7 @@ const ArtemaCardboardInspectionTable = ({
 
             // Kirim ke parent
             onDataChange([{ id: 1, ...payload, user: username }]);
-        }, 350);
+        }, 500); // Increased debounce time for better performance
     }, [
         namaProduk,
         lineMc,
@@ -229,51 +534,51 @@ const ArtemaCardboardInspectionTable = ({
         catatan
     ]);
 
-    const reindexGlue = (arr) => {
+    const reindexGlue = useCallback((arr) => {
         return arr.map((row, idx) => ({
             ...row,
             no: idx + 1,
         }));
-    };
+    }, []);
 
-    const reindexLoss = (arr) => {
+    const reindexLoss = useCallback((arr) => {
         return arr.map((row, idx) => ({
             ...row,
             no: idx + 1,
         }));
-    };
+    }, []);
 
-    const reindexProblem = (arr) => {
+    const reindexProblem = useCallback((arr) => {
         return arr.map((row, idx) => ({
             ...row,
             no: idx + 1,
         }));
-    };
+    }, []);
 
-    /* UPDATE FUNCTIONS */
-    const updateTemp = (r, c, key, value) => {
+    /* UPDATE FUNCTIONS - MEMOIZED */
+    const updateTemp = useCallback((r, c, key, value) => {
         setTempHoseData((prev) => {
             const next = prev.map((row) => row.map((cell) => ({ ...cell })));
             next[r][c][key] = value;
             return next;
         });
-    };
+    }, []);
 
-    const updateGlue = (i, key, value) => {
+    const updateGlue = useCallback((i, key, value) => {
         setGlueData((p) => {
             const n = [...p];
-            n[i][key] = value;
+            n[i] = { ...n[i], [key]: value };
             if (i === p.length - 1 && (value?.trim() !== "")) {
                 n.push({ no: n.length + 1, jam: "", qtyKg: "" });
             }
             return reindexGlue(n);
         });
-    };
+    }, [reindexGlue]);
 
-    const updateLoss = (i, key, value) => {
+    const updateLoss = useCallback((i, key, value) => {
         setLossData((p) => {
             const n = [...p];
-            n[i][key] = value;
+            n[i] = { ...n[i], [key]: value };
             if (i === p.length - 1 && value.trim() !== "") {
                 n.push({
                     no: n.length + 1,
@@ -284,12 +589,12 @@ const ArtemaCardboardInspectionTable = ({
             }
             return reindexLoss(n);
         });
-    };
+    }, [reindexLoss]);
 
-    const updateProblem = (i, key, value) => {
+    const updateProblem = useCallback((i, key, value) => {
         setProblemData((p) => {
             const n = [...p];
-            n[i][key] = value;
+            n[i] = { ...n[i], [key]: value };
             if (i === p.length - 1 && value.trim() !== "") {
                 n.push({
                     no: n.length + 1,
@@ -303,35 +608,75 @@ const ArtemaCardboardInspectionTable = ({
             }
             return reindexProblem(n);
         });
-    };
+    }, [reindexProblem]);
 
-    const deleteGlue = (index) => {
+    const deleteGlue = useCallback((index) => {
         setGlueData((prev) => {
-            if (prev.length <= 1) return prev; // minimal 1 row
+            if (prev.length <= 1) return prev;
             const n = prev.filter((_, i) => i !== index);
             return reindexGlue(n);
         });
-    };
+    }, [reindexGlue]);
 
-    const deleteLoss = (index) => {
+    const deleteLoss = useCallback((index) => {
         setLossData((prev) => {
             if (prev.length <= 1) return prev;
             const n = prev.filter((_, i) => i !== index);
             return reindexLoss(n);
         });
-    };
+    }, [reindexLoss]);
 
-    const deleteProblem = (index) => {
+    const deleteProblem = useCallback((index) => {
         setProblemData((prev) => {
             if (prev.length <= 1) return prev;
             const n = prev.filter((_, i) => i !== index);
             return reindexProblem(n);
         });
-    };
+    }, [reindexProblem]);
+
+    // Time Picker Handlers
+    const openGlueTimePicker = useCallback((index, currentValue) => {
+        setTimePickerTarget({ type: 'glue', index, value: currentValue });
+        setTimePickerVisible(true);
+    }, []);
+
+    const openProblemTimePicker = useCallback((index, field, currentValue) => {
+        setTimePickerTarget({ type: 'problem', index, field, value: currentValue });
+        setTimePickerVisible(true);
+    }, []);
+
+    const handleTimeSelect = useCallback((time) => {
+        if (!timePickerTarget) return;
+
+        if (timePickerTarget.type === 'glue') {
+            updateGlue(timePickerTarget.index, 'jam', time);
+        } else if (timePickerTarget.type === 'problem') {
+            updateProblem(timePickerTarget.index, timePickerTarget.field, time);
+        }
+    }, [timePickerTarget, updateGlue, updateProblem]);
+
+    const closeTimePicker = useCallback(() => {
+        setTimePickerVisible(false);
+        setTimePickerTarget(null);
+    }, []);
+
+    // Memoized header columns for temperature table
+    const tempHeaderColumns = useMemo(() => (
+        Array(12).fill(0).map((_, i) => (
+            <View key={i} style={styles.tempHeaderCellWrapper}>
+                <Text style={styles.tempHeaderCell}>JAM</Text>
+            </View>
+        ))
+    ), []);
 
     /* RENDER */
     return (
-        <ScrollView style={styles.container}>
+        <ScrollView
+            style={styles.container}
+            nestedScrollEnabled={true}
+            removeClippedSubviews={Platform.OS === 'android'}
+            showsVerticalScrollIndicator={true}
+        >
             <ReportHeader
                 title="LAPORAN ARTEMA & SMS CARDBOARD PACKER (A, B, D)"
                 headerMeta={{
@@ -365,11 +710,21 @@ const ArtemaCardboardInspectionTable = ({
 
                     <View style={styles.formGroup}>
                         <Text style={styles.label}>Hours Stop</Text>
-                        <TextInput style={styles.input} value={hoursStop} onChangeText={setHoursStop} />
+                        <TextInput
+                            style={styles.input}
+                            value={hoursStop}
+                            onChangeText={setHoursStop}
+                            keyboardType="numeric"
+                        />
                     </View>
                     <View style={styles.formGroup}>
                         <Text style={styles.label}>Hours Start</Text>
-                        <TextInput style={styles.input} value={hoursStart} onChangeText={setHoursStart} />
+                        <TextInput
+                            style={styles.input}
+                            value={hoursStart}
+                            onChangeText={setHoursStart}
+                            keyboardType="numeric"
+                        />
                     </View>
 
                     <View style={styles.formGroup}>
@@ -385,26 +740,32 @@ const ArtemaCardboardInspectionTable = ({
 
             {/* TEMPERATURE HOSE */}
             <Section title="Pemeriksaan Temperature Hose (3 Jam)">
-                <ScrollView horizontal>
-                    <View>
+                <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={true}
+                    nestedScrollEnabled={true}
+                    removeClippedSubviews={Platform.OS === 'android'}
+                >
+                    <View style={styles.tempTable}>
                         {/* HEADER BAR */}
                         <View style={styles.tempHeaderRow}>
-                            <Text style={[styles.tempHeaderCell, { width: 60 }]}>TEMP</Text>
-                            {Array(12).fill(0).map((_, i) => (
-                                <Text key={i} style={[styles.tempHeaderCell, { width: 70 }]}>JAM</Text>
-                            ))}
+                            <View style={styles.tempLabelHeader}>
+                                <Text style={styles.tempHeaderCell}>TEMP</Text>
+                            </View>
+                            {tempHeaderColumns}
                         </View>
 
                         {/* TANK ROW */}
                         <View style={styles.tempRow}>
-                            <Text style={[styles.tempRowLabel, { width: 60 }]}>TANK</Text>
+                            <View style={styles.tempLabelCell}>
+                                <Text style={styles.tempRowLabel}>TANK</Text>
+                            </View>
                             {tempHoseData[0].map((cell, col) => (
-                                <TextInput
+                                <TankCell
                                     key={col}
-                                    style={[styles.tempCellInput, { width: 70 }]}
-                                    placeholder="T"
+                                    col={col}
                                     value={cell.tank}
-                                    onChangeText={(v) => updateTemp(0, col, "tank", v)}
+                                    updateTemp={updateTemp}
                                 />
                             ))}
                         </View>
@@ -412,24 +773,17 @@ const ArtemaCardboardInspectionTable = ({
                         {/* ROW 1–4 */}
                         {[1, 2, 3, 4].map((rowIdx) => (
                             <View key={rowIdx} style={styles.tempRow}>
-                                <Text style={[styles.tempRowLabel, { width: 60 }]}>{rowIdx}</Text>
-
+                                <View style={styles.tempLabelCell}>
+                                    <Text style={styles.tempRowLabel}>{rowIdx}</Text>
+                                </View>
                                 {tempHoseData[rowIdx].map((cell, col) => (
-                                    <View key={col} style={styles.tempCellWrapper}>
-                                        <TextInput
-                                            style={[styles.tempHalfInput, { width: 30 }]}
-                                            placeholder="H"
-                                            value={cell.hose}
-                                            onChangeText={(v) => updateTemp(rowIdx, col, "hose", v)}
-                                        />
-                                        <Text style={{ marginHorizontal: 2 }}>/</Text>
-                                        <TextInput
-                                            style={[styles.tempHalfInput, { width: 30 }]}
-                                            placeholder="N"
-                                            value={cell.ndl}
-                                            onChangeText={(v) => updateTemp(rowIdx, col, "ndl", v)}
-                                        />
-                                    </View>
+                                    <TempCell
+                                        key={col}
+                                        rowIdx={rowIdx}
+                                        col={col}
+                                        cell={cell}
+                                        updateTemp={updateTemp}
+                                    />
                                 ))}
                             </View>
                         ))}
@@ -444,25 +798,18 @@ const ArtemaCardboardInspectionTable = ({
                         <Text style={[styles.dataHeaderCell, { width: 40 }]}>No</Text>
                         <Text style={[styles.dataHeaderCell, { flex: 1 }]}>Jam</Text>
                         <Text style={[styles.dataHeaderCell, { flex: 1 }]}>Qty (Kg)</Text>
+                        <View style={{ width: 40 }} />
                     </View>
 
                     {glueData.map((row, i) => (
-                        <View key={i} style={[styles.dataRow, { alignItems: "center" }]}>
-                            <Text style={[styles.dataCellText, { width: 40 }]}>{row.no}</Text>
-                            <TextInput
-                                style={[styles.dataInput, { flex: 1 }]}
-                                value={row.jam}
-                                onChangeText={(v) => updateGlue(i, "jam", v)}
-                            />
-                            <TextInput
-                                style={[styles.dataInput, { flex: 1 }]}
-                                value={row.qtyKg}
-                                onChangeText={(v) => updateGlue(i, "qtyKg", v)}
-                            />
-                            <TouchableOpacity onPress={() => deleteGlue(i)} style={styles.deleteBtn}>
-                                <Text style={styles.deleteText}>✕</Text>
-                            </TouchableOpacity>
-                        </View>
+                        <GlueRow
+                            key={i}
+                            row={row}
+                            index={i}
+                            updateGlue={updateGlue}
+                            deleteGlue={deleteGlue}
+                            onOpenTimePicker={openGlueTimePicker}
+                        />
                     ))}
                 </View>
             </Section>
@@ -474,36 +821,29 @@ const ArtemaCardboardInspectionTable = ({
                         <Text style={[styles.dataHeaderCell, { flex: 1.5 }]}>Nama Produk</Text>
                         <Text style={[styles.dataHeaderCell, { flex: 1 }]}>Carton</Text>
                         <Text style={[styles.dataHeaderCell, { flex: 1 }]}>Paper</Text>
+                        <View style={{ width: 40 }} />
                     </View>
 
                     {lossData.map((row, i) => (
-                        <View key={i} style={[styles.dataRow, { alignItems: "center" }]}>
-                            <TextInput
-                                style={[styles.dataInput, { flex: 1.5 }]}
-                                value={row.namaProduk}
-                                onChangeText={(v) => updateLoss(i, "namaProduk", v)}
-                            />
-                            <TextInput
-                                style={[styles.dataInput, { flex: 1 }]}
-                                value={row.carton}
-                                onChangeText={(v) => updateLoss(i, "carton", v)}
-                            />
-                            <TextInput
-                                style={[styles.dataInput, { flex: 1 }]}
-                                value={row.paper}
-                                onChangeText={(v) => updateLoss(i, "paper", v)}
-                            />
-                            <TouchableOpacity onPress={() => deleteLoss(i)} style={styles.deleteBtn}>
-                                <Text style={styles.deleteText}>✕</Text>
-                            </TouchableOpacity>
-                        </View>
+                        <LossRow
+                            key={i}
+                            row={row}
+                            index={i}
+                            updateLoss={updateLoss}
+                            deleteLoss={deleteLoss}
+                        />
                     ))}
                 </View>
             </Section>
 
             {/* PROBLEM */}
             <Section title="Problem Saat Produksi">
-                <ScrollView horizontal>
+                <ScrollView
+                    horizontal
+                    nestedScrollEnabled={true}
+                    removeClippedSubviews={Platform.OS === 'android'}
+                    showsHorizontalScrollIndicator={true}
+                >
                     <View style={styles.dataTable}>
                         <View style={styles.dataHeaderRow}>
                             <Text style={[styles.dataHeaderCell, { width: 70 }]}>Stop</Text>
@@ -512,44 +852,18 @@ const ArtemaCardboardInspectionTable = ({
                             <Text style={[styles.dataHeaderCell, { width: 200 }]}>Masalah</Text>
                             <Text style={[styles.dataHeaderCell, { width: 200 }]}>Corrective Action</Text>
                             <Text style={[styles.dataHeaderCell, { width: 80 }]}>PIC</Text>
+                            <View style={{ width: 40 }} />
                         </View>
 
                         {problemData.map((row, i) => (
-                            <View key={i} style={[styles.dataRow, { alignItems: "center" }]}>
-                                <TextInput
-                                    style={[styles.dataInput, { width: 70 }]}
-                                    value={row.stop}
-                                    onChangeText={(v) => updateProblem(i, "stop", v)}
-                                />
-                                <TextInput
-                                    style={[styles.dataInput, { width: 70 }]}
-                                    value={row.start}
-                                    onChangeText={(v) => updateProblem(i, "start", v)}
-                                />
-                                <TextInput
-                                    style={[styles.dataInput, { width: 70 }]}
-                                    value={row.durasi}
-                                    onChangeText={(v) => updateProblem(i, "durasi", v)}
-                                />
-                                <TextInput
-                                    style={[styles.dataInput, { width: 200 }]}
-                                    value={row.masalah}
-                                    onChangeText={(v) => updateProblem(i, "masalah", v)}
-                                />
-                                <TextInput
-                                    style={[styles.dataInput, { width: 200 }]}
-                                    value={row.correctiveAction}
-                                    onChangeText={(v) => updateProblem(i, "correctiveAction", v)}
-                                />
-                                <TextInput
-                                    style={[styles.dataInput, { width: 80 }]}
-                                    value={row.pic}
-                                    onChangeText={(v) => updateProblem(i, "pic", v)}
-                                />
-                                <TouchableOpacity onPress={() => deleteProblem(i)} style={styles.deleteBtn}>
-                                    <Text style={styles.deleteText}>✕</Text>
-                                </TouchableOpacity>
-                            </View>
+                            <ProblemRow
+                                key={i}
+                                row={row}
+                                index={i}
+                                updateProblem={updateProblem}
+                                deleteProblem={deleteProblem}
+                                onOpenTimePicker={openProblemTimePicker}
+                            />
                         ))}
                     </View>
                 </ScrollView>
@@ -561,10 +875,19 @@ const ArtemaCardboardInspectionTable = ({
                     style={styles.notesInput}
                     multiline
                     placeholder="Tambahkan catatan..."
+                    placeholderTextColor="#999"
                     value={catatan}
                     onChangeText={setCatatan}
                 />
             </Section>
+
+            {/* TIME PICKER MODAL */}
+            <TimePickerModal
+                visible={timePickerVisible}
+                onClose={closeTimePicker}
+                onSelect={handleTimeSelect}
+                initialValue={timePickerTarget?.value || "00:00"}
+            />
 
         </ScrollView>
     );
@@ -633,60 +956,111 @@ const styles = StyleSheet.create({
         fontSize: 13,
         color: "#000",
     },
+    // TEMPERATURE TABLE STYLES (IMPROVED)
+    tempTable: {
+        borderWidth: 1,
+        borderColor: "#d7e9dd",
+        borderRadius: 8,
+        overflow: "hidden",
+    },
     tempHeaderRow: {
         flexDirection: "row",
         backgroundColor: "#d7e9dd",
-        borderBottomWidth: 1,
+    },
+    tempLabelHeader: {
+        width: 60,
+        paddingVertical: 10,
+        borderRightWidth: 1,
         borderColor: "#c5d6c9",
+        justifyContent: "center",
+        alignItems: "center",
+    },
+    tempHeaderCellWrapper: {
+        width: 90, // Increased from 70 to give more space
+        paddingVertical: 10,
+        borderRightWidth: 1,
+        borderColor: "#c5d6c9",
+        justifyContent: "center",
+        alignItems: "center",
     },
     tempHeaderCell: {
-        padding: 6,
         textAlign: "center",
         fontWeight: "700",
         fontSize: 11,
+        color: "#2f5d43",
     },
     tempRow: {
         flexDirection: "row",
         borderBottomWidth: 1,
-        borderColor: "#ddd",
+        borderColor: "#e5e5e5",
+        backgroundColor: "#fff",
+    },
+    tempLabelCell: {
+        width: 60,
+        paddingVertical: 8,
+        borderRightWidth: 1,
+        borderColor: "#e5e5e5",
+        justifyContent: "center",
         alignItems: "center",
+        backgroundColor: "#f8faf9",
     },
     tempRowLabel: {
         textAlign: "center",
         fontSize: 12,
         fontWeight: "700",
         color: "#333",
-        backgroundColor: "#f1f4f3",
-        paddingVertical: 8,
     },
-    tempCellWrapper: {
+    // Tank cell wrapper
+    tankCellWrapper: {
+        width: 90,
+        paddingVertical: 6,
+        paddingHorizontal: 8,
+        borderRightWidth: 1,
+        borderColor: "#e5e5e5",
+        justifyContent: "center",
+        alignItems: "center",
+    },
+    tankCellInput: {
         width: 70,
+        height: 36,
+        borderWidth: 1,
+        borderColor: "#cdd4d1",
+        backgroundColor: "#fff",
+        borderRadius: 6,
+        textAlign: "center",
+        fontSize: 13,
+        color: "#000",
+    },
+    // H/N cell wrapper
+    tempCellWrapper: {
+        width: 90, // Increased from 70
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
         borderRightWidth: 1,
-        borderColor: "#ddd",
-        paddingVertical: 4,
-    },
-    tempCellInput: {
-        width: 70,
-        borderWidth: 1,
-        borderColor: "#bbb",
-        backgroundColor: "#fff",
-        borderRadius: 5,
-        height: 36,
-        textAlign: "center",
+        borderColor: "#e5e5e5",
+        paddingVertical: 6,
+        paddingHorizontal: 4,
+        gap: 2, // Add gap between elements
     },
     tempHalfInput: {
-        width: 28,
+        width: 32, // Slightly increased
+        height: 34,
         borderWidth: 1,
-        borderColor: "#bbb",
+        borderColor: "#cdd4d1",
         backgroundColor: "#fff",
         borderRadius: 5,
-        height: 32,
         textAlign: "center",
-        marginHorizontal: 1,
+        fontSize: 12,
+        color: "#000",
     },
+    tempSlash: {
+        fontSize: 14,
+        color: "#666",
+        marginHorizontal: 2,
+        fontWeight: "500",
+    },
+    // DATA TABLE STYLES
     dataTable: {
         borderWidth: 1,
         borderColor: "#cdd4d1",
@@ -698,18 +1072,20 @@ const styles = StyleSheet.create({
         backgroundColor: "#e7eceb",
     },
     dataHeaderCell: {
-        padding: 8,
+        padding: 10,
         textAlign: "center",
         fontWeight: "700",
         fontSize: 12,
         borderRightWidth: 1,
         borderColor: "#cdd4d1",
+        color: "#333",
     },
     dataRow: {
         flexDirection: "row",
         borderBottomWidth: 1,
         borderColor: "#eee",
-        minHeight: 40,
+        minHeight: 44,
+        alignItems: "center",
     },
     dataCellText: {
         padding: 10,
@@ -717,15 +1093,33 @@ const styles = StyleSheet.create({
         fontSize: 12,
         borderRightWidth: 1,
         borderColor: "#eee",
+        color: "#333",
     },
     dataInput: {
         borderWidth: 0,
-        paddingHorizontal: 8,
+        paddingHorizontal: 10,
+        paddingVertical: 10,
         fontSize: 12,
         color: "#000",
         backgroundColor: "#fff",
         borderRightWidth: 1,
         borderColor: "#eee",
+    },
+    dataInputTouchable: {
+        paddingHorizontal: 10,
+        paddingVertical: 10,
+        backgroundColor: "#fff",
+        borderRightWidth: 1,
+        borderColor: "#eee",
+        justifyContent: "center",
+    },
+    dataInputText: {
+        fontSize: 12,
+        color: "#000",
+        textAlign: "center",
+    },
+    placeholderText: {
+        color: "#999",
     },
     notesInput: {
         borderWidth: 1,
@@ -739,7 +1133,7 @@ const styles = StyleSheet.create({
         textAlignVertical: "top",
     },
     deleteBtn: {
-        paddingHorizontal: 10,
+        width: 40,
         justifyContent: "center",
         alignItems: "center",
     },
@@ -747,6 +1141,99 @@ const styles = StyleSheet.create({
         color: "#c0392b",
         fontSize: 16,
         fontWeight: "bold",
+    },
+    // TIME PICKER MODAL STYLES
+    modalOverlay: {
+        flex: 1,
+        backgroundColor: "rgba(0,0,0,0.5)",
+        justifyContent: "center",
+        alignItems: "center",
+    },
+    timePickerContainer: {
+        backgroundColor: "#fff",
+        borderRadius: 12,
+        padding: 20,
+        width: 280,
+        maxHeight: 400,
+    },
+    timePickerTitle: {
+        fontSize: 18,
+        fontWeight: "700",
+        textAlign: "center",
+        marginBottom: 16,
+        color: "#333",
+    },
+    timePickerRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    timePickerColumn: {
+        alignItems: "center",
+        width: 80,
+    },
+    timePickerLabel: {
+        fontSize: 12,
+        color: "#666",
+        marginBottom: 8,
+    },
+    timePickerScroll: {
+        height: 180,
+        width: 70,
+    },
+    timeOption: {
+        paddingVertical: 10,
+        paddingHorizontal: 15,
+        borderRadius: 6,
+        marginVertical: 2,
+    },
+    timeOptionSelected: {
+        backgroundColor: "#2f5d43",
+    },
+    timeOptionText: {
+        fontSize: 16,
+        textAlign: "center",
+        color: "#333",
+    },
+    timeOptionTextSelected: {
+        color: "#fff",
+        fontWeight: "600",
+    },
+    timeSeparator: {
+        fontSize: 24,
+        fontWeight: "700",
+        marginHorizontal: 10,
+        color: "#333",
+    },
+    timePickerButtons: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        marginTop: 20,
+        gap: 12,
+    },
+    timePickerCancelBtn: {
+        flex: 1,
+        paddingVertical: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: "#ccc",
+        alignItems: "center",
+    },
+    timePickerCancelText: {
+        fontSize: 14,
+        color: "#666",
+    },
+    timePickerConfirmBtn: {
+        flex: 1,
+        paddingVertical: 12,
+        borderRadius: 8,
+        backgroundColor: "#2f5d43",
+        alignItems: "center",
+    },
+    timePickerConfirmText: {
+        fontSize: 14,
+        color: "#fff",
+        fontWeight: "600",
     },
 });
 
