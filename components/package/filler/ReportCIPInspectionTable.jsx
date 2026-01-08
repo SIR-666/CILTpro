@@ -33,7 +33,8 @@ const COLORS = {
 
 const AUTO_SAVE_DELAY = 500;
 
-const getStorageKey = (username, line) => `cip_inspection_${username || "anonymous"}_${line?.replace(" ", "_") || "unknown"}`;
+const getStorageKey = (username, line, reportId) =>
+  `cip_inspection_${username || "anonymous"}_${reportId || "draft"}_${line?.replace(" ", "_") || "unknown"}`;
 
 // FlexibleNumericInput Component
 const FlexibleNumericInput = ({
@@ -248,9 +249,12 @@ const ReportCIPInspectionTable = forwardRef(({
   posisi = "Final",
   shouldClearData = false,
   allowUnrestrictedInput = true,
+  mode = "create",
+  reloadKey,
+  reportId,
 }, ref) => {
   const line = selectedLine || cipData?.line || "LINE A";
-  const STORAGE_KEY = getStorageKey(username, line);
+  const STORAGE_KEY = getStorageKey(username, line, reportId);
   const isLineBCD = ["LINE B", "LINE C", "LINE D", "LINE_B", "LINE_C", "LINE_D"].includes(line);
   const isLineA = !isLineBCD;
 
@@ -268,6 +272,21 @@ const ReportCIPInspectionTable = forwardRef(({
   const hasLoadedData = useRef(false);
   const autoSaveTimer = useRef(null);
   const templatesRef = useRef(null);
+
+  useEffect(() => {
+    if (reloadKey === undefined) return;
+
+    console.log("[CIP] reloadKey changed → forcing reload", reloadKey);
+
+    // reset internal guard
+    hasLoadedData.current = false;
+
+    // clear autosave timer to avoid race
+    if (autoSaveTimer.current) {
+      clearTimeout(autoSaveTimer.current);
+      autoSaveTimer.current = null;
+    }
+  }, [reloadKey]);
 
   // EXPOSE METHODS
   useImperativeHandle(ref, () => ({
@@ -373,19 +392,34 @@ const ReportCIPInspectionTable = forwardRef(({
   };
 
   // DATA MANAGEMENT
-  const getAllData = () => ({
-    steps: cipSteps,
-    specialRecords: isLineA ? undefined : specialRecords,
-    copRecords: isLineA ? copRecords : undefined,
-    flowRate,
-    flowRates: isLineBCD ? {
-      flowBC: line === "LINE B" || line === "LINE C" ? flowRate.flowRateActual : undefined,
-      flowD: line === "LINE D" ? flowRate.flowRateActual : undefined,
-    } : undefined,
-    valvePositions: isLineBCD ? valveConfig.reduce((acc, v) => ({ ...acc, [v.valveCode]: v.checked }), {}) : undefined,
-    line,
-    isLineBCD,
-  });
+  const getAllData = () => {
+    const safeFlowRate =
+      flowRate ?? {
+        flowRateMin: 0,
+        flowRateUnit: "L/H",
+        flowRateActual: "",
+      };
+
+    const data = {
+      steps: cipSteps,
+      specialRecords: isLineA ? undefined : specialRecords,
+      copRecords: isLineA ? copRecords : undefined,
+      flowRate: {
+        ...safeFlowRate,
+        flowRateActual: String(safeFlowRate.flowRateActual ?? ""),
+      },
+      valvePositions: isLineBCD ? valveConfig.reduce((acc, v) => ({ ...acc, [v.valveCode]: v.checked }), {}) : undefined,
+      line,
+      isLineBCD,
+    };
+
+    console.log("[CIP] getAllData returning:", {
+      line: data.line,
+      flowRateActual: data.flowRate.flowRateActual,
+    });
+
+    return data;
+  };
 
   const resetToDefaults = () => {
     // const templates = templatesRef.current || {
@@ -419,13 +453,25 @@ const ReportCIPInspectionTable = forwardRef(({
     }
     // setFlowRate(templates.flowRate || getFallbackFlowRate(line));
     // setValveConfig(templates.valveConfig || (isLineBCD ? getFallbackValveConfig(posisi) : []));
-    setFlowRate(templates.flowRate || { flowRateMin: 0, flowRateUnit: "L/H", flowRateActual: "" });
+    setFlowRate(
+      templates.flowRate
+        ? {
+          flowRateMin: templates.flowRate.flowRateMin ?? 0,
+          flowRateUnit: templates.flowRate.flowRateUnit ?? "L/H",
+          flowRateActual: templates.flowRate.flowRateActual ?? "",
+        }
+        : {
+          flowRateMin: 0,
+          flowRateUnit: "L/H",
+          flowRateActual: "",
+        }
+    );
     setValveConfig(templates.valveConfig || []);
   };
 
   // AUTO-SAVE EFFECT
   useEffect(() => {
-    if (!hasLoadedData.current || !isEditable) return;
+    if (!hasLoadedData.current || !isEditable || isLoading) return;
 
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
 
@@ -434,7 +480,10 @@ const ReportCIPInspectionTable = forwardRef(({
         cipSteps,
         specialRecords,
         copRecords,
-        flowRate,
+        flowRate: {
+          ...flowRate,
+          flowRateActual: String(flowRate.flowRateActual ?? ""),
+        },
         valveConfig,
         savedAt: new Date().toISOString(),
       });
@@ -444,6 +493,13 @@ const ReportCIPInspectionTable = forwardRef(({
       if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     };
   }, [cipSteps, specialRecords, copRecords, flowRate, valveConfig, isEditable]);
+
+  useEffect(() => {
+    if (mode === "create") {
+      console.log("[CIP] CREATE mode → clearing storage");
+      clearStoredData();
+    }
+  }, [mode, line, posisi]);
 
   // INITIAL LOAD
   useEffect(() => {
@@ -465,33 +521,39 @@ const ReportCIPInspectionTable = forwardRef(({
         hasStoredData: !!storedData,
         templateSource: dataSource,
         templatesRefHasData: !!templatesRef.current,
+        propsFlowRate: cipData?.flowRate,
+        propsFlowRates: cipData?.flowRates,
       });
 
-      if (storedData && !hasPropsData) {
+      if (mode === "edit" && storedData) {
         console.log("[CIP] Loading from AsyncStorage");
         setDataSource("storage");
-        // setCipSteps(storedData.cipSteps || templates.cipSteps || getFallbackCipSteps());
         setCipSteps(storedData.cipSteps || templates.cipSteps || []);
         if (isLineA) {
           if (Array.isArray(storedData.copRecords) && storedData.copRecords.length > 0) {
             setCopRecords(storedData.copRecords);
           } else {
-            // setCopRecords(templates.specialRecords || getFallbackSpecialRecords(line));
             setCopRecords(templates.specialRecords || []);
           }
           setSpecialRecords([]);
         } else {
-          // setSpecialRecords(storedData.specialRecords || templates.specialRecords || getFallbackSpecialRecords(line));
           setSpecialRecords(storedData.specialRecords || templates.specialRecords || []);
           setCopRecords([]);
         }
-        // setFlowRate(storedData.flowRate || templates.flowRate || getFallbackFlowRate(line));
-        setFlowRate(
-          storedData.flowRate ||
-          templates.flowRate ||
-          { flowRateMin: 0, flowRateUnit: "L/H", flowRateActual: "" }
-        );
-        // setValveConfig(storedData.valveConfig || templates.valveConfig || (isLineBCD ? getFallbackValveConfig(posisi) : []));
+
+        const storedFlowRateActual =
+          storedData?.flowRate?.flowRateActual ??
+          storedData?.flowRateActual ??   // backward compatibility
+          "";
+
+        console.log("[CIP] Loading flowRateActual from storage:", storedFlowRateActual);
+
+        setFlowRate({
+          ...(templates.flowRate || { flowRateMin: 0, flowRateUnit: "L/H", flowRateActual: "" }),
+          ...(storedData.flowRate || {}), // merge min/unit jika ada
+          flowRateActual: String(storedFlowRateActual),
+        });
+
         setValveConfig(
           storedData.valveConfig ||
           templates.valveConfig ||
@@ -500,69 +562,70 @@ const ReportCIPInspectionTable = forwardRef(({
       } else if (hasPropsData) {
         console.log("[CIP] Loading from props (edit mode)");
         setDataSource("props");
-        // setCipSteps(cipData.steps || templates.cipSteps || getFallbackCipSteps());
         setCipSteps(cipData.steps || templates.cipSteps || []);
         if (isLineA) {
-          // setCopRecords(cipData.copRecords || templates.specialRecords || getFallbackSpecialRecords(line));
           setCopRecords(cipData.copRecords || templates.specialRecords || []);
           setSpecialRecords([]);
         } else {
-          // setSpecialRecords(cipData.specialRecords || templates.specialRecords || getFallbackSpecialRecords(line));
           setSpecialRecords(cipData.specialRecords || templates.specialRecords || []);
           setCopRecords([]);
         }
 
-        if (cipData.flowRate !== undefined) {
-          setFlowRate({
-            // ...getFallbackFlowRate(line),
-            ...(templates.flowRate || { flowRateMin: 0, flowRateUnit: "L/H", flowRateActual: "" }),
-            flowRateActual: cipData.flowRate?.toString() || ""
-          });
-        } else if (cipData.flowRates) {
-          const actualFlow = line === "LINE D" ? cipData.flowRates.flowD : cipData.flowRates.flowBC;
-          setFlowRate({
-            // ...getFallbackFlowRate(line),
-            ...(templates.flowRate || { flowRateMin: 0, flowRateUnit: "L/H", flowRateActual: "" }),
-            flowRateActual: actualFlow?.toString() || ""
-          });
-        } else {
-          // setFlowRate(templates.flowRate || getFallbackFlowRate(line));
-          setFlowRate(
-            templates.flowRate ||
-            { flowRateMin: 0, flowRateUnit: "L/H", flowRateActual: "" }
-          );
+        // Properly load flowRate for all lines
+        let flowRateValue = "";
+
+        // Priority 1: Direct flowRate from props (already properly mapped in parent)
+        if (cipData.flowRate !== undefined && cipData.flowRate !== null && cipData.flowRate !== "") {
+          flowRateValue = cipData.flowRate.toString();
+          console.log("[CIP] Loading direct flowRate from props:", flowRateValue);
+        }
+        // Priority 2: From flowRates object (legacy support)
+        else if (cipData.flowRates) {
+          if (line === "LINE D" && cipData.flowRates.flowD !== undefined) {
+            flowRateValue = cipData.flowRates.flowD.toString();
+            console.log("[CIP] Loading flowD from flowRates:", flowRateValue);
+          } else if ((line === "LINE B" || line === "LINE C") && cipData.flowRates.flowBC !== undefined) {
+            flowRateValue = cipData.flowRates.flowBC.toString();
+            console.log("[CIP] Loading flowBC from flowRates:", flowRateValue);
+          }
+        }
+        // Priority 3: From line-specific fields (backward compatibility)
+        else if (line === "LINE D" && cipData.flowRateD !== undefined) {
+          flowRateValue = cipData.flowRateD.toString();
+          console.log("[CIP] Loading from flowRateD:", flowRateValue);
+        } else if ((line === "LINE B" || line === "LINE C") && cipData.flowRateBC !== undefined) {
+          flowRateValue = cipData.flowRateBC.toString();
+          console.log("[CIP] Loading from flowRateBC:", flowRateValue);
         }
 
+        setFlowRate({
+          ...(templates.flowRate || { flowRateMin: 0, flowRateUnit: "L/H", flowRateActual: "" }),
+          flowRateActual: flowRateValue
+        });
+
         if (cipData.valvePositions && isLineBCD) {
-          // const valves = getFallbackValveConfig(posisi).map(v => ({
           const valves = (templates.valveConfig || []).map(v => ({
             ...v,
             checked: cipData.valvePositions[v.valveCode] ?? v.checked,
           }));
           setValveConfig(valves);
         } else {
-          // setValveConfig(templates.valveConfig || (isLineBCD ? getFallbackValveConfig(posisi) : []));
           setValveConfig(templates.valveConfig || []);
         }
       } else {
         console.log("[CIP] Loading from templates (new mode)");
-        // setCipSteps(templates.cipSteps || getFallbackCipSteps());
         setCipSteps(templates.cipSteps || []);
         if (isLineA) {
-          // setCopRecords(templates.specialRecords || getFallbackSpecialRecords(line));
           setCopRecords(templates.specialRecords || []);
           setSpecialRecords([]);
         } else {
-          // setSpecialRecords(templates.specialRecords || getFallbackSpecialRecords(line));
           setSpecialRecords(templates.specialRecords || []);
           setCopRecords([]);
         }
-        // setFlowRate(templates.flowRate || getFallbackFlowRate(line));
         setFlowRate(
           templates.flowRate ||
           { flowRateMin: 0, flowRateUnit: "L/H", flowRateActual: "" }
         );
-        // setValveConfig(templates.valveConfig || (isLineBCD ? getFallbackValveConfig(posisi) : []));
         setValveConfig(templates.valveConfig || []);
       }
 
@@ -571,9 +634,9 @@ const ReportCIPInspectionTable = forwardRef(({
     };
 
     initializeData();
-  }, [line, posisi, fetchTemplates]);
+  }, [line, posisi, fetchTemplates, reloadKey]);
 
-  // HANDLE CLEAR DATA - FIX untuk masalah refresh
+  // HANDLE CLEAR DATA
   useEffect(() => {
     if (shouldClearData) {
       console.log("[CIP] shouldClearData triggered - clearing and resetting");
@@ -599,13 +662,21 @@ const ReportCIPInspectionTable = forwardRef(({
   };
 
   const updateSpecialRecord = (index, field, value) => {
-    setCopRecords((prev) => {
+    const setter = isLineA ? setCopRecords : setSpecialRecords;
+
+    setter((prev) => {
       const updated = [...prev];
       updated[index] = { ...updated[index], [field]: value };
 
-      if ((field === "startTime" || field === "time") && updated[index].startTime && updated[index].time) {
+      const timeField = isLineA ? "time" : "time";
+
+      if (
+        (field === "startTime" || field === timeField) &&
+        updated[index].startTime &&
+        updated[index][timeField]
+      ) {
         const startMoment = moment(updated[index].startTime, "HH:mm");
-        const duration = parseInt(updated[index].time) || 0;
+        const duration = parseInt(updated[index][timeField]) || 0;
         updated[index].endTime = startMoment.add(duration, "minutes").format("HH:mm");
       }
 
@@ -614,7 +685,12 @@ const ReportCIPInspectionTable = forwardRef(({
   };
 
   const updateFlowRate = (value) => {
-    setFlowRate((prev) => ({ ...prev, flowRateActual: value }));
+    console.log("[CIP] Updating flowRate to:", value);
+    setFlowRate((prev) => {
+      const updated = { ...prev, flowRateActual: String(value ?? "") };
+      console.log("[CIP] FlowRate state updated:", updated);
+      return updated;
+    });
   };
 
   const updateValve = (index) => {
@@ -1015,27 +1091,39 @@ const ReportCIPInspectionTable = forwardRef(({
   };
 
   // RENDER: FLOW RATE
-  const renderFlowRate = () => (
-    <View style={styles.section}>
-      <Text style={styles.sectionTitle}>FLOW RATE</Text>
-      <View style={styles.flowContainer}>
-        <View style={styles.flowItem}>
-          <Text style={styles.flowLabel}>
-            Flow {line === "LINE A" ? "A" : line === "LINE D" ? "D" : "B,C"} (Min {flowRate.flowRateMin} {flowRate.flowRateUnit}):
-          </Text>
-          <FlexibleNumericInput
-            value={flowRate.flowRateActual}
-            onChangeText={updateFlowRate}
-            placeholder={`e.g. ${flowRate.flowRateMin + 500}`}
-            minRange={flowRate.flowRateMin}
-            unit={` ${flowRate.flowRateUnit}`}
-            style={styles.flowInput}
-            editable={isEditable}
-          />
+  const renderFlowRate = () => {
+    console.log("[CIP] Rendering flowRate:", {
+      line,
+      flowRateActual: flowRate.flowRateActual,
+      flowRateMin: flowRate.flowRateMin,
+      flowRateUnit: flowRate.flowRateUnit
+    });
+
+    return (
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>FLOW RATE</Text>
+        <View style={styles.flowContainer}>
+          <View style={styles.flowItem}>
+            <Text style={styles.flowLabel}>
+              Flow {line === "LINE A" ? "A" : line === "LINE D" ? "D" : "B,C"} (Min {flowRate.flowRateMin} {flowRate.flowRateUnit}):
+            </Text>
+            <FlexibleNumericInput
+              value={flowRate.flowRateActual}
+              onChangeText={(val) => {
+                console.log("[CIP] FlowRate input changed to:", val);
+                updateFlowRate(val);
+              }}
+              placeholder={`e.g. ${flowRate.flowRateMin + 500}`}
+              minRange={flowRate.flowRateMin}
+              unit={` ${flowRate.flowRateUnit}`}
+              style={styles.flowInput}
+              editable={isEditable}
+            />
+          </View>
         </View>
       </View>
-    </View>
-  );
+    );
+  };
 
   // RENDER: MAIN
   return (

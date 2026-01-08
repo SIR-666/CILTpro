@@ -14,28 +14,21 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Picker } from "@react-native-picker/picker";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import Icon from "react-native-vector-icons/MaterialIcons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
 import moment from "moment";
 import { COLORS } from "../../constants/theme";
 import { api } from "../../utils/axiosInstance";
 import ReportCIPInspectionTable from "../../components/package/filler/ReportCIPInspectionTable";
 
-// Storage keys
-const FORM_STORAGE_KEY = "cip_create_form_draft";
-
 const CreateCIP = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [userProfile, setUserProfile] = useState(null);
-  const [hasDraft, setHasDraft] = useState(false);
-  const [autoSaveIndicator, setAutoSaveIndicator] = useState(false);
   const [shouldClearTableData, setShouldClearTableData] = useState(false);
+  const hasLoadedServerDraft = useRef(false);
 
   // Refs
   const tableRef = useRef(null);
-  const autoSaveTimer = useRef(null);
-  const hasLoadedDraft = useRef(false);
 
   // CIP Types state
   const [cipTypes, setCipTypes] = useState([
@@ -70,107 +63,6 @@ const CreateCIP = ({ navigation }) => {
     { label: "Final", value: "Final" },
     { label: "Intermediate", value: "Intermediate" },
   ]);
-
-  // ASYNC STORAGE
-  const loadDraft = async () => {
-    try {
-      const storedData = await AsyncStorage.getItem(FORM_STORAGE_KEY);
-      if (storedData) {
-        const parsed = JSON.parse(storedData);
-        setFormData({
-          ...getInitialFormState(),
-          ...parsed,
-          date: parsed.date ? new Date(parsed.date) : new Date(),
-        });
-        setHasDraft(true);
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error("Error loading draft:", error);
-      return false;
-    }
-  };
-
-  const saveDraft = async (data) => {
-    try {
-      const toSave = {
-        ...data,
-        date: data.date?.toISOString() || new Date().toISOString(),
-        savedAt: new Date().toISOString(),
-      };
-      await AsyncStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(toSave));
-      setHasDraft(true);
-      setAutoSaveIndicator(true);
-      setTimeout(() => setAutoSaveIndicator(false), 1000);
-    } catch (error) {
-      console.error("Error saving draft:", error);
-    }
-  };
-
-  const clearDraft = async () => {
-    try {
-      await AsyncStorage.removeItem(FORM_STORAGE_KEY);
-      // Also clear table data
-      if (userProfile?.username && formData.line) {
-        const tableKey = `cip_inspection_${userProfile.username}_${formData.line.replace(" ", "_")}`;
-        await AsyncStorage.removeItem(tableKey);
-      }
-      setHasDraft(false);
-    } catch (error) {
-      console.error("Error clearing draft:", error);
-    }
-  };
-
-  // AUTO-SAVE EFFECT
-  useEffect(() => {
-    if (!hasLoadedDraft.current) return;
-
-    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-
-    autoSaveTimer.current = setTimeout(() => {
-      saveDraft(formData);
-    }, 500);
-
-    return () => {
-      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-    };
-  }, [formData]);
-
-  // INITIAL LOAD
-  useEffect(() => {
-    const initializeForm = async () => {
-      await fetchUserProfile();
-      await fetchCIPTypes();
-
-      const hasDraftData = await loadDraft();
-      if (!hasDraftData) {
-        generateProcessOrder();
-      }
-      hasLoadedDraft.current = true;
-    };
-
-    initializeForm();
-  }, []);
-
-  // FOCUS EFFECT
-  useFocusEffect(
-    useCallback(() => {
-      // Reload draft when screen is focused
-      if (hasLoadedDraft.current) {
-        loadDraft();
-      }
-
-      // Handle back button
-      const onBackPress = () => {
-        // Data will be auto-saved, just navigate back
-        return false; // Allow default back behavior
-      };
-
-      BackHandler.addEventListener("hardwareBackPress", onBackPress);
-      return () => BackHandler.removeEventListener("hardwareBackPress", onBackPress);
-    }, [])
-  );
 
   // FETCH FUNCTIONS
   const fetchUserProfile = async () => {
@@ -207,11 +99,136 @@ const CreateCIP = ({ navigation }) => {
   };
 
   const generateProcessOrder = () => {
-    const date = moment().format("YYYY");
+    const year = moment().format("YYYY");
     const randomNum = Math.floor(Math.random() * 9000) + 1000;
-    const processOrder = `PO-MFP-${date}-${randomNum}`;
-    setFormData((prev) => ({ ...prev, processOrder }));
+    setFormData((prev) => ({
+      ...prev,
+      processOrder: `PO-MFP-${year}-${randomNum}`,
+    }));
   };
+
+  // Server draft functions with PROPER FLOW RATE HANDLING
+  const fetchServerDraft = async (processOrder, line) => {
+    if (!processOrder || !line) return;
+    try {
+      const res = await api.get("/cip-report/draft", {
+        params: { processOrder, line },
+      });
+      if (res.data?.data) {
+        hasLoadedServerDraft.current = true;
+
+        const draftData = res.data.data;
+        const mappedData = {
+          ...draftData,
+          date: draftData.date ? new Date(draftData.date) : new Date(),
+          flowRate: "",
+        };
+
+        // Map flowRate properly for ReportCIPInspectionTable
+        // The table component expects a SINGLE flowRate field regardless of line
+        if (line === 'LINE A') {
+          mappedData.flowRate = draftData.flowRate ?? "";
+        } else if (['LINE B', 'LINE C'].includes(line)) {
+          mappedData.flowRate = draftData.flowRates?.flowBC ?? draftData.flowRateBC ?? "";
+        } else if (line === 'LINE D') {
+          mappedData.flowRate = draftData.flowRates?.flowD ?? draftData.flowRateD ?? "";
+        }
+
+        console.log("[CreateCIP] Loaded draft with flowRate:", mappedData.flowRate, "for line:", line);
+        setFormData((prev) => ({ ...prev, ...mappedData }));
+      } else {
+        hasLoadedServerDraft.current = true;
+      }
+    } catch (e) {
+      hasLoadedServerDraft.current = true;
+      console.log("No server draft found");
+    }
+  };
+
+  // Save server draft with proper structure
+  const saveServerDraft = async (payload) => {
+    if (!payload.processOrder || !payload.line) return;
+
+    const draftPayload = { ...payload };
+    const isBCDLine = ['LINE B', 'LINE C', 'LINE D'].includes(payload.line);
+
+    // Always store flowRate in BOTH formats for persistence
+    if (payload.flowRate !== undefined && payload.flowRate !== null && payload.flowRate !== "") {
+      // LINE A: store in flowRate field
+      if (payload.line === 'LINE A') {
+        draftPayload.flowRate = payload.flowRate;
+      }
+
+      // LINE B/C/D: store in BOTH flowRate AND flowRates for proper persistence
+      if (isBCDLine) {
+        if (!draftPayload.flowRates) draftPayload.flowRates = {};
+
+        if (payload.line === 'LINE D') {
+          draftPayload.flowRates.flowD = payload.flowRate;
+          draftPayload.flowRateD = payload.flowRate; // Also store in direct field
+        } else {
+          draftPayload.flowRates.flowBC = payload.flowRate;
+          draftPayload.flowRateBC = payload.flowRate; // Also store in direct field
+        }
+      }
+    }
+
+    console.log("[CreateCIP] Saving draft:", {
+      line: payload.line,
+      flowRate: payload.flowRate,
+      flowRates: draftPayload.flowRates,
+      flowRateBC: draftPayload.flowRateBC,
+      flowRateD: draftPayload.flowRateD
+    });
+
+    await api.post("/cip-report/draft", {
+      processOrder: payload.processOrder,
+      line: payload.line,
+      posisi: payload.posisi,
+      plant: payload.plant,
+      payload: draftPayload,
+    });
+  };
+
+  // AUTO-SAVE EFFECT ke server draft
+  useEffect(() => {
+    if (!formData.processOrder || !formData.line) return;
+    if (!hasLoadedServerDraft.current) return;
+
+    const timer = setTimeout(() => {
+      saveServerDraft(formData);
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [formData]);
+
+  // INITIAL LOAD
+  useEffect(() => {
+    const init = async () => {
+      await fetchUserProfile();
+      await fetchCIPTypes();
+      generateProcessOrder();
+    };
+    init();
+  }, []);
+
+  // LOAD SERVER DRAFT saat PO+Line ada
+  useEffect(() => {
+    if (formData.processOrder && formData.line) {
+      fetchServerDraft(formData.processOrder, formData.line);
+    }
+  }, [formData.processOrder, formData.line]);
+
+  // FOCUS EFFECT
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        return false;
+      };
+      BackHandler.addEventListener("hardwareBackPress", onBackPress);
+      return () => BackHandler.removeEventListener("hardwareBackPress", onBackPress);
+    }, [])
+  );
 
   // HANDLERS
   const handleInputChange = (field, value) => {
@@ -228,7 +245,14 @@ const CreateCIP = ({ navigation }) => {
           text: "Reset",
           style: "destructive",
           onPress: async () => {
-            await clearDraft();
+            if (formData.processOrder && formData.line) {
+              await api.delete("/cip-report/draft", {
+                params: {
+                  processOrder: formData.processOrder,
+                  line: formData.line,
+                },
+              });
+            }
             const initialForm = getInitialFormState();
             setFormData({
               ...initialForm,
@@ -245,7 +269,6 @@ const CreateCIP = ({ navigation }) => {
 
   // VALIDATION (LESS STRICT)
   const validateBasicInfo = () => {
-    // Only line is required for saving
     if (!formData.line) {
       Alert.alert("Validation Error", "Please select a line");
       return false;
@@ -277,17 +300,23 @@ const CreateCIP = ({ navigation }) => {
     return true;
   };
 
-  // SAVE HANDLER (NO ALERT WARNINGS)
+  // SAVE HANDLER with PROPER FLOW RATE MAPPING
   const handleSaveCIP = async (cipTableData, isDraft = false) => {
-    // Less strict validation - only line required
     if (!validateBasicInfo()) return;
-
-    // If not draft, do full validation
     if (!isDraft && !validateForSubmit()) return;
 
     setLoading(true);
     try {
       const isBCDLine = ["LINE B", "LINE C", "LINE D"].includes(formData.line);
+
+      // Get flowRate value from table data
+      const flowRateActual = cipTableData.flowRate?.flowRateActual ?? null;
+
+      console.log("[CreateCIP] Submitting with:", {
+        line: formData.line,
+        flowRateActual,
+        isDraft
+      });
 
       let dataToSubmit = {
         date: moment(formData.date).format("YYYY-MM-DD"),
@@ -316,7 +345,7 @@ const CreateCIP = ({ navigation }) => {
 
       // Handle LINE A specific data (COP/SOP/SIP)
       if (formData.line === "LINE A") {
-        dataToSubmit.flowRate = parseFloat(cipTableData.flowRate?.flowRateActual) || 0;
+        dataToSubmit.flowRate = flowRateActual ? parseFloat(flowRateActual) : null;
         dataToSubmit.copRecords = cipTableData.copRecords?.map((cop) => ({
           stepType: cop.stepType,
           time: cop.time ? parseInt(cop.time) : null,
@@ -329,11 +358,15 @@ const CreateCIP = ({ navigation }) => {
       }
       // Handle LINE B/C/D specific data
       else if (isBCDLine) {
+        // Properly set flowRateD or flowRateBC based on line
         if (formData.line === "LINE D") {
-          dataToSubmit.flowRateD = parseFloat(cipTableData.flowRate?.flowRateActual) || 0;
+          dataToSubmit.flowRateD = flowRateActual ? parseFloat(flowRateActual) : null;
+          dataToSubmit.flowRateBC = null;
         } else {
-          dataToSubmit.flowRateBC = parseFloat(cipTableData.flowRate?.flowRateActual) || 0;
+          dataToSubmit.flowRateBC = flowRateActual ? parseFloat(flowRateActual) : null;
+          dataToSubmit.flowRateD = null;
         }
+
         dataToSubmit.valvePositions = cipTableData.valvePositions || { A: false, B: false, C: false };
         dataToSubmit.specialRecords = cipTableData.specialRecords?.map((record) => ({
           stepType: record.stepType,
@@ -349,12 +382,15 @@ const CreateCIP = ({ navigation }) => {
 
       const response = await api.post("/cip-report", dataToSubmit);
 
-      // Check if save was successful
       if (response.data.success || response.data.data) {
-        // Clear draft after successful save
-        await clearDraft();
+        // Clear server draft after successful save
+        await api.delete("/cip-report/draft", {
+          params: {
+            processOrder: formData.processOrder,
+            line: formData.line,
+          },
+        });
 
-        // SIMPLE SUCCESS MESSAGE - NO WARNINGS POPUP
         Alert.alert(
           "Success",
           isDraft ? "CIP report saved as draft" : "CIP report submitted successfully",
@@ -398,22 +434,6 @@ const CreateCIP = ({ navigation }) => {
           <Icon name="refresh" size={24} color={COLORS.orange} />
         </TouchableOpacity>
       </View>
-
-      {/* Auto-save indicator */}
-      {autoSaveIndicator && (
-        <View style={styles.autoSaveIndicator}>
-          <Icon name="cloud-done" size={16} color={COLORS.green} />
-          <Text style={styles.autoSaveText}>Draft saved automatically</Text>
-        </View>
-      )}
-
-      {/* Draft indicator */}
-      {hasDraft && (
-        <View style={styles.draftIndicator}>
-          <Icon name="edit" size={16} color={COLORS.orange} />
-          <Text style={styles.draftText}>Draft - Auto-saved</Text>
-        </View>
-      )}
 
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Basic Info Section */}
@@ -576,7 +596,7 @@ const CreateCIP = ({ navigation }) => {
           </Text>
         </View>
 
-        {/* CIP Inspection Table - UNIFIED Component */}
+        {/* CIP Inspection Table */}
         {formData.line ? (
           <ReportCIPInspectionTable
             ref={tableRef}
@@ -584,10 +604,12 @@ const CreateCIP = ({ navigation }) => {
             selectedLine={formData.line}
             username={userProfile?.username}
             posisi={formData.posisi || "Final"}
+            mode="create"
             onSave={(cipTableData, isDraft) => handleSaveCIP(cipTableData, isDraft)}
             isEditable={true}
             shouldClearData={shouldClearTableData}
             allowUnrestrictedInput={true}
+            reportId={formData.processOrder}
           />
         ) : (
           <View style={styles.instructionBox}>
@@ -636,36 +658,6 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 20,
     backgroundColor: "#fff5e6",
-  },
-  autoSaveIndicator: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#E8F5E9",
-    padding: 8,
-    marginHorizontal: 16,
-    marginTop: 8,
-    borderRadius: 4,
-  },
-  autoSaveText: {
-    marginLeft: 8,
-    fontSize: 12,
-    color: COLORS.green,
-  },
-  draftIndicator: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FFF3E0",
-    padding: 8,
-    marginHorizontal: 16,
-    marginTop: 8,
-    borderRadius: 4,
-  },
-  draftText: {
-    marginLeft: 8,
-    fontSize: 12,
-    color: COLORS.orange,
   },
   section: {
     margin: 16,

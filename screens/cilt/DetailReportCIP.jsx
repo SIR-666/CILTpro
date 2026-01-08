@@ -42,7 +42,34 @@ const DetailReportCIP = ({ navigation, route }) => {
     }
     try {
       const response = await api.get(`/cip-report/${cipReportId}`);
-      setCipData(response.data);
+      const raw = response.data;
+
+      // 🔑 NORMALISASI AGAR DETAIL = EDIT
+      const normalized = {
+        ...raw,
+
+        // steps
+        steps: raw.steps || raw.cip_steps || [],
+
+        // records
+        copRecords: raw.copRecords || raw.cop_records || [],
+        specialRecords: raw.specialRecords || raw.special_records || [],
+
+        // valve
+        valvePositions:
+          typeof raw.valvePositions === "string"
+            ? JSON.parse(raw.valvePositions)
+            : raw.valvePositions || raw.valve_config || null,
+
+        // flow rate
+        flowRate:
+          raw.flowRate ??
+          raw.flowRates?.flowBC ??
+          raw.flowRates?.flowD ??
+          null,
+      };
+
+      setCipData(normalized);
       setIsLoading(false);
     } catch (error) {
       console.error("Error fetching CIP detail:", error);
@@ -69,8 +96,6 @@ const DetailReportCIP = ({ navigation, route }) => {
         posisi: cipData.posisi,
         valvePositions: cipData.valvePositions,
         flowRate: cipData.flowRate,
-        flowRateBC: cipData.flowRateBC,
-        flowRateD: cipData.flowRateD,
         steps: cipData.steps,
         copRecords: cipData.copRecords,
         specialRecords: cipData.specialRecords,
@@ -298,11 +323,13 @@ const DetailReportCIP = ({ navigation, route }) => {
     if (cipData.line === 'LINE A') {
       return `${cipData.flowRate || '-'} L/H (min: 12000 L/H)`;
     }
+
     if (cipData.line === 'LINE D') {
-      return `${cipData.flowRateD || cipData.flowRates?.flowD || '-'} L/H (min: 6000 L/H)`;
+      return `${cipData.flowRateD || '-'} L/H (min: 6000 L/H)`;
     }
-    // LINE B/C
-    return `${cipData.flowRateBC || cipData.flowRates?.flowBC || '-'} L/H (min: 9000 L/H)`;
+
+    // LINE B / C
+    return `${cipData.flowRateBC || '-'} L/H (min: 9000 L/H)`;
   };
 
   if (isLoading) {
@@ -332,6 +359,15 @@ const DetailReportCIP = ({ navigation, route }) => {
 
   const isLineA = cipData.line === 'LINE A';
   const isLineBCD = ['LINE B', 'LINE C', 'LINE D'].includes(cipData.line);
+  const valvePos = (() => {
+    try {
+      return typeof cipData?.valvePositions === "string"
+        ? JSON.parse(cipData.valvePositions)
+        : cipData?.valvePositions;
+    } catch {
+      return null;
+    }
+  })();
 
   return (
     <SafeAreaView style={styles.container}>
@@ -428,14 +464,14 @@ const DetailReportCIP = ({ navigation, route }) => {
           </View>
 
           {/* Valve Positions for LINE B/C/D */}
-          {isLineBCD && cipData.valvePositions && (
+          {isLineBCD && valvePos && (
             <View style={styles.valveSection}>
               <Text style={styles.label}>Valve Positions:</Text>
               <View style={styles.valveContainer}>
                 <Text style={styles.valveText}>
-                  A: {cipData.valvePositions.A ? 'Open' : 'Close'} |
-                  B: {cipData.valvePositions.B ? 'Open' : 'Close'} |
-                  C: {cipData.valvePositions.C ? 'Open' : 'Close'}
+                  A: {valvePos.A ? 'Open' : 'Close'} |
+                  B: {valvePos.B ? 'Open' : 'Close'} |
+                  C: {valvePos.C ? 'Open' : 'Close'}
                 </Text>
               </View>
             </View>

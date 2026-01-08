@@ -31,6 +31,7 @@ const EditCIP = ({ navigation, route }) => {
   const [hasEdits, setHasEdits] = useState(false);
   const [autoSaveIndicator, setAutoSaveIndicator] = useState(false);
   const [shouldClearTableData, setShouldClearTableData] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Storage key
   const EDIT_STORAGE_KEY = getEditStorageKey(existingCipData?.id);
@@ -102,28 +103,61 @@ const EditCIP = ({ navigation, route }) => {
       hasConcentration: r.hasConcentration ?? (r.stepType === "DISINFECT/SANITASI" || r.step_type === "DISINFECT/SANITASI"),
     }));
 
-  // Get data from existing CIP data
+  // Get initial form data with proper flowRate mapping
   const getInitialFormData = () => {
     const stepsSrc = existingCipData?.steps || existingCipData?.cipSteps || existingCipData?.step_records || [];
     const copSrc = existingCipData?.copRecords || existingCipData?.cop_sop_sip || [];
     const specialSrc = existingCipData?.specialRecords || existingCipData?.special_records || [];
     const valveSrc = existingCipData?.valvePositions || existingCipData?.valve_positions || { A: false, B: false, C: false };
 
+    const line = existingCipData.line || "";
+    const isBCDLine = ['LINE B', 'LINE C', 'LINE D'].includes(line);
+
+    // Properly extract flowRate based on line
+    let flowRateValue = "";
+
+    if (line === "LINE A") {
+      flowRateValue = toStr(
+        existingCipData.flowRate ??
+        existingCipData.flow_rate ??
+        ""
+      );
+    } else if (isBCDLine) {
+      if (line === "LINE D") {
+        flowRateValue = toStr(
+          existingCipData?.flowRateD ??
+          existingCipData?.flow_rate_d ??
+          existingCipData?.flowRates?.flowD ??
+          ""
+        );
+      } else { // LINE B or C
+        flowRateValue = toStr(
+          existingCipData?.flowRateBC ??
+          existingCipData?.flow_rate_bc ??
+          existingCipData?.flowRates?.flowBC ??
+          ""
+        );
+      }
+    }
+
+    console.log("[EditCIP] Initial flowRate:", flowRateValue, "for line:", line);
+
     return {
       id: existingCipData.id,
       date: existingCipData.date ? new Date(existingCipData.date) : new Date(),
       processOrder: existingCipData.processOrder || existingCipData.process_order || "",
       plant: existingCipData.plant || "Milk Filling Packing",
-      line: existingCipData.line || "",
+      line: line,
       cipType: existingCipData.cipType || existingCipData.cip_type || "",
       operator: existingCipData.operator || "",
       posisi: existingCipData.posisi || "",
-      flowRate: toStr(existingCipData.flowRate ?? existingCipData.flow_rate ?? ""),
+      flowRate: flowRateValue,
       notes: existingCipData.notes || "",
       steps: normalizeSteps(stepsSrc),
       copRecords: normalizeCop(copSrc),
       specialRecords: normalizeSpecial(specialSrc),
       valvePositions: valveSrc,
+      // Keep flowRates object for reference
       flowRates: {
         flowBC: toStr(existingCipData?.flowRates?.flowBC ?? existingCipData?.flowRateBC ?? existingCipData?.flow_rate_bc ?? ""),
         flowD: toStr(existingCipData?.flowRates?.flowD ?? existingCipData?.flowRateD ?? existingCipData?.flow_rate_d ?? ""),
@@ -147,17 +181,37 @@ const EditCIP = ({ navigation, route }) => {
   ]);
 
   // ASYNC STORAGE
-  const loadEdits = async () => {
+  const loadEdits = async (triggerReload = true) => {
     try {
       const storedData = await AsyncStorage.getItem(EDIT_STORAGE_KEY);
       if (storedData) {
         const parsed = JSON.parse(storedData);
+
+        // Map flowRate properly based on line
+        const line = parsed.line || formData.line;
+        const isBCDLine = ['LINE B', 'LINE C', 'LINE D'].includes(line);
+        let flowRateValue = parsed.flowRate || "";
+
+        // If flowRate is empty but flowRates exists, extract from there
+        if ((!flowRateValue || flowRateValue === "") && isBCDLine && parsed.flowRates) {
+          if (line === 'LINE D' && parsed.flowRates.flowD) {
+            flowRateValue = parsed.flowRates.flowD;
+          } else if ((line === 'LINE B' || line === 'LINE C') && parsed.flowRates.flowBC) {
+            flowRateValue = parsed.flowRates.flowBC;
+          }
+        }
+
+        console.log("[EditCIP] Loaded edits with flowRate:", flowRateValue, "for line:", line);
+
         setFormData({
           ...getInitialFormData(),
           ...parsed,
+          flowRate: flowRateValue,
           date: parsed.date ? new Date(parsed.date) : new Date(),
         });
-        setHasEdits(true);
+        if (triggerReload) {
+          setReloadKey((k) => k + 1);
+        }
         return true;
       }
       return false;
@@ -167,13 +221,38 @@ const EditCIP = ({ navigation, route }) => {
     }
   };
 
+  // Save edits with proper structure
   const saveEdits = async (data) => {
     try {
+      const isBCDLine = ['LINE B', 'LINE C', 'LINE D'].includes(data.line);
       const toSave = {
         ...data,
         date: data.date?.toISOString() || new Date().toISOString(),
         savedAt: new Date().toISOString(),
       };
+
+      // Store flowRates object for BCD lines for proper persistence
+      if (isBCDLine && data.flowRate !== undefined && data.flowRate !== null && data.flowRate !== "") {
+        if (!toSave.flowRates) {
+          toSave.flowRates = {};
+        }
+        if (data.line === 'LINE D') {
+          toSave.flowRates.flowD = data.flowRate;
+          toSave.flowRateD = data.flowRate; // Also store in direct field
+        } else {
+          toSave.flowRates.flowBC = data.flowRate;
+          toSave.flowRateBC = data.flowRate; // Also store in direct field
+        }
+      }
+
+      console.log("[EditCIP] Saving edits:", {
+        line: data.line,
+        flowRate: data.flowRate,
+        flowRates: toSave.flowRates,
+        flowRateBC: toSave.flowRateBC,
+        flowRateD: toSave.flowRateD
+      });
+
       await AsyncStorage.setItem(EDIT_STORAGE_KEY, JSON.stringify(toSave));
       setHasEdits(true);
       setAutoSaveIndicator(true);
@@ -186,9 +265,8 @@ const EditCIP = ({ navigation, route }) => {
   const clearEdits = async () => {
     try {
       await AsyncStorage.removeItem(EDIT_STORAGE_KEY);
-      // Also clear table data
       if (userProfile?.username && formData.line) {
-        const tableKey = `cip_inspection_${userProfile.username}_${formData.line.replace(" ", "_")}`;
+        const tableKey = `cip_inspection_${userProfile.username}_${formData.id}_${formData.line.replace(" ", "_")}`;
         await AsyncStorage.removeItem(tableKey);
       }
       setHasEdits(false);
@@ -199,7 +277,7 @@ const EditCIP = ({ navigation, route }) => {
 
   // AUTO-SAVE EFFECT
   useEffect(() => {
-    if (!hasLoadedData.current) return;
+    if (!hasLoadedData.current || !hasEdits) return;
 
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
 
@@ -215,22 +293,18 @@ const EditCIP = ({ navigation, route }) => {
   // INITIAL LOAD
   useEffect(() => {
     const initializeForm = async () => {
-      // Store original data for reset
       originalData.current = getInitialFormData();
 
       await fetchUserProfile();
       await fetchCIPTypes();
 
-      // Check for saved edits
       const hasEditData = await loadEdits();
       if (!hasEditData) {
-        // Use original data
         setFormData(getInitialFormData());
       }
       hasLoadedData.current = true;
     };
 
-    // Check if editing is allowed
     if (!canEdit) {
       Alert.alert(
         "Edit Restricted",
@@ -245,14 +319,11 @@ const EditCIP = ({ navigation, route }) => {
   // FOCUS EFFECT
   useFocusEffect(
     useCallback(() => {
-      // Reload edits when screen is focused
       if (hasLoadedData.current) {
-        loadEdits();
+        loadEdits(false);
       }
 
-      // Handle back button
       const onBackPress = () => {
-        // Data will be auto-saved, just navigate back
         return false;
       };
 
@@ -291,6 +362,7 @@ const EditCIP = ({ navigation, route }) => {
 
   // HANDLERS
   const handleInputChange = (field, value) => {
+    setHasEdits(true);
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -307,6 +379,7 @@ const EditCIP = ({ navigation, route }) => {
             await clearEdits();
             setFormData(originalData.current || getInitialFormData());
             setShouldClearTableData(true);
+            setReloadKey((k) => k + 1);
             setTimeout(() => setShouldClearTableData(false), 100);
           },
         },
@@ -347,16 +420,23 @@ const EditCIP = ({ navigation, route }) => {
     return true;
   };
 
+  // Update handler with proper flowRate mapping
   const handleUpdateCIP = async (cipTableData, isDraft = false) => {
-    // Less strict validation - only line required
     if (!validateBasicInfo()) return;
-
-    // If not draft, do full validation
     if (!isDraft && !validateForSubmit()) return;
 
     setLoading(true);
     try {
       const isBCDLine = ["LINE B", "LINE C", "LINE D"].includes(formData.line);
+
+      // Get flowRate value from table data
+      const flowRateActual = cipTableData.flowRate?.flowRateActual ?? null;
+
+      console.log("[EditCIP] Updating with:", {
+        line: formData.line,
+        flowRateActual,
+        isDraft
+      });
 
       let dataToSubmit = {
         date: moment(formData.date).format("YYYY-MM-DD"),
@@ -385,7 +465,7 @@ const EditCIP = ({ navigation, route }) => {
 
       // Handle LINE A specific data
       if (formData.line === "LINE A") {
-        dataToSubmit.flowRate = parseFloat(cipTableData.flowRate?.flowRateActual) || 0;
+        dataToSubmit.flowRate = flowRateActual ? parseFloat(flowRateActual) : null;
         dataToSubmit.copRecords = cipTableData.copRecords?.map((cop) => ({
           stepType: cop.stepType,
           time: cop.time ? parseInt(cop.time) : null,
@@ -398,11 +478,15 @@ const EditCIP = ({ navigation, route }) => {
       }
       // Handle LINE B/C/D specific data
       else if (isBCDLine) {
+        // Properly set flowRateD or flowRateBC based on line
         if (formData.line === "LINE D") {
-          dataToSubmit.flowRateD = parseFloat(cipTableData.flowRate?.flowRateActual) || 0;
+          dataToSubmit.flowRateD = flowRateActual ? parseFloat(flowRateActual) : null;
+          dataToSubmit.flowRateBC = null;
         } else {
-          dataToSubmit.flowRateBC = parseFloat(cipTableData.flowRate?.flowRateActual) || 0;
+          dataToSubmit.flowRateBC = flowRateActual ? parseFloat(flowRateActual) : null;
+          dataToSubmit.flowRateD = null;
         }
+
         dataToSubmit.valvePositions = cipTableData.valvePositions || { A: false, B: false, C: false };
         dataToSubmit.specialRecords = cipTableData.specialRecords?.map((record) => ({
           stepType: record.stepType,
@@ -418,12 +502,9 @@ const EditCIP = ({ navigation, route }) => {
 
       const response = await api.put(`/cip-report/${formData.id}`, dataToSubmit);
 
-      // Check if update was successful
       if (response.data.success || response.data.data) {
-        // Clear edits after successful update
         await clearEdits();
 
-        // SIMPLE SUCCESS MESSAGE - NO WARNINGS POPUP
         Alert.alert(
           "Success",
           isDraft ? "CIP report updated as draft" : "CIP report updated successfully",
@@ -673,7 +754,7 @@ const EditCIP = ({ navigation, route }) => {
           </View>
         </View>
 
-        {/* CIP Inspection Table - UNIFIED Component */}
+        {/* CIP Inspection Table */}
         {formData.line ? (
           <ReportCIPInspectionTable
             ref={tableRef}
@@ -681,10 +762,13 @@ const EditCIP = ({ navigation, route }) => {
             selectedLine={formData.line}
             username={userProfile?.username}
             posisi={formData.posisi || "Final"}
+            mode="edit"
             onSave={(cipTableData, isDraft) => handleUpdateCIP(cipTableData, isDraft)}
             isEditable={true}
             shouldClearData={shouldClearTableData}
             allowUnrestrictedInput={true}
+            reloadKey={reloadKey}
+            reportId={formData.id}
           />
         ) : (
           <View style={styles.instructionBox}>
