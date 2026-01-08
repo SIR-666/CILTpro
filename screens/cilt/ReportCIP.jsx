@@ -31,11 +31,11 @@ const ReportCIP = ({ navigation }) => {
   const [selectedStatus, setSelectedStatus] = useState(null);
   const [selectedPosisi, setSelectedPosisi] = useState(null);
   const [posisiOptions, setPosisiOptions] = useState([]);
+  const [cipTypes, setCipTypes] = useState([]);
 
   const fetchDataFromAPI = useCallback(async (showLoader = true) => {
     if (showLoader) setIsLoading(true);
     try {
-      // Build query parameters
       const params = {};
       if (selectedDate) {
         params.date = moment(selectedDate).format("YYYY-MM-DD");
@@ -60,9 +60,10 @@ const ReportCIP = ({ navigation }) => {
       }
 
       const response = await api.get(`/cip-report`, { params });
-      setDataCIP(response.data);
+      setDataCIP(response.data || []);
     } catch (error) {
       console.error("Error fetching CIP data:", error);
+      setDataCIP([]);
     } finally {
       if (showLoader) setIsLoading(false);
     }
@@ -81,14 +82,11 @@ const ReportCIP = ({ navigation }) => {
   }, []);
 
   useEffect(() => {
-    // Initial load
     fetchDataFromAPI();
   }, [fetchDataFromAPI]);
 
   useEffect(() => {
-    // Listen to focus events for refresh after navigation
     const unsubscribe = navigation.addListener("focus", () => {
-      // Refresh data when coming back from create/edit/detail screens
       fetchDataFromAPI();
     });
     return unsubscribe;
@@ -98,7 +96,7 @@ const ReportCIP = ({ navigation }) => {
     try {
       const response = await api.get("/cip-report/types/list");
       if (response.data && response.data.length > 0) {
-        // Types are now available from API
+        setCipTypes(response.data);
       }
     } catch (error) {
       console.error("Error fetching CIP types:", error);
@@ -108,7 +106,7 @@ const ReportCIP = ({ navigation }) => {
   const fetchStatusList = async () => {
     try {
       const response = await api.get(`/cip-report/status/list`);
-      setStatusList(response.data);
+      setStatusList(response.data || []);
     } catch (error) {
       console.error("Error fetching status list:", error);
     }
@@ -116,7 +114,6 @@ const ReportCIP = ({ navigation }) => {
 
   const fetchPosisiOptions = async () => {
     try {
-      // Set default posisi options
       setPosisiOptions([
         { id: 1, name: "Final", value: "Final" },
         { id: 2, name: "Intermediate", value: "Intermediate" }
@@ -127,12 +124,10 @@ const ReportCIP = ({ navigation }) => {
   };
 
   const handleDetailPress = (item) => {
-    // Navigate ke detail CIP report
     navigation.navigate("DetailReportCIP", { cipReportId: item.id });
   };
 
   const handleCreateCIP = () => {
-    // Navigate ke form create CIP
     navigation.navigate("CreateCIP");
   };
 
@@ -166,6 +161,18 @@ const ReportCIP = ({ navigation }) => {
 
   const isSubmittedStatus = (status) => {
     return status === 'Complete' || status === 'Under Review' || status === 'Approved';
+  };
+
+  // Helper to get flow rate display
+  const getFlowRateDisplay = (item) => {
+    if (item.line === 'LINE A') {
+      return item.flowRate ? `${item.flowRate}` : '-';
+    }
+    if (item.line === 'LINE D') {
+      return item.flowRateD ? `${item.flowRateD}` : '-';
+    }
+    // LINE B/C
+    return item.flowRateBC ? `${item.flowRateBC}` : '-';
   };
 
   const TableHeader = () => (
@@ -217,16 +224,16 @@ const ReportCIP = ({ navigation }) => {
         <Text style={styles.tableCell}>{item.line}</Text>
         <Text style={styles.tableCell}>{item.posisi || '-'}</Text>
         <View style={styles.statusCell}>
-          <Icon 
-            name={getStatusIcon(item.status)} 
-            size={16} 
-            color={getStatusColor(item.status)} 
+          <Icon
+            name={getStatusIcon(item.status)}
+            size={16}
+            color={getStatusColor(item.status)}
           />
           <Text style={[styles.statusText, { color: getStatusColor(item.status) }]}>
             {item.status}
           </Text>
         </View>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.actionButton}
           onPress={() => handleDetailPress(item)}
         >
@@ -271,15 +278,15 @@ const ReportCIP = ({ navigation }) => {
       <View style={styles.headerContainer}>
         <Text style={styles.title}>Report CIP</Text>
         <View style={styles.headerActions}>
-          <TouchableOpacity 
-            style={styles.refreshButton} 
+          <TouchableOpacity
+            style={styles.refreshButton}
             onPress={onRefresh}
             disabled={isRefreshing}
           >
-            <Icon 
-              name="refresh" 
-              size={24} 
-              color={isRefreshing ? COLORS.gray : COLORS.blue} 
+            <Icon
+              name="refresh"
+              size={24}
+              color={isRefreshing ? COLORS.gray : COLORS.blue}
             />
           </TouchableOpacity>
           <TouchableOpacity style={styles.addButton} onPress={handleCreateCIP}>
@@ -291,71 +298,70 @@ const ReportCIP = ({ navigation }) => {
       {/* Summary Cards */}
       <View style={styles.summaryContainer}>
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryNumber}>{counts.drafts}</Text>
-          <Text style={styles.summaryLabel}>Drafts</Text>
-          <View style={[styles.summaryIndicator, { backgroundColor: '#FF9800' }]} />
-        </View>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryNumber}>{counts.submitted}</Text>
-          <Text style={styles.summaryLabel}>Submitted</Text>
-          <View style={[styles.summaryIndicator, { backgroundColor: '#4CAF50' }]} />
-        </View>
-        <View style={styles.summaryCard}>
           <Text style={styles.summaryNumber}>{counts.total}</Text>
           <Text style={styles.summaryLabel}>Total</Text>
           <View style={[styles.summaryIndicator, { backgroundColor: COLORS.blue }]} />
         </View>
+        <View style={styles.summaryCard}>
+          <Text style={[styles.summaryNumber, { color: '#FF9800' }]}>{counts.drafts}</Text>
+          <Text style={styles.summaryLabel}>Drafts</Text>
+          <View style={[styles.summaryIndicator, { backgroundColor: '#FF9800' }]} />
+        </View>
+        <View style={styles.summaryCard}>
+          <Text style={[styles.summaryNumber, { color: '#4CAF50' }]}>{counts.submitted}</Text>
+          <Text style={styles.summaryLabel}>Submitted</Text>
+          <View style={[styles.summaryIndicator, { backgroundColor: '#4CAF50' }]} />
+        </View>
       </View>
-      
+
+      {/* Search Bar */}
       <Searchbar
-        placeholder="Search by Process Order"
+        placeholder="Search Process Order..."
         onChangeText={setSearchQuery}
         value={searchQuery}
         style={styles.searchBar}
+        iconColor={COLORS.blue}
       />
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterContainer}>
+      {/* Filters */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filterContainer}
+      >
         <View style={styles.filterRow}>
+          {/* Date Filter */}
           <View style={styles.filterItem}>
             <TouchableOpacity
-              onPress={() => setShowDatePicker(true)}
               style={styles.dropdownContainer}
+              onPress={() => setShowDatePicker(true)}
             >
               <Text style={styles.filterText}>
-                {selectedDate
-                  ? moment(selectedDate).format("DD/MM/YYYY")
-                  : "Select Date"}
+                {selectedDate ? moment(selectedDate).format("DD/MM/YY") : "Date"}
               </Text>
-              <Icon name="date-range" size={20} color={COLORS.blue} />
+              <Icon name="calendar-today" size={18} color={COLORS.blue} />
             </TouchableOpacity>
-            {showDatePicker && (
-              <DateTimePicker
-                value={selectedDate || new Date()}
-                mode="date"
-                display="default"
-                onChange={(event, date) => {
-                  setShowDatePicker(false);
-                  if (date) {
-                    setSelectedDate(date);
-                  }
-                }}
-              />
-            )}
           </View>
 
-          <View style={styles.filterItem}>
-            <View style={[styles.dropdownContainer, { backgroundColor: '#f0f0f0' }]}>
-              <Text style={styles.filterText}>Milk Filling Packing</Text>
-              <Icon name="lock" size={20} color={COLORS.gray} />
-            </View>
-          </View>
+          {showDatePicker && (
+            <DateTimePicker
+              value={selectedDate || new Date()}
+              mode="date"
+              display="default"
+              onChange={(event, date) => {
+                setShowDatePicker(false);
+                if (date) setSelectedDate(date);
+              }}
+            />
+          )}
 
+          {/* Line Filter */}
           <View style={styles.filterItem}>
             <View style={styles.dropdownContainer}>
               <Picker
                 selectedValue={selectedLine}
+                onValueChange={(value) => setSelectedLine(value)}
                 style={styles.dropdown}
-                onValueChange={(itemValue) => setSelectedLine(itemValue)}
               >
                 <Picker.Item label="All Lines" value={null} />
                 <Picker.Item label="LINE A" value="LINE A" />
@@ -366,31 +372,33 @@ const ReportCIP = ({ navigation }) => {
             </View>
           </View>
 
+          {/* Posisi Filter */}
           <View style={styles.filterItem}>
             <View style={styles.dropdownContainer}>
               <Picker
                 selectedValue={selectedPosisi}
+                onValueChange={(value) => setSelectedPosisi(value)}
                 style={styles.dropdown}
-                onValueChange={(itemValue) => setSelectedPosisi(itemValue)}
               >
                 <Picker.Item label="All Posisi" value={null} />
-                {posisiOptions.map((posisi) => (
+                {posisiOptions.map((option) => (
                   <Picker.Item
-                    key={posisi.id}
-                    label={posisi.name}
-                    value={posisi.value}
+                    key={option.id}
+                    label={option.name}
+                    value={option.value}
                   />
                 ))}
               </Picker>
             </View>
           </View>
 
+          {/* Status Filter */}
           <View style={styles.filterItem}>
             <View style={styles.dropdownContainer}>
               <Picker
                 selectedValue={selectedStatus}
+                onValueChange={(value) => setSelectedStatus(value)}
                 style={styles.dropdown}
-                onValueChange={(itemValue) => setSelectedStatus(itemValue)}
               >
                 <Picker.Item label="All Status" value={null} />
                 {statusList.map((status) => (
@@ -410,7 +418,7 @@ const ReportCIP = ({ navigation }) => {
         </View>
       </ScrollView>
 
-      <ScrollView 
+      <ScrollView
         style={styles.content}
         refreshControl={
           <RefreshControl
@@ -422,7 +430,7 @@ const ReportCIP = ({ navigation }) => {
       >
         <TableHeader />
         {dataCIP.map(renderItem)}
-        
+
         {dataCIP.length === 0 && !isRefreshing && (
           <View style={styles.noDataContainer}>
             <Icon name="assignment" size={64} color={COLORS.lightGray} />

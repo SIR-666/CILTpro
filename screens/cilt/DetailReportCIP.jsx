@@ -17,10 +17,12 @@ import { api } from "../../utils/axiosInstance";
 const DetailReportCIP = ({ navigation, route }) => {
   const raw = route.params?.cipReportId ?? route.params?.id;
   const cipReportId = Number(raw);
+
   if (!Number.isFinite(cipReportId)) {
     Alert.alert("Error", "Invalid CIP id");
     return null;
   }
+
   const [cipData, setCipData] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -40,7 +42,34 @@ const DetailReportCIP = ({ navigation, route }) => {
     }
     try {
       const response = await api.get(`/cip-report/${cipReportId}`);
-      setCipData(response.data);
+      const raw = response.data;
+
+      // 🔑 NORMALISASI AGAR DETAIL = EDIT
+      const normalized = {
+        ...raw,
+
+        // steps
+        steps: raw.steps || raw.cip_steps || [],
+
+        // records
+        copRecords: raw.copRecords || raw.cop_records || [],
+        specialRecords: raw.specialRecords || raw.special_records || [],
+
+        // valve
+        valvePositions:
+          typeof raw.valvePositions === "string"
+            ? JSON.parse(raw.valvePositions)
+            : raw.valvePositions || raw.valve_config || null,
+
+        // flow rate
+        flowRate:
+          raw.flowRate ??
+          raw.flowRates?.flowBC ??
+          raw.flowRates?.flowD ??
+          null,
+      };
+
+      setCipData(normalized);
       setIsLoading(false);
     } catch (error) {
       console.error("Error fetching CIP detail:", error);
@@ -67,10 +96,6 @@ const DetailReportCIP = ({ navigation, route }) => {
         posisi: cipData.posisi,
         valvePositions: cipData.valvePositions,
         flowRate: cipData.flowRate,
-        flowRateBC: cipData.flowRateBC,
-        flowRateD: cipData.flowRateD,
-        kodeOperator: cipData.kodeOperator,
-        kodeTeknisi: cipData.kodeTeknisi,
         steps: cipData.steps,
         copRecords: cipData.copRecords,
         specialRecords: cipData.specialRecords,
@@ -90,10 +115,9 @@ const DetailReportCIP = ({ navigation, route }) => {
           onPress: async () => {
             setIsSubmitting(true);
             try {
-              // Fixed: Use correct endpoint for submitting
               const response = await api.put(`/cip-report/${cipReportId}/submit`);
 
-              if (response.data.hasValidationWarnings) {
+              if (response.data.warnings && response.data.warnings.length > 0) {
                 const warningMessages = response.data.warnings.map(w => `• ${w.message}`).join('\n\n');
                 Alert.alert(
                   "⚠️ Submitted with Warnings",
@@ -168,8 +192,8 @@ const DetailReportCIP = ({ navigation, route }) => {
   const isSubmitted = cipData?.status === 'Complete';
   const canEdit = isDraft || cipData?.status === 'Rejected';
 
-  const renderStepRow = (step) => (
-    <View key={step.id} style={styles.stepRow}>
+  const renderStepRow = (step, idx) => (
+    <View key={step.id ?? idx} style={styles.stepRow}>
       <Text style={styles.stepNumber}>{step.stepNumber}</Text>
       <View style={styles.stepContent}>
         <Text style={styles.stepName}>{step.stepName}</Text>
@@ -203,8 +227,8 @@ const DetailReportCIP = ({ navigation, route }) => {
     </View>
   );
 
-  const renderCOPRow = (cop) => (
-    <View key={cop.id} style={styles.copRow}>
+  const renderCOPRow = (cop, idx) => (
+    <View key={cop.id ?? idx} style={styles.copRow}>
       <View style={styles.copHeader}>
         <Text style={styles.copType}>{cop.stepType}</Text>
         <Text style={styles.copTime}>
@@ -218,33 +242,16 @@ const DetailReportCIP = ({ navigation, route }) => {
             {cop.tempActual || '-'}°C ({cop.tempMin || '-'}-{cop.tempMax || '-'}°C)
           </Text>
         </View>
-        {cop.time67Min && (
-          <View style={styles.copItem}>
-            <Text style={styles.copLabel}>67 min:</Text>
-            <Text style={styles.copValue}>{cop.time67Min}</Text>
-          </View>
-        )}
-        {cop.time45Min && (
-          <View style={styles.copItem}>
-            <Text style={styles.copLabel}>45 min:</Text>
-            <Text style={styles.copValue}>{cop.time45Min}</Text>
-          </View>
-        )}
-        {cop.time60Min && (
-          <View style={styles.copItem}>
-            <Text style={styles.copLabel}>60 min:</Text>
-            <Text style={styles.copValue}>{cop.time60Min}</Text>
-          </View>
-        )}
-      </View>
-      <View style={styles.copFooter}>
-        <Text style={styles.copFooterText}>Kode: {cop.kode || '-'}</Text>
+        <View style={styles.copItem}>
+          <Text style={styles.copLabel}>Time:</Text>
+          <Text style={styles.copValue}>{cop.time || '-'} min</Text>
+        </View>
       </View>
     </View>
   );
 
-  const renderSpecialRow = (record) => (
-    <View key={record.id} style={styles.specialRow}>
+  const renderSpecialRow = (record, idx) => (
+    <View key={record.id ?? idx} style={styles.specialRow}>
       <View style={styles.specialHeader}>
         <Text style={styles.specialType}>{record.stepType}</Text>
         <Text style={styles.specialTime}>
@@ -258,7 +265,7 @@ const DetailReportCIP = ({ navigation, route }) => {
             <View style={styles.specialItem}>
               <Text style={styles.specialLabel}>Temp:</Text>
               <Text style={styles.specialValue}>
-                {record.tempActual || '-'}°C ({record.tempMin || '-'}-{record.tempMax || '-'}°C)
+                {record.tempActual || '-'}°C ({record.tempMin || '118'}-{record.tempMax || '125'}°C)
               </Text>
             </View>
             <View style={styles.specialItem}>
@@ -287,7 +294,7 @@ const DetailReportCIP = ({ navigation, route }) => {
             <View style={styles.specialItem}>
               <Text style={styles.specialLabel}>Conc:</Text>
               <Text style={styles.specialValue}>
-                {record.concActual || '-'}% ({record.concMin || '-'}-{record.concMax || '-'}%)
+                {record.concActual || '-'}% ({record.concMin || '0.3'}-{record.concMax || '0.5'}%)
               </Text>
             </View>
             <View style={styles.specialItem}>
@@ -298,27 +305,39 @@ const DetailReportCIP = ({ navigation, route }) => {
               <Text style={styles.specialLabel}>Temp:</Text>
               <Text style={styles.specialValue}>
                 {record.tempActual || '-'}°C
-                {cipData.line === 'LINE D' ?
-                  ` (${record.tempDMin || '-'}-${record.tempDMax || '-'}°C)` :
-                  ` (${record.tempBC || '-'}°C)`
+                {cipData?.line === 'LINE D'
+                  ? ` (${record.tempDMin || '20'}-${record.tempDMax || '35'}°C)`
+                  : ` (${record.tempBC || '40'}°C)`
                 }
               </Text>
             </View>
           </>
         )}
       </View>
-      <View style={styles.specialFooter}>
-        <Text style={styles.specialFooterText}>Kode: {record.kode || '-'}</Text>
-      </View>
     </View>
   );
+
+  // Helper to get flow rate display
+  const getFlowRateDisplay = () => {
+    if (!cipData) return '-';
+    if (cipData.line === 'LINE A') {
+      return `${cipData.flowRate || '-'} L/H (min: 12000 L/H)`;
+    }
+
+    if (cipData.line === 'LINE D') {
+      return `${cipData.flowRateD || '-'} L/H (min: 6000 L/H)`;
+    }
+
+    // LINE B / C
+    return `${cipData.flowRateBC || '-'} L/H (min: 9000 L/H)`;
+  };
 
   if (isLoading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={COLORS.green} />
-          <Text style={styles.loadingText}>Loading CIP details...</Text>
+          <ActivityIndicator size="large" color={COLORS.blue} />
+          <Text style={styles.loadingText}>Loading CIP Report...</Text>
         </View>
       </SafeAreaView>
     );
@@ -328,7 +347,8 @@ const DetailReportCIP = ({ navigation, route }) => {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>CIP report not found</Text>
+          <Icon name="error-outline" size={64} color={COLORS.red} />
+          <Text style={styles.errorText}>CIP Report not found</Text>
           <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
             <Text style={styles.backButtonText}>Go Back</Text>
           </TouchableOpacity>
@@ -337,67 +357,86 @@ const DetailReportCIP = ({ navigation, route }) => {
     );
   }
 
+  const isLineA = cipData.line === 'LINE A';
+  const isLineBCD = ['LINE B', 'LINE C', 'LINE D'].includes(cipData.line);
+  const valvePos = (() => {
+    try {
+      return typeof cipData?.valvePositions === "string"
+        ? JSON.parse(cipData.valvePositions)
+        : cipData?.valvePositions;
+    } catch {
+      return null;
+    }
+  })();
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Icon name="arrow-back" size={24} color={COLORS.blue} />
-          </TouchableOpacity>
-          <Text style={styles.title}>CIP Report Detail</Text>
-          <View style={styles.headerActions}>
-            {canEdit && (
-              <TouchableOpacity onPress={handleEdit} style={styles.iconButton}>
-                <Icon name="edit" size={24} color={COLORS.blue} />
-              </TouchableOpacity>
-            )}
-            {isDraft && (
-              <TouchableOpacity
-                onPress={handleSubmit}
-                style={[styles.iconButton, styles.submitButton]}
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? (
-                  <ActivityIndicator size={20} color="#fff" />
-                ) : (
-                  <Icon name="send" size={20} color="#fff" />
-                )}
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity onPress={handleDelete} style={styles.iconButton}>
-              <Icon name="delete" size={24} color={COLORS.red} />
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Icon name="arrow-back" size={24} color={COLORS.blue} />
+        </TouchableOpacity>
+        <Text style={styles.title}>CIP Report Detail</Text>
+        <View style={styles.headerActions}>
+          {canEdit && (
+            <TouchableOpacity style={styles.iconButton} onPress={handleEdit}>
+              <Icon name="edit" size={24} color={COLORS.blue} />
             </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Status Badge */}
-        <View style={styles.statusContainer}>
-          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(cipData.status) }]}>
-            <Icon name={getStatusIcon(cipData.status)} size={16} color="#fff" />
-            <Text style={styles.statusBadgeText}>{cipData.status}</Text>
-          </View>
-          {isDraft && (
-            <Text style={styles.draftNote}>
-              This is a draft report. You can edit it or submit it to finalize.
-            </Text>
           )}
-          {isSubmitted && cipData.submittedAt && (
-            <Text style={styles.submittedNote}>
-              Submitted on {moment(cipData.submittedAt).format("DD/MM/YYYY HH:mm")}
-            </Text>
-          )}
+          <TouchableOpacity style={styles.iconButton} onPress={handleDelete}>
+            <Icon name="delete" size={24} color={COLORS.red} />
+          </TouchableOpacity>
         </View>
+      </View>
 
+      {/* Status Badge */}
+      <View style={styles.statusContainer}>
+        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(cipData.status) }]}>
+          <Icon name={getStatusIcon(cipData.status)} size={18} color="#fff" />
+          <Text style={styles.statusBadgeText}>{cipData.status}</Text>
+        </View>
+        {isDraft && (
+          <Text style={styles.draftNote}>This is a draft. Complete and submit when ready.</Text>
+        )}
+        {isSubmitted && (
+          <Text style={styles.submittedNote}>Report has been submitted.</Text>
+        )}
+      </View>
+
+      {/* Action Buttons */}
+      {isDraft && (
+        <View style={styles.actionButtonsContainer}>
+          <TouchableOpacity style={styles.editButton} onPress={handleEdit}>
+            <Icon name="edit" size={20} color="#fff" />
+            <Text style={styles.buttonText}>Edit</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.submitButtonLarge}
+            onPress={handleSubmit}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Icon name="send" size={20} color="#fff" />
+                <Text style={styles.buttonText}>Submit</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
+
+      <ScrollView showsVerticalScrollIndicator={false}>
         {/* Main Info */}
         <View style={styles.mainInfo}>
           <View style={styles.infoRow}>
-            <Text style={styles.label}>Process Order:</Text>
-            <Text style={styles.value}>{cipData.processOrder}</Text>
+            <Text style={styles.label}>Date:</Text>
+            <Text style={styles.value}>{moment(cipData.date).format("DD MMMM YYYY")}</Text>
           </View>
           <View style={styles.infoRow}>
-            <Text style={styles.label}>Date:</Text>
-            <Text style={styles.value}>{moment(cipData.date).format("DD/MM/YYYY")}</Text>
+            <Text style={styles.label}>Process Order:</Text>
+            <Text style={styles.value}>{cipData.processOrder || cipData.process_order || '-'}</Text>
           </View>
           <View style={styles.infoRow}>
             <Text style={styles.label}>Plant:</Text>
@@ -409,7 +448,7 @@ const DetailReportCIP = ({ navigation, route }) => {
           </View>
           <View style={styles.infoRow}>
             <Text style={styles.label}>CIP Type:</Text>
-            <Text style={styles.value}>{cipData.cipType}</Text>
+            <Text style={styles.value}>{cipData.cipType || cipData.cip_type || '-'}</Text>
           </View>
           <View style={styles.infoRow}>
             <Text style={styles.label}>Operator:</Text>
@@ -419,117 +458,78 @@ const DetailReportCIP = ({ navigation, route }) => {
             <Text style={styles.label}>Posisi:</Text>
             <Text style={styles.value}>{cipData.posisi || '-'}</Text>
           </View>
-
-          {/* Flow Rate for LINE A */}
-          {cipData.line === 'LINE A' && (
-            <View style={styles.infoRow}>
-              <Text style={styles.label}>Flow Rate:</Text>
-              <Text style={styles.value}>{cipData.flowRate || '-'} L/hr</Text>
-            </View>
-          )}
-
-          {/* Flow Rates for LINE B/C/D */}
-          {(cipData.line === 'LINE B' || cipData.line === 'LINE C') && cipData.flowRateBC && (
-            <View style={styles.infoRow}>
-              <Text style={styles.label}>Flow B,C:</Text>
-              <Text style={styles.value}>{cipData.flowRateBC} L/H</Text>
-            </View>
-          )}
-
-          {cipData.line === 'LINE D' && cipData.flowRateD && (
-            <View style={styles.infoRow}>
-              <Text style={styles.label}>Flow D:</Text>
-              <Text style={styles.value}>{cipData.flowRateD} L/H</Text>
-            </View>
-          )}
+          <View style={styles.infoRow}>
+            <Text style={styles.label}>Flow Rate:</Text>
+            <Text style={styles.value}>{getFlowRateDisplay()}</Text>
+          </View>
 
           {/* Valve Positions for LINE B/C/D */}
-          {(cipData.line === 'LINE B' || cipData.line === 'LINE C' || cipData.line === 'LINE D') && cipData.valvePositions && (
+          {isLineBCD && valvePos && (
             <View style={styles.valveSection}>
               <Text style={styles.label}>Valve Positions:</Text>
               <View style={styles.valveContainer}>
                 <Text style={styles.valveText}>
-                  A: {cipData.valvePositions.A ? 'Open' : 'Close'} |
-                  B: {cipData.valvePositions.B ? 'Open' : 'Close'} |
-                  C: {cipData.valvePositions.C ? 'Open' : 'Close'}
+                  A: {valvePos.A ? 'Open' : 'Close'} |
+                  B: {valvePos.B ? 'Open' : 'Close'} |
+                  C: {valvePos.C ? 'Open' : 'Close'}
                 </Text>
               </View>
             </View>
           )}
 
-          {/* Kode Operator & Teknisi */}
-          {(cipData.kodeOperator || cipData.kodeTeknisi) && (
-            <View style={styles.kodeContainer}>
-              <View style={styles.infoRow}>
-                <Text style={styles.label}>Kode Operator:</Text>
-                <Text style={styles.value}>{cipData.kodeOperator || '-'}</Text>
-              </View>
-              <View style={styles.infoRow}>
-                <Text style={styles.label}>Kode Teknisi:</Text>
-                <Text style={styles.value}>{cipData.kodeTeknisi || '-'}</Text>
-              </View>
-            </View>
-          )}
-
+          {/* Notes */}
           {cipData.notes && (
             <View style={styles.notesContainer}>
               <Text style={styles.label}>Notes:</Text>
               <Text style={styles.notes}>{cipData.notes}</Text>
             </View>
           )}
-        </View>
 
-        {/* Action Buttons for Draft */}
-        {isDraft && (
-          <View style={styles.actionButtonsContainer}>
-            <TouchableOpacity
-              style={styles.editButton}
-              onPress={handleEdit}
-            >
-              <Icon name="edit" size={20} color="#fff" />
-              <Text style={styles.buttonText}>Edit Draft</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.submitButtonLarge}
-              onPress={handleSubmit}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? (
-                <ActivityIndicator size={20} color="#fff" />
-              ) : (
-                <Icon name="send" size={20} color="#fff" />
-              )}
-              <Text style={styles.buttonText}>
-                {isSubmitting ? "Submitting..." : "Submit Report"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        )}
-
-        {/* CIP Steps */}
-        {cipData.steps && cipData.steps.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>CIP Steps</Text>
-            {cipData.steps.map(renderStepRow)}
-          </View>
-        )}
-
-        {/* COP/SOP/SIP Records for LINE A */}
-        {cipData.line === 'LINE A' && cipData.copRecords && cipData.copRecords.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>COP/SOP/SIP Records</Text>
-            {cipData.copRecords.map(renderCOPRow)}
-          </View>
-        )}
-
-        {/* Special Records for LINE B/C/D */}
-        {(cipData.line === 'LINE B' || cipData.line === 'LINE C' || cipData.line === 'LINE D') &&
-          cipData.specialRecords && cipData.specialRecords.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>DRYING, FOAMING, DISINFECT/SANITASI Records</Text>
-              {cipData.specialRecords.map(renderSpecialRow)}
+          {/* Created By */}
+          {cipData.createdBy && (
+            <View style={styles.infoRow}>
+              <Text style={styles.label}>Created By:</Text>
+              <Text style={styles.value}>{cipData.createdBy}</Text>
             </View>
           )}
+        </View>
+
+        {/* CIP Steps */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>CIP Steps</Text>
+          {cipData.steps && cipData.steps.length > 0 ? (
+            cipData.steps.map((step, idx) => renderStepRow(step, idx))
+          ) : (
+            <Text style={styles.emptyText}>No CIP steps recorded</Text>
+          )}
+        </View>
+
+        {/* LINE A: COP/SOP/SIP Records */}
+        {isLineA && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>COP / SOP / SIP Records</Text>
+            {cipData.copRecords && cipData.copRecords.length > 0 ? (
+              cipData.copRecords.map((cop, idx) => renderCOPRow(cop, idx))
+            ) : (
+              <Text style={styles.emptyText}>No COP/SOP/SIP records</Text>
+            )}
+          </View>
+        )}
+
+        {/* LINE B/C/D: Special Records */}
+        {isLineBCD && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Special Records (DRYING/FOAMING/DISINFECT)</Text>
+            {cipData.specialRecords && cipData.specialRecords.length > 0 ? (
+              cipData.specialRecords.map((record, idx) => renderSpecialRow(record, idx))
+            ) : (
+              <Text style={styles.emptyText}>No special records</Text>
+            )}
+          </View>
+        )}
+
+        {/* Spacer */}
+        <View style={{ height: 40 }} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -554,21 +554,24 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    padding: 32,
   },
   errorText: {
     fontSize: 18,
-    color: COLORS.red,
-    marginBottom: 20,
+    color: COLORS.darkGray,
+    marginTop: 16,
+    marginBottom: 24,
   },
   backButton: {
     backgroundColor: COLORS.blue,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
     borderRadius: 8,
   },
   backButtonText: {
     color: "#fff",
-    fontWeight: "bold",
+    fontSize: 16,
+    fontWeight: "600",
   },
   header: {
     flexDirection: "row",
@@ -590,10 +593,6 @@ const styles = StyleSheet.create({
   iconButton: {
     marginLeft: 16,
     padding: 8,
-  },
-  submitButton: {
-    backgroundColor: COLORS.green,
-    borderRadius: 20,
   },
   statusContainer: {
     alignItems: "center",
@@ -691,12 +690,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: COLORS.black,
   },
-  kodeContainer: {
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: "#e0e0e0",
-  },
   notesContainer: {
     marginTop: 8,
     paddingTop: 8,
@@ -717,6 +710,13 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: COLORS.blue,
     marginBottom: 12,
+  },
+  emptyText: {
+    fontSize: 14,
+    color: COLORS.gray,
+    fontStyle: "italic",
+    textAlign: "center",
+    padding: 16,
   },
   stepRow: {
     flexDirection: "row",
@@ -804,16 +804,6 @@ const styles = StyleSheet.create({
     color: COLORS.black,
     fontWeight: "500",
   },
-  copFooter: {
-    borderTopWidth: 1,
-    borderTopColor: "#e0e0e0",
-    paddingTop: 8,
-  },
-  copFooterText: {
-    fontSize: 12,
-    color: COLORS.darkGray,
-    marginBottom: 2,
-  },
   specialRow: {
     backgroundColor: "#f9f9f9",
     padding: 12,
@@ -860,16 +850,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.gray,
     fontStyle: "italic",
-  },
-  specialFooter: {
-    borderTopWidth: 1,
-    borderTopColor: "#e0e0e0",
-    paddingTop: 8,
-  },
-  specialFooterText: {
-    fontSize: 12,
-    color: COLORS.darkGray,
-    marginBottom: 2,
   },
 });
 
