@@ -24,7 +24,7 @@ import ReportCIPInspectionTable from "../../components/package/filler/ReportCIPI
 const getEditStorageKey = (reportId) => `cip_edit_form_${reportId}`;
 
 const EditCIP = ({ navigation, route }) => {
-  const { cipData: existingCipData } = route.params;
+  const { cipData: existingCipData, onGoBack } = route.params;
   const [loading, setLoading] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [userProfile, setUserProfile] = useState(null);
@@ -140,7 +140,7 @@ const EditCIP = ({ navigation, route }) => {
       }
     }
 
-    console.log("[EditCIP] Initial flowRate:", flowRateValue, "for line:", line);
+    console.log("Initial flowRate:", flowRateValue, "for line:", line);
 
     return {
       id: existingCipData.id,
@@ -201,7 +201,7 @@ const EditCIP = ({ navigation, route }) => {
           }
         }
 
-        console.log("[EditCIP] Loaded edits with flowRate:", flowRateValue, "for line:", line);
+        console.log("Loaded edits with flowRate:", flowRateValue, "for line:", line);
 
         setFormData({
           ...getInitialFormData(),
@@ -245,7 +245,7 @@ const EditCIP = ({ navigation, route }) => {
         }
       }
 
-      console.log("[EditCIP] Saving edits:", {
+      console.log("Saving edits:", {
         line: data.line,
         flowRate: data.flowRate,
         flowRates: toSave.flowRates,
@@ -432,7 +432,7 @@ const EditCIP = ({ navigation, route }) => {
       // Get flowRate value from table data
       const flowRateActual = cipTableData.flowRate?.flowRateActual ?? null;
 
-      console.log("[EditCIP] Updating with:", {
+      console.log("Updating with:", {
         line: formData.line,
         flowRateActual,
         isDraft
@@ -505,10 +505,27 @@ const EditCIP = ({ navigation, route }) => {
       if (response.data.success || response.data.data) {
         await clearEdits();
 
+        console.log("Update successful, status:", isDraft ? "Draft" : "Complete");
+
+        // Selalu kembali ke DetailReportCIP dengan data fresh
         Alert.alert(
           "Success",
-          isDraft ? "CIP report updated as draft" : "CIP report updated successfully",
-          [{ text: "OK", onPress: () => navigation.goBack() }]
+          isDraft
+            ? "CIP report updated and saved as draft"
+            : "CIP report updated successfully!",
+          [
+            {
+              text: "OK",
+              onPress: () => {
+                // Replace screen dengan DetailReportCIP (bukan goBack)
+                navigation.replace("DetailReportCIP", {
+                  cipReportId: formData.id,
+                  refresh: true,
+                  timestamp: new Date().getTime()
+                });
+              }
+            }
+          ]
         );
       } else {
         Alert.alert("Error", response.data.message || "Failed to update CIP report");

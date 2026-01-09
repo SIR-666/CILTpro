@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   ActivityIndicator,
   ScrollView,
@@ -9,6 +9,7 @@ import {
   Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import moment from "moment";
 import { COLORS } from "../../constants/theme";
@@ -28,40 +29,35 @@ const DetailReportCIP = ({ navigation, route }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusList, setStatusList] = useState([]);
 
-  useEffect(() => {
-    fetchCIPDetail();
-    fetchStatusList();
-  }, [cipReportId]);
+  // Fetch data function dengan force refresh
+  const fetchCIPDetail = useCallback(async (showLoading = true) => {
+    if (showLoading) setIsLoading(true);
 
-  const fetchCIPDetail = async () => {
-    setIsLoading(true);
-    if (!cipReportId) {
-      Alert.alert("Error", "Invalid CIP id");
-      setIsLoading(false);
-      return;
-    }
     try {
-      const response = await api.get(`/cip-report/${cipReportId}`);
+      console.log("Fetching report ID:", cipReportId);
+
+      // Tambahkan timestamp untuk force fresh data
+      const response = await api.get(`/cip-report/${cipReportId}?t=${Date.now()}`);
       const raw = response.data;
 
-      // 🔑 NORMALISASI AGAR DETAIL = EDIT
+      console.log("Received data:", {
+        line: raw.line,
+        status: raw.status,
+        flowRate: raw.flowRate,
+        flowRateD: raw.flowRateD,
+        flowRateBC: raw.flowRateBC,
+      });
+
+      // Normalisasi data
       const normalized = {
         ...raw,
-
-        // steps
         steps: raw.steps || raw.cip_steps || [],
-
-        // records
         copRecords: raw.copRecords || raw.cop_records || [],
         specialRecords: raw.specialRecords || raw.special_records || [],
-
-        // valve
         valvePositions:
           typeof raw.valvePositions === "string"
             ? JSON.parse(raw.valvePositions)
             : raw.valvePositions || raw.valve_config || null,
-
-        // flow rate
         flowRate:
           raw.flowRate ??
           raw.flowRates?.flowBC ??
@@ -69,15 +65,18 @@ const DetailReportCIP = ({ navigation, route }) => {
           null,
       };
 
+      console.log("Data normalized, flowRate:", normalized.flowRate);
+
       setCipData(normalized);
       setIsLoading(false);
     } catch (error) {
-      console.error("Error fetching CIP detail:", error);
+      console.error("Error fetching detail:", error);
       setIsLoading(false);
       Alert.alert("Error", "Failed to load CIP report details");
     }
-  };
+  }, [cipReportId]);
 
+  // Fetch status list
   const fetchStatusList = async () => {
     try {
       const response = await api.get(`/cip-report/status/list`);
@@ -87,7 +86,36 @@ const DetailReportCIP = ({ navigation, route }) => {
     }
   };
 
+  // Initial load
+  useEffect(() => {
+    fetchCIPDetail();
+    fetchStatusList();
+  }, [fetchCIPDetail]);
+
+  // Auto-refresh setiap kali screen focus
+  useFocusEffect(
+    useCallback(() => {
+      console.log("Screen focused, refreshing data...");
+      fetchCIPDetail(false); // Refresh tanpa loading indicator
+      return () => {
+        console.log("Screen unfocused");
+      };
+    }, [fetchCIPDetail])
+  );
+
+  // Handle navigation params untuk force refresh
+  useEffect(() => {
+    const { refresh, timestamp } = route.params || {};
+    if (refresh || timestamp) {
+      console.log("Refresh triggered by params:", { refresh, timestamp });
+      fetchCIPDetail(false);
+    }
+  }, [route.params, fetchCIPDetail]);
+
   const handleEdit = () => {
+    console.log("Navigating to EditCIP");
+
+    // Navigate ke EditCIP dengan data lengkap
     navigation.navigate("EditCIP", {
       cipData: {
         ...cipData,
@@ -96,6 +124,8 @@ const DetailReportCIP = ({ navigation, route }) => {
         posisi: cipData.posisi,
         valvePositions: cipData.valvePositions,
         flowRate: cipData.flowRate,
+        flowRateD: cipData.flowRateD,
+        flowRateBC: cipData.flowRateBC,
         steps: cipData.steps,
         copRecords: cipData.copRecords,
         specialRecords: cipData.specialRecords,
@@ -115,6 +145,7 @@ const DetailReportCIP = ({ navigation, route }) => {
           onPress: async () => {
             setIsSubmitting(true);
             try {
+              console.log("Submitting report:", cipReportId);
               const response = await api.put(`/cip-report/${cipReportId}/submit`);
 
               if (response.data.warnings && response.data.warnings.length > 0) {
@@ -122,15 +153,29 @@ const DetailReportCIP = ({ navigation, route }) => {
                 Alert.alert(
                   "⚠️ Submitted with Warnings",
                   `Your report has been submitted with the following warnings:\n\n${warningMessages}\n\nPlease note these for future reference.`,
-                  [{ text: "OK", onPress: () => fetchCIPDetail() }]
+                  [
+                    {
+                      text: "OK",
+                      onPress: () => {
+                        console.log("Submit successful with warnings");
+                        fetchCIPDetail(); // Refresh data
+                      }
+                    }
+                  ]
                 );
               } else {
                 Alert.alert("Success", "CIP report submitted successfully", [
-                  { text: "OK", onPress: () => fetchCIPDetail() }
+                  {
+                    text: "OK",
+                    onPress: () => {
+                      console.log("Submit successful");
+                      fetchCIPDetail(); // Refresh data
+                    }
+                  }
                 ]);
               }
             } catch (error) {
-              console.error("Error submitting CIP report:", error);
+              console.error("Error submitting:", error);
               Alert.alert("Error", error.response?.data?.message || "Failed to submit CIP report");
             } finally {
               setIsSubmitting(false);
@@ -152,10 +197,19 @@ const DetailReportCIP = ({ navigation, route }) => {
           style: "destructive",
           onPress: async () => {
             try {
+              console.log("Deleting report:", cipReportId);
               await api.delete(`/cip-report/${cipReportId}`);
-              Alert.alert("Success", "CIP report deleted successfully");
-              navigation.goBack();
+              Alert.alert("Success", "CIP report deleted successfully", [
+                {
+                  text: "OK",
+                  onPress: () => {
+                    // Kembali ke list ReportCIP
+                    navigation.navigate("ReportCIP");
+                  }
+                }
+              ]);
             } catch (error) {
+              console.error("Error deleting:", error);
               Alert.alert("Error", "Failed to delete CIP report");
             }
           },
@@ -259,7 +313,6 @@ const DetailReportCIP = ({ navigation, route }) => {
         </Text>
       </View>
       <View style={styles.specialDetails}>
-        {/* DRYING */}
         {record.stepType === "DRYING" && (
           <>
             <View style={styles.specialItem}>
@@ -275,7 +328,6 @@ const DetailReportCIP = ({ navigation, route }) => {
           </>
         )}
 
-        {/* FOAMING */}
         {record.stepType === "FOAMING" && (
           <>
             <View style={styles.specialItem}>
@@ -288,7 +340,6 @@ const DetailReportCIP = ({ navigation, route }) => {
           </>
         )}
 
-        {/* DISINFECT/SANITASI */}
         {record.stepType === "DISINFECT/SANITASI" && (
           <>
             <View style={styles.specialItem}>
@@ -320,6 +371,14 @@ const DetailReportCIP = ({ navigation, route }) => {
   // Helper to get flow rate display
   const getFlowRateDisplay = () => {
     if (!cipData) return '-';
+
+    console.log("getFlowRateDisplay:", {
+      line: cipData.line,
+      flowRate: cipData.flowRate,
+      flowRateD: cipData.flowRateD,
+      flowRateBC: cipData.flowRateBC,
+    });
+
     if (cipData.line === 'LINE A') {
       return `${cipData.flowRate || '-'} L/H (min: 12000 L/H)`;
     }
@@ -349,8 +408,8 @@ const DetailReportCIP = ({ navigation, route }) => {
         <View style={styles.errorContainer}>
           <Icon name="error-outline" size={64} color={COLORS.red} />
           <Text style={styles.errorText}>CIP Report not found</Text>
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <Text style={styles.backButtonText}>Go Back</Text>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.navigate("ReportCIP")}>
+            <Text style={styles.backButtonText}>Go to Report List</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -373,7 +432,7 @@ const DetailReportCIP = ({ navigation, route }) => {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.navigate("ReportCIP")}>
           <Icon name="arrow-back" size={24} color={COLORS.blue} />
         </TouchableOpacity>
         <Text style={styles.title}>CIP Report Detail</Text>
@@ -535,322 +594,65 @@ const DetailReportCIP = ({ navigation, route }) => {
   );
 };
 
+// Styles
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: COLORS.darkGray,
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 32,
-  },
-  errorText: {
-    fontSize: 18,
-    color: COLORS.darkGray,
-    marginTop: 16,
-    marginBottom: 24,
-  },
-  backButton: {
-    backgroundColor: COLORS.blue,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  backButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e0e0e0",
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: COLORS.blue,
-  },
-  headerActions: {
-    flexDirection: "row",
-  },
-  iconButton: {
-    marginLeft: 16,
-    padding: 8,
-  },
-  statusContainer: {
-    alignItems: "center",
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-  },
-  statusBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginBottom: 8,
-  },
-  statusBadgeText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "bold",
-    marginLeft: 6,
-  },
-  draftNote: {
-    fontSize: 12,
-    color: COLORS.orange,
-    textAlign: "center",
-    fontStyle: "italic",
-  },
-  submittedNote: {
-    fontSize: 12,
-    color: COLORS.green,
-    textAlign: "center",
-    fontStyle: "italic",
-  },
-  actionButtonsContainer: {
-    flexDirection: "row",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    justifyContent: "space-between",
-  },
-  editButton: {
-    backgroundColor: COLORS.blue,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-    flex: 0.48,
-    justifyContent: "center",
-  },
-  submitButtonLarge: {
-    backgroundColor: COLORS.green,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-    flex: 0.48,
-    justifyContent: "center",
-  },
-  buttonText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "600",
-    marginLeft: 8,
-  },
-  mainInfo: {
-    padding: 16,
-    backgroundColor: "#f5f5f5",
-    margin: 16,
-    borderRadius: 8,
-  },
-  infoRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  label: {
-    fontSize: 14,
-    color: COLORS.darkGray,
-    fontWeight: "600",
-  },
-  value: {
-    fontSize: 14,
-    color: COLORS.black,
-  },
-  valveSection: {
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: "#e0e0e0",
-  },
-  valveContainer: {
-    marginTop: 4,
-  },
-  valveText: {
-    fontSize: 14,
-    color: COLORS.black,
-  },
-  notesContainer: {
-    marginTop: 8,
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: "#e0e0e0",
-  },
-  notes: {
-    fontSize: 14,
-    color: COLORS.black,
-    marginTop: 4,
-    lineHeight: 20,
-  },
-  section: {
-    margin: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: COLORS.blue,
-    marginBottom: 12,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: COLORS.gray,
-    fontStyle: "italic",
-    textAlign: "center",
-    padding: 16,
-  },
-  stepRow: {
-    flexDirection: "row",
-    backgroundColor: "#f9f9f9",
-    padding: 12,
-    marginBottom: 8,
-    borderRadius: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: COLORS.green,
-  },
-  stepNumber: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: COLORS.blue,
-    marginRight: 12,
-    minWidth: 20,
-  },
-  stepContent: {
-    flex: 1,
-  },
-  stepName: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: COLORS.black,
-    marginBottom: 4,
-  },
-  stepDetails: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-  },
-  stepItem: {
-    flexDirection: "row",
-    marginRight: 16,
-    marginTop: 4,
-  },
-  stepLabel: {
-    fontSize: 12,
-    color: COLORS.darkGray,
-    marginRight: 4,
-  },
-  stepValue: {
-    fontSize: 12,
-    color: COLORS.black,
-    fontWeight: "500",
-  },
-  copRow: {
-    backgroundColor: "#f9f9f9",
-    padding: 12,
-    marginBottom: 8,
-    borderRadius: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: COLORS.orange,
-  },
-  copHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  copType: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: COLORS.blue,
-  },
-  copTime: {
-    fontSize: 14,
-    color: COLORS.darkGray,
-  },
-  copDetails: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginBottom: 8,
-  },
-  copItem: {
-    flexDirection: "row",
-    marginRight: 16,
-    marginBottom: 4,
-  },
-  copLabel: {
-    fontSize: 12,
-    color: COLORS.darkGray,
-    marginRight: 4,
-  },
-  copValue: {
-    fontSize: 12,
-    color: COLORS.black,
-    fontWeight: "500",
-  },
-  specialRow: {
-    backgroundColor: "#f9f9f9",
-    padding: 12,
-    marginBottom: 8,
-    borderRadius: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: COLORS.orange,
-  },
-  specialHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  specialType: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: COLORS.orange,
-  },
-  specialTime: {
-    fontSize: 14,
-    color: COLORS.darkGray,
-  },
-  specialDetails: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    marginBottom: 8,
-  },
-  specialItem: {
-    flexDirection: "row",
-    marginRight: 16,
-    marginBottom: 4,
-  },
-  specialLabel: {
-    fontSize: 12,
-    color: COLORS.darkGray,
-    marginRight: 4,
-  },
-  specialValue: {
-    fontSize: 12,
-    color: COLORS.black,
-    fontWeight: "500",
-  },
-  specialNote: {
-    fontSize: 12,
-    color: COLORS.gray,
-    fontStyle: "italic",
-  },
+  container: { flex: 1, backgroundColor: "#fff" },
+  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  loadingText: { marginTop: 16, fontSize: 16, color: COLORS.darkGray },
+  errorContainer: { flex: 1, justifyContent: "center", alignItems: "center", padding: 32 },
+  errorText: { fontSize: 18, color: COLORS.darkGray, marginTop: 16, marginBottom: 24 },
+  backButton: { backgroundColor: COLORS.blue, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
+  backButtonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: "#e0e0e0" },
+  title: { fontSize: 20, fontWeight: "bold", color: COLORS.blue },
+  headerActions: { flexDirection: "row" },
+  iconButton: { marginLeft: 16, padding: 8 },
+  statusContainer: { alignItems: "center", paddingVertical: 16, paddingHorizontal: 16 },
+  statusBadge: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, marginBottom: 8 },
+  statusBadgeText: { color: "#fff", fontSize: 14, fontWeight: "bold", marginLeft: 6 },
+  draftNote: { fontSize: 12, color: COLORS.orange, textAlign: "center", fontStyle: "italic" },
+  submittedNote: { fontSize: 12, color: COLORS.green, textAlign: "center", fontStyle: "italic" },
+  actionButtonsContainer: { flexDirection: "row", paddingHorizontal: 16, paddingVertical: 12, justifyContent: "space-between" },
+  editButton: { backgroundColor: COLORS.blue, flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 12, borderRadius: 8, flex: 0.48, justifyContent: "center" },
+  submitButtonLarge: { backgroundColor: COLORS.green, flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingVertical: 12, borderRadius: 8, flex: 0.48, justifyContent: "center" },
+  buttonText: { color: "#fff", fontSize: 14, fontWeight: "600", marginLeft: 8 },
+  mainInfo: { padding: 16, backgroundColor: "#f5f5f5", margin: 16, borderRadius: 8 },
+  infoRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
+  label: { fontSize: 14, color: COLORS.darkGray, fontWeight: "600" },
+  value: { fontSize: 14, color: COLORS.black },
+  valveSection: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: "#e0e0e0" },
+  valveContainer: { marginTop: 4 },
+  valveText: { fontSize: 14, color: COLORS.black },
+  notesContainer: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: "#e0e0e0" },
+  notes: { fontSize: 14, color: COLORS.black, marginTop: 4, lineHeight: 20 },
+  section: { margin: 16 },
+  sectionTitle: { fontSize: 18, fontWeight: "bold", color: COLORS.blue, marginBottom: 12 },
+  emptyText: { fontSize: 14, color: COLORS.gray, fontStyle: "italic", textAlign: "center", padding: 16 },
+  stepRow: { flexDirection: "row", backgroundColor: "#f9f9f9", padding: 12, marginBottom: 8, borderRadius: 8, borderLeftWidth: 3, borderLeftColor: COLORS.green },
+  stepNumber: { fontSize: 16, fontWeight: "bold", color: COLORS.blue, marginRight: 12, minWidth: 20 },
+  stepContent: { flex: 1 },
+  stepName: { fontSize: 16, fontWeight: "600", color: COLORS.black, marginBottom: 4 },
+  stepDetails: { flexDirection: "row", flexWrap: "wrap" },
+  stepItem: { flexDirection: "row", marginRight: 16, marginTop: 4 },
+  stepLabel: { fontSize: 12, color: COLORS.darkGray, marginRight: 4 },
+  stepValue: { fontSize: 12, color: COLORS.black, fontWeight: "500" },
+  copRow: { backgroundColor: "#f9f9f9", padding: 12, marginBottom: 8, borderRadius: 8, borderLeftWidth: 3, borderLeftColor: COLORS.orange },
+  copHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
+  copType: { fontSize: 16, fontWeight: "bold", color: COLORS.blue },
+  copTime: { fontSize: 14, color: COLORS.darkGray },
+  copDetails: { flexDirection: "row", flexWrap: "wrap", marginBottom: 8 },
+  copItem: { flexDirection: "row", marginRight: 16, marginBottom: 4 },
+  copLabel: { fontSize: 12, color: COLORS.darkGray, marginRight: 4 },
+  copValue: { fontSize: 12, color: COLORS.black, fontWeight: "500" },
+  specialRow: { backgroundColor: "#f9f9f9", padding: 12, marginBottom: 8, borderRadius: 8, borderLeftWidth: 3, borderLeftColor: COLORS.orange },
+  specialHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
+  specialType: { fontSize: 16, fontWeight: "bold", color: COLORS.orange },
+  specialTime: { fontSize: 14, color: COLORS.darkGray },
+  specialDetails: { flexDirection: "row", flexWrap: "wrap", marginBottom: 8 },
+  specialItem: { flexDirection: "row", marginRight: 16, marginBottom: 4 },
+  specialLabel: { fontSize: 12, color: COLORS.darkGray, marginRight: 4 },
+  specialValue: { fontSize: 12, color: COLORS.black, fontWeight: "500" },
+  specialNote: { fontSize: 12, color: COLORS.gray, fontStyle: "italic" },
 });
 
 export default DetailReportCIP;
