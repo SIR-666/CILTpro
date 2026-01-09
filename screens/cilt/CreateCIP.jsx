@@ -383,6 +383,9 @@ const CreateCIP = ({ navigation }) => {
       const response = await api.post("/cip-report", dataToSubmit);
 
       if (response.data.success || response.data.data) {
+        const createdReport = response.data.data;
+        const reportId = createdReport.id;
+
         // Clear server draft after successful save
         await api.delete("/cip-report/draft", {
           params: {
@@ -391,10 +394,25 @@ const CreateCIP = ({ navigation }) => {
           },
         });
 
+        // Redirect ke DetailReportCIP, BUKAN ke list ReportCIP
         Alert.alert(
           "Success",
-          isDraft ? "CIP report saved as draft" : "CIP report submitted successfully",
-          [{ text: "OK", onPress: () => navigation.goBack() }]
+          isDraft
+            ? "CIP report saved as draft. You can continue editing from detail page."
+            : "CIP report submitted successfully!",
+          [
+            {
+              text: "OK",
+              onPress: () => {
+                // Replace current screen dengan DetailReportCIP
+                navigation.replace("DetailReportCIP", {
+                  cipReportId: reportId,
+                  fromCreate: true,
+                  timestamp: new Date().getTime()
+                });
+              }
+            }
+          ]
         );
       } else {
         Alert.alert("Error", response.data.message || "Failed to save CIP report");
