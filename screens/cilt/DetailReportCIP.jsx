@@ -7,6 +7,7 @@ import {
   View,
   TouchableOpacity,
   Alert,
+  BackHandler,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
@@ -112,11 +113,28 @@ const DetailReportCIP = ({ navigation, route }) => {
     }
   }, [route.params, fetchCIPDetail]);
 
+  // Handle hardware back button
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        // Langsung ke ReportCIP, reset navigation stack
+        navigation.navigate("ReportCIP");
+        return true; // Prevent default behavior
+      };
+
+      BackHandler.addEventListener("hardwareBackPress", onBackPress);
+
+      return () => {
+        BackHandler.removeEventListener("hardwareBackPress", onBackPress);
+      };
+    }, [navigation])
+  );
+
   const handleEdit = () => {
     console.log("Navigating to EditCIP");
 
-    // Navigate ke EditCIP dengan data lengkap
-    navigation.navigate("EditCIP", {
+    // Gunakan replace untuk menghindari stack navigation
+    navigation.replace("EditCIP", {
       cipData: {
         ...cipData,
         id: cipData.id,
@@ -216,6 +234,11 @@ const DetailReportCIP = ({ navigation, route }) => {
         },
       ]
     );
+  };
+
+  // Handle back button di header untuk selalu kembali ke ReportCIP
+  const handleBackPress = () => {
+    navigation.navigate("ReportCIP");
   };
 
   const getStatusColor = (status) => {
@@ -408,7 +431,7 @@ const DetailReportCIP = ({ navigation, route }) => {
         <View style={styles.errorContainer}>
           <Icon name="error-outline" size={64} color={COLORS.red} />
           <Text style={styles.errorText}>CIP Report not found</Text>
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.navigate("ReportCIP")}>
+          <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
             <Text style={styles.backButtonText}>Go to Report List</Text>
           </TouchableOpacity>
         </View>
@@ -430,9 +453,9 @@ const DetailReportCIP = ({ navigation, route }) => {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
+      {/* Header with handleBackPress*/}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.navigate("ReportCIP")}>
+        <TouchableOpacity onPress={handleBackPress}>
           <Icon name="arrow-back" size={24} color={COLORS.blue} />
         </TouchableOpacity>
         <Text style={styles.title}>CIP Report Detail</Text>
