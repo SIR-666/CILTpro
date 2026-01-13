@@ -112,7 +112,7 @@ const PressureCheckTable = ({ line, onTableDataChange }) => {
     load();
   }, [line]);
 
-  // ✅ FIX: Panggil callback ketika table berubah
+  // Panggil callback ketika table berubah
   useEffect(() => {
     if (table.length > 0 && params.length > 0) {
       const formattedData = params.map((p, idx) => ({
@@ -263,7 +263,7 @@ const ThirtyMinuteTable = ({ line, onTableDataChange }) => {
     load();
   }, [line]);
 
-  // ✅ FIX: Panggil callback ketika table berubah
+  // Panggil callback ketika table berubah
   useEffect(() => {
     if (table.length > 0 && params.length > 0) {
       const formattedData = params.map((p, idx) => ({
@@ -396,7 +396,7 @@ const ThirtyMinuteTable = ({ line, onTableDataChange }) => {
 const A3FlexInspectionTable = ({ 
   line = "LINE_E", 
   packageName, 
-  onDataChange,  // ✅ FIX: Terima callback dari parent
+  onDataChange,  // Terima callback dari parent
   initialData 
 }) => {
   const [tab, setTab] = useState("pressure");
@@ -405,7 +405,7 @@ const A3FlexInspectionTable = ({
 
   const isPressure = packageName === "PENGECEKAN PRESSURE";
 
-  // ✅ FIX: Callback untuk menerima data dari child tables
+  // Callback untuk menerima data dari child tables
   const handleTableDataChange = useCallback((data, type) => {
     if (type === "pressure") {
       setPressureData(data);
@@ -414,7 +414,7 @@ const A3FlexInspectionTable = ({
     }
   }, []);
 
-  // ✅ FIX: Gabungkan data dan kirim ke parent setiap kali berubah
+  // Gabungkan data dan kirim ke parent setiap kali berubah
   useEffect(() => {
     const combinedData = [
       {

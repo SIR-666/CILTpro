@@ -46,7 +46,7 @@ const esc = (s = "") =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 
-// === Color palette standar (pastel tapi kontras) ===
+// Color palette
 const COLOR_G = "#CFF5D0";
 const COLOR_N = "#FFE9B0";
 const COLOR_R = "#F8C9CC";
@@ -98,7 +98,7 @@ const _stripTZ = (s) => String(s ?? "").replace(/([Zz]|[+-]\d{2}:?\d{2})$/, "");
 const parseWIBNaive = (ts) => {
   if (ts == null) return moment.invalid();
   if (typeof ts === "number") return moment(ts).tz("Asia/Jakarta");
-  const raw = _stripTZ(ts);
+  const raw = String(ts);
   const m = raw.match(/(\d{4}-\d{2}-\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?/);
   if (m) {
     const [, d, HH, MM, SS = "00"] = m;
@@ -230,30 +230,18 @@ const PACKAGE_CONFIG = {
   },
 
   // Artema Cardboard
-  "ARTEMA CARDBOARD": {
-    screen: "DetailLaporanArtemaCardboard",
-    htmlGenerator: htmlArtemaCardboard,
-  },
-  "ARTEMA SMS CARDBOARD": {
+  "LAPORAN ARTEMA & SMS CARDBOARD": {
     screen: "DetailLaporanArtemaCardboard",
     htmlGenerator: htmlArtemaCardboard,
   },
 
   // Frans Case Packer
-  "FRANS CASE PACKER": {
-    screen: "DetailLaporanFransCasePacker",
-    htmlGenerator: htmlFransCasePacker,
-  },
-  "FRANS WP 25 CASE PACKER": {
+  "LAPORAN FRANS WP 25 CASE": {
     screen: "DetailLaporanFransCasePacker",
     htmlGenerator: htmlFransCasePacker,
   },
 
   // Robot Palletizer
-  "ROBOT PALLETIZER": {
-    screen: "DetailLaporanRobotPalletizerFiller",
-    htmlGenerator: htmlRobotPalletizer,
-  },
   "ROBOT PALLETIZER FILLER": {
     screen: "DetailLaporanRobotPalletizerFiller",
     htmlGenerator: htmlRobotPalletizer,
@@ -1699,17 +1687,77 @@ const htmlByPackage = async (item) => {
   }
 };
 
+/* Package orientation mapping */
+const PACKAGE_ORIENTATIONS = {
+  // PORTRAIT packages (data tidak terlalu lebar)
+  "SEGREGASI": "portrait",
+  "PEMAKAIAN SCREW CAP": "portrait",
+  "PEMAKAIAN PAPER": "portrait",
+  "PENGECEKAN H2O2 ( SPRAY )": "portrait",
+  "CILTGIGR": "portrait",
+  "REPORT CIP": "portrait",
+  "LAPORAN ARTEMA & SMS CARDBOARD": "portrait",
+  "LAPORAN FRANS WP 25 CASE": "portrait",
+  "ROBOT PALLETIZER FILLER": "portrait",
+  "COMBI XG SLIM 24": "portrait",
+  "COMBI XG CHECK": "portrait",
+  "COMBI XG PRODUCT": "portrait",
+
+  // LANDSCAPE packages
+  "PERFORMA RED AND GREEN": "landscape",
+  "CHECKLIST CILT": "landscape",
+  "PENGECEKAN PRESSURE": "landscape",
+  "A3 FLEX PAGE 1": "landscape",
+  "A3 FLEX": "landscape",
+  "START FINISH PRODUKSI": "landscape",
+  "START & FINISH PRODUKSI": "landscape",
+};
+
+const getPackageOrientation = (packageType) => {
+  return PACKAGE_ORIENTATIONS[packageType] || "portrait"; // default portrait
+};
+
 /* Global CSS untuk PDF - base (tetap) */
 const globalPdfCss = `
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; font-size: 12px; }
-    @page { size: A4 landscape; margin: 12mm; }
+    @page { size: A4 portrait; margin: 12mm; }
     /* Matikan footer page counter supaya tidak tampil di kanan bawah */
     @page { @bottom-right { content: none; } }
     @media print { html, body { counter-reset: page 1; } }
     /* Biarkan counter tampil di sel FRM → Hal */
     .meta-value .page-xofn::after { content: counter(page) " dari " counter(pages); }
     .pkg-root { counter-reset: page 1; }
+
+    /* Section wrapper untuk orientation control */
+    .pkg-section[data-orientation="landscape"] {
+      page-break-before: always;
+    }
+    
+    .pkg-section[data-orientation="portrait"] {
+      page-break-before: always;
+    }
+    
+    /* Ensure sections respect their orientation */
+    @media print {
+      .pkg-section[data-orientation="landscape"] {
+        page: landscape-page;
+      }
+      
+      .pkg-section[data-orientation="portrait"] {
+        page: portrait-page;
+      }
+    }
+    
+    @page portrait-page {
+      size: A4 portrait;
+      margin: 12mm;
+    }
+    
+    @page landscape-page {
+      size: A4 landscape;
+      margin: 10mm;
+    }
     h1, h2 { color: #1d4ed8; margin: 15px 0 8px; text-align: center; }
     h3 { margin: 12px 0 6px; }
     .header-container { border: 2px solid #d7d7d7; border-radius: 8px; background: #fff; margin-bottom: 12px; overflow: hidden; page-break-after: avoid; }
@@ -1863,7 +1911,23 @@ const segregasiPdfStyles = `
 /* Checklist-specific styles */
 const checklistPdfStyles = `
   <style>
-  .checklist-section { page-break-inside: avoid; margin-bottom: 25px; }
+  /* Force landscape untuk CHECKLIST section */
+  .checklist-section { 
+    page-break-inside: avoid; 
+    margin-bottom: 25px; 
+  }
+  
+  /* Landscape page untuk CHECKLIST */
+  @media print {
+    .checklist-section {
+      page: landscape-page;
+    }
+  }
+  
+  @page landscape-page {
+    size: A4 landscape;
+    margin: 12mm;
+  }
 
   /* Detail Data super kecil */
   .checklist-report-info { background:#fff; padding:10px; margin-bottom:12px; border:1px solid #EAEAEA; border-radius:5px; }
@@ -2207,6 +2271,18 @@ const performaPdfStyles = `
     page-break-inside: avoid; 
     margin-bottom: 30px;
   }
+
+  /* Landscape page untuk PERFORMA */
+  @media print {
+    .performa-section {
+      page: landscape-page;
+    }
+  }
+  
+  @page landscape-page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
   
   /* Report info section matching DetailLaporanShiftly */
   .report-info { 
@@ -2248,24 +2324,24 @@ const performaPdfStyles = `
     border-collapse: collapse; 
     margin-top: 20px; 
     page-break-inside: auto;
-    table-layout: fixed; /* FIXED: Memastikan kolom width konsisten */
+    table-layout: fixed;
   }
   
   .performa-table th, 
   .performa-table td { 
     border: 1px solid black; 
     padding: 8px; 
-    text-align: center; /* FIXED: Default center untuk semua cell */
+    text-align: center;
     word-wrap: break-word; 
     font-size: 12px;
-    vertical-align: middle; /* FIXED: Align vertikal tengah */
+    vertical-align: middle;
   }
   
   .performa-table th { 
     background-color: #3bcd6b; 
     color: white; 
     font-weight: bold; 
-    text-align: center !important; /* FIXED: Center align header text */
+    text-align: center !important;
   }
   
   /* Column width specifications matching DetailLaporanShiftly */
@@ -2288,10 +2364,10 @@ const performaPdfStyles = `
   .col-shift { 
     text-align: center !important;
     font-weight: bold !important;
-    padding: 4px !important; /* FIXED: Padding konsisten */
+    padding: 4px !important;
   }
   
-  /* Actual time row styling - FIXED */
+  /* Actual time row styling */
   .performa-table thead tr:first-child td {
     background-color: #f8f9fa !important;
     font-weight: bold !important;
@@ -2301,7 +2377,7 @@ const performaPdfStyles = `
     border: 1px solid black !important;
   }
   
-  /* Header row styling - FIXED */
+  /* Header row styling */
   .performa-table thead tr:last-child th {
     background-color: #3bcd6b !important;
     color: white !important;
@@ -2362,7 +2438,260 @@ const performaPdfStyles = `
   </style>
 `;
 
-const updatedGlobalPdfCssWithAll = globalPdfCss + segregasiPdfStyles + checklistPdfStyles + cipPdfStyles + performaPdfStyles;
+const artemaFransPdfStyles = `
+  <style>
+  /* ARTEMA SECTION STYLES - PORTRAIT OPTIMIZED */
+  .artema-section {
+    page-break-before: always;
+    page-break-inside: avoid;
+    margin-bottom: 25px;
+  }
+  
+  .artema-section .section-title {
+    font-weight: bold;
+    background-color: #d9f0e3;
+    padding: 12px 15px;
+    margin: 20px 0 12px 0;
+    border-radius: 6px;
+    color: #2f5d43;
+    font-size: 14px;
+    text-align: center;
+    border: 1px solid #b8d4c2;
+  }
+  
+  .artema-section .section-note {
+    font-size: 12px;
+    color: #555;
+    margin: 10px 0;
+    font-style: italic;
+  }
+  
+  /* Data Table untuk Artema */
+  .artema-section .data-table {
+    width: 100%;
+    font-size: 12px;
+    border-collapse: collapse;
+    margin-bottom: 15px;
+  }
+  
+  .artema-section .data-table th,
+  .artema-section .data-table td {
+    border: 1px solid #bbb;
+    padding: 10px 12px;
+    text-align: center;
+    vertical-align: middle;
+  }
+  
+  .artema-section .data-table th {
+    background-color: #e7f2ed;
+    font-weight: 700;
+    color: #2f5d43;
+    font-size: 12px;
+  }
+  
+  /* Temperature Table */
+  .artema-section .temp-table th,
+  .artema-section .temp-table td {
+    border: 1px solid #bbb;
+    padding: 10px 8px;
+    text-align: center;
+    vertical-align: middle;
+    font-size: 12px;
+  }
+  
+  .artema-section .temp-header-label,
+  .artema-section .temp-header-jam {
+    background-color: #d7e9dd;
+    font-weight: 700;
+    color: #2f5d43;
+    font-size: 12px;
+  }
+  
+  .artema-section .temp-label {
+    font-weight: 700;
+    background-color: #f8faf9;
+    width: 80px;
+    text-align: center;
+  }
+  
+  .artema-section .temp-cell {
+    padding: 10px 8px;
+    min-width: 70px;
+    font-size: 12px;
+  }
+  
+  /* Info Table */
+  .artema-section .info-table th {
+    width: 140px;
+    text-align: left;
+    padding-left: 15px;
+    background-color: #e7f2ed;
+    font-size: 12px;
+  }
+  
+  .artema-section .info-table td {
+    text-align: left;
+    padding-left: 15px;
+    font-size: 12px;
+  }
+  
+  /* Glue Table */
+  .artema-section .glue-table th,
+  .artema-section .glue-table td {
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+  
+  /* Loss Table */
+  .artema-section .loss-table th,
+  .artema-section .loss-table td {
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+  
+  /* Problem Table */
+  .artema-section .problem-table th,
+  .artema-section .problem-table td {
+    padding: 10px 8px;
+    font-size: 12px;
+  }
+  
+  .artema-section .problem-table th:nth-child(4),
+  .artema-section .problem-table td:nth-child(4),
+  .artema-section .problem-table th:nth-child(5),
+  .artema-section .problem-table td:nth-child(5) {
+    text-align: left;
+    padding-left: 12px;
+    min-width: 150px;
+  }
+  
+  .artema-section .notes-box {
+    background-color: #f8f9fa;
+    padding: 14px;
+    border-radius: 6px;
+    border-left: 4px solid #2e7d32;
+    margin-top: 15px;
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  
+  .artema-section .general-info-table td {
+    border: 1px solid #ccc;
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+  
+  /* FRANS SECTION STYLES */
+  .frans-section {
+    page-break-before: always;
+    page-break-inside: avoid;
+    margin-bottom: 25px;
+  }
+  
+  .frans-section .section-title {
+    font-weight: bold;
+    background-color: #d9f0e3;
+    padding: 12px 15px;
+    margin: 20px 0 12px 0;
+    border-radius: 6px;
+    color: #2f5d43;
+    font-size: 14px;
+    text-align: center;
+    border: 1px solid #b8d4c2;
+  }
+  
+  .frans-section .data-table th,
+  .frans-section .data-table td {
+    border: 1px solid #bbb;
+    padding: 10px 12px;
+    text-align: center;
+    vertical-align: middle;
+    font-size: 12px;
+  }
+  
+  .frans-section .data-table th {
+    background-color: #e7f2ed;
+    font-weight: 700;
+    color: #2f5d43;
+    font-size: 12px;
+  }
+  
+  .frans-section .hose-table th,
+  .frans-section .hose-table td {
+    border: 1px solid #bbb;
+    padding: 10px 8px;
+    text-align: center;
+    font-size: 12px;
+  }
+  
+  .frans-section .hose-table th {
+    background-color: #d7e9dd;
+    font-weight: 700;
+    color: #2f5d43;
+  }
+  
+  .frans-section .info-table th {
+    width: 140px;
+    text-align: left;
+    padding-left: 15px;
+    background-color: #e7f2ed;
+    font-size: 12px;
+  }
+  
+  .frans-section .info-table td {
+    text-align: left;
+    padding-left: 15px;
+    font-size: 12px;
+  }
+  
+  .frans-section .glue-table th,
+  .frans-section .glue-table td {
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+  
+  .frans-section .nc-table th,
+  .frans-section .nc-table td {
+    padding: 10px 8px;
+    font-size: 12px;
+  }
+  
+  .frans-section .total-row {
+    background-color: #e7f2ed;
+    font-weight: 700;
+  }
+  
+  .frans-section .notes-box {
+    background-color: #f8f9fa;
+    padding: 14px;
+    border-radius: 6px;
+    border-left: 4px solid #2e7d32;
+    margin-top: 15px;
+    font-size: 12px;
+  }
+  
+  .frans-section .general-info-table td {
+    border: 1px solid #ccc;
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+  
+  /* Common utilities */
+  .text-left {
+    text-align: left !important;
+    padding-left: 12px !important;
+  }
+  
+  .no-data {
+    color: #999;
+    font-style: italic;
+    text-align: center;
+    padding: 15px;
+  }
+  </style>
+`;
+
+const updatedGlobalPdfCssWithAll = globalPdfCss + segregasiPdfStyles + checklistPdfStyles + cipPdfStyles + performaPdfStyles + artemaFransPdfStyles;
 
 /* =======================
  * Grouping CHECKLIST CILT 
@@ -2415,7 +2744,7 @@ const groupMonthlyChecklistCILT = (items) => {
 };
 
 /* =======================
- * ========== Grouping CHECKLIST CILT ==========
+ * Grouping CHECKLIST CILT 
  * ======================= */
 
 // Gabungkan semua item CHECKLIST CILT per (plant,line,machine,bulan)
@@ -2971,7 +3300,7 @@ const ListCILT = ({ navigation }) => {
         selectedPackage === "CHECKLIST CILT" && (selectedMonth || selectedYear)
           ? `_CILT_${selectedPlant || "ALL"}_${selectedLine || "ALL"}_${monthPart || (selectedYear || "")}`
           : "";
-      const pdfFileName = `Report${nameSuffix || "_Filtered"}.pdf`;
+      const pdfFileName = `Report${nameSuffix || "_CILTpro"}.pdf`;
       const { uri } = await Print.printToFileAsync({ html: htmlContent });
       const newUri = `${FileSystem.documentDirectory}${pdfFileName}`;
       await FileSystem.moveAsync({ from: uri, to: newUri });
@@ -3017,13 +3346,27 @@ const ListCILT = ({ navigation }) => {
 
       // Sort data according to package priority for this date
       const packageOrder = [
+        // ESL (FILLER + PACKER + ROBOT)
         "SEGREGASI",
-        "PEMAKAIAN SCREW CAP",
         "PEMAKAIAN PAPER",
+        "PEMAKAIAN SCREW CAP",
         "PENGECEKAN H2O2 ( SPRAY )",
         "PERFORMA RED AND GREEN",
         "CHECKLIST CILT",
+        "LAPORAN ARTEMA & SMS CARDBOARD",
+        "LAPORAN FRANS WP 25 CASE",
+        "ROBOT PALLETIZER FILLER",
         "CILTGIGR",
+
+        // UHT (FILLER)
+        "A3 / FLEX ( PAGE 1 )",
+        "PENGECEKAN PRESSURE",
+        "START FINISH PRODUKSI",
+        "START & FINISH",
+
+        // LINE H
+        "INFORMASI PRODUK",
+        "LAPORAN PRODUKSI MESIN",
       ];
 
       const sortedData = group.ciltData.sort((a, b) => {
@@ -3036,16 +3379,21 @@ const ListCILT = ({ navigation }) => {
 
       // Process each item for this date
       for (const item of sortedData) {
+        const orientation = getPackageOrientation(item.packageType);
         if (item.packageType === "PERFORMA RED AND GREEN") {
           const performaHtml = await htmlByPackage(item);
-          performaSections.push(performaHtml);
+          performaSections.push(`<div class="pkg-section" data-orientation="${orientation}">${performaHtml}</div>`);
         } else {
-          regularSections.push(await htmlByPackage(item));
+          const itemHtml = await htmlByPackage(item);
+          regularSections.push(`<div class="pkg-section" data-orientation="${orientation}">${itemHtml}</div>`);
         }
       }
 
       // Process CIP data for this date
-      const cipSections = await Promise.all(group.cipData.map((c) => htmlCIP(c)));
+      const cipSections = await Promise.all(group.cipData.map(async (c) => {
+        const cipHtml = await htmlCIP(c);
+        return `<div class="pkg-section" data-orientation="portrait">${cipHtml}</div>`;
+      }));
 
       // Combine all sections for this date
       const allSectionsForDate = [...regularSections, ...performaSections, ...cipSections];
@@ -3101,11 +3449,16 @@ const ListCILT = ({ navigation }) => {
   const filteredData = useMemo(() => {
     let baseFilter = rowsForTable.filter((item) => {
       const matchesSearch = item.processOrder?.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesDate = selectedDate
-        ? item.packageType === "CHECKLIST CILT"
-          ? moment(item.date).isSame(moment(selectedDate), "month")
-          : moment(item.date).isSame(moment(selectedDate), "day")
-        : true;
+      let matchesDate = true;
+      if (selectedDate) {
+        if (item.packageType === "CHECKLIST CILT") {
+          matchesDate = moment(item.date).isSame(moment(selectedDate), "month");
+        } else {
+          const itemDateUTC = moment.utc(item.date).format('YYYY-MM-DD');
+          const selectedDateUTC = moment(selectedDate).format('YYYY-MM-DD');
+          matchesDate = itemDateUTC === selectedDateUTC;
+        }
+      }
       const matchesPlant = selectedPlant ? item.plant === selectedPlant : true;
       const matchesLine = selectedLine ? item.line === selectedLine : true;
       const matchesPackage = selectedPackage ? item.packageType === selectedPackage : true;
@@ -3230,7 +3583,7 @@ const ListCILT = ({ navigation }) => {
           <View style={styles.statusBadgeContainer}>
             <View style={[styles.statusBadge, { backgroundColor: '#fffbeb', borderColor: '#f59e0b' }]}>
               <Icon name="pending" size={14} color="#f59e0b" />
-              <Text style={[styles.badgeText, { color: '#92400e' }]}>Awaiting Review</Text>
+              <Text style={[styles.badgeText, { color: '#92400e' }]}>Awaiting..</Text>
             </View>
           </View>
         );

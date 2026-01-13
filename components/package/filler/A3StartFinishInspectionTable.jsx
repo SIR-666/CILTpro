@@ -65,14 +65,14 @@ const DynamicTable = ({ columns, onRowsChange, initialRows }) => {
     return [createEmptyRow(), createEmptyRow()];
   });
 
-  // ✅ FIX: Load initial rows saat prop berubah
+  // Load initial rows saat prop berubah
   useEffect(() => {
     if (initialRows && initialRows.length > 0) {
       setRows(initialRows);
     }
   }, [initialRows]);
 
-  // ✅ FIX: Kirim data ke parent setiap kali rows berubah
+  // Kirim data ke parent setiap kali rows berubah
   useEffect(() => {
     onRowsChange?.(rows);
   }, [rows, onRowsChange]);
@@ -129,7 +129,7 @@ const A3StartFinishInspectionTable = ({
   plant,
   machine,
   packageName,
-  onDataChange,  // ✅ FIX: Menerima callback dari parent
+  onDataChange,  // Menerima callback dari parent
   initialData,
 }) => {
   const [tab, setTab] = useState("start");
@@ -154,7 +154,7 @@ const A3StartFinishInspectionTable = ({
     { key: "remarks", label: "Remarks" },
   ];
 
-  // ✅ FIX: Callbacks untuk menerima data dari DynamicTable
+  // Callbacks untuk menerima data dari DynamicTable
   const handleStartRowsChange = useCallback((rows) => {
     setStartRows(rows);
   }, []);
@@ -163,7 +163,7 @@ const A3StartFinishInspectionTable = ({
     setFinishRows(rows);
   }, []);
 
-  // ✅ FIX: Gabungkan dan kirim data ke parent setiap kali berubah
+  // Gabungkan dan kirim data ke parent setiap kali berubah
   useEffect(() => {
     const combinedData = [
       {
@@ -185,7 +185,7 @@ const A3StartFinishInspectionTable = ({
     onDataChange?.(combinedData);
   }, [startRows, finishRows, packageName, line, plant, machine, tab, onDataChange]);
 
-  // ✅ FIX: Load initial data jika ada
+  // Load initial data jika ada
   useEffect(() => {
     if (initialData && initialData.length > 0) {
       const initial = initialData[0];
