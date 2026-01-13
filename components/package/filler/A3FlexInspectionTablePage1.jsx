@@ -75,8 +75,8 @@ const A3FlexInspectionTablePage1 = ({
   plant,
   machine,
   packageName,
-  onDataChange,  // ✅ FIX: Menerima callback dari parent
-  initialData,   // ✅ FIX: Menerima initial data dari parent
+  onDataChange,
+  initialData,
 }) => {
 
   // Header / informasi produk
@@ -205,7 +205,7 @@ const A3FlexInspectionTablePage1 = ({
   const [totalStop, setTotalStop] = useState("");
   const [catatanAkhir, setCatatanAkhir] = useState("");
 
-  // ✅ FIX: Load initial data jika ada
+  // Load initial data jika ada
   useEffect(() => {
     if (initialData && initialData.length > 0) {
       const initial = initialData[0];
@@ -227,7 +227,7 @@ const A3FlexInspectionTablePage1 = ({
     }
   }, [initialData]);
 
-  // ✅ FIX: Kirim data ke parent setiap kali ada perubahan
+  // Kirim data ke parent setiap kali ada perubahan
   useEffect(() => {
     const combinedData = [
       {
