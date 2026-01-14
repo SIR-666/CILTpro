@@ -68,58 +68,58 @@ const Signin = ({ navigation }) => {
     ]);
   };
 
-  const login = async (values) => {
-    setLoader(true);
+  // const login = async (values) => {
+  //   setLoader(true);
 
-    try {
-      const data = values;
-      const response = await sqlApi.post("/login", data);
-      // console.log("response ", response);
-      if (response.status === 200) {
-        setLoader(false);
-        setResponseData(response.data);
-        await AsyncStorage.setItem(
-          "token",
-          JSON.stringify(response.data.token)
-        );
-        console.log("response.data.token ", response.data.token);
+  //   try {
+  //     const data = values;
+  //     const response = await sqlApi.post("/login", data);
+  //     // console.log("response ", response);
+  //     if (response.status === 200) {
+  //       setLoader(false);
+  //       setResponseData(response.data);
+  //       await AsyncStorage.setItem(
+  //         "token",
+  //         JSON.stringify(response.data.token)
+  //       );
+  //       console.log("response.data.token ", response.data.token);
 
-        await AsyncStorage.setItem("user", values.email);
-        navigation.replace("Bottom");
-      } else {
-        Alert.alert("Error Logging in ", "Please provide valid credentials ", [
-          {
-            text: "Cancel",
-            onPress: () => { },
-          },
-          {
-            text: "Continue",
-            onPress: () => { },
-          },
-          { defaultIndex: 1 },
-        ]);
-      }
-    } catch (error) {
-      console.log("the error ", error);
-      Alert.alert(
-        "Error ",
-        "Oops, Error logging in try again with correct credentials",
-        [
-          {
-            text: "Cancel",
-            onPress: () => { },
-          },
-          {
-            text: "Continue",
-            onPress: () => { },
-          },
-          { defaultIndex: 1 },
-        ]
-      );
-    } finally {
-      setLoader(false);
-    }
-  };
+  //       await AsyncStorage.setItem("user", values.email);
+  //       navigation.replace("Bottom");
+  //     } else {
+  //       Alert.alert("Error Logging in ", "Please provide valid credentials ", [
+  //         {
+  //           text: "Cancel",
+  //           onPress: () => { },
+  //         },
+  //         {
+  //           text: "Continue",
+  //           onPress: () => { },
+  //         },
+  //         { defaultIndex: 1 },
+  //       ]);
+  //     }
+  //   } catch (error) {
+  //     console.log("the error ", error);
+  //     Alert.alert(
+  //       "Error ",
+  //       "Oops, Error logging in try again with correct credentials",
+  //       [
+  //         {
+  //           text: "Cancel",
+  //           onPress: () => { },
+  //         },
+  //         {
+  //           text: "Continue",
+  //           onPress: () => { },
+  //         },
+  //         { defaultIndex: 1 },
+  //       ]
+  //     );
+  //   } finally {
+  //     setLoader(false);
+  //   }
+  // };
 
   const addUser = async (userData) => {
     try {
@@ -173,34 +173,72 @@ const Signin = ({ navigation }) => {
     }
   };
 
-  const handleStrapiSignIn = async (values) => {
-    try {
-      const res = await greatApi.post("/api/login", {
-        identifier: values.email, // Menggunakan email dari formik
-        password: values.password, // Menggunakan password dari formik
-      });
-      if (res.status == 200) {
-        const responseData = res.data; // Mengambil data JSON dari respons
-        await AsyncStorage.setItem("user", responseData.user.email);
-        await AsyncStorage.setItem("userData", responseData.user.role.id.toString());
-        await AsyncStorage.setItem("username", responseData.user.username);
+  // STRAPI OLD
+  // const handleStrapiSignIn = async (values) => {
+  //   try {
+  //     const res = await greatApi.post("/api/login", {
+  //       identifier: values.email, // Menggunakan email dari formik
+  //       password: values.password, // Menggunakan password dari formik
+  //     });
+  //     if (res.status == 200) {
+  //       const responseData = res.data; // Mengambil data JSON dari respons
+  //       await AsyncStorage.setItem("user", responseData.user.email);
+  //       await AsyncStorage.setItem("userData", responseData.user.role.id.toString());
+  //       await AsyncStorage.setItem("username", responseData.user.username);
 
-        const userData = {
-          email: responseData.user.email,
-          password: "null",
-          username: responseData.user.username,
-          profile: "user",
-          role: responseData.user.role.id,
-        };
-        // addUser(userData);
-        navigation.replace("Bottom");
-      } else {
-        console.error("Error during sign-in:", res.status);
-        Alert.alert("Login Error", "An error occurred during login.");
+  //       const userData = {
+  //         email: responseData.user.email,
+  //         password: "null",
+  //         username: responseData.user.username,
+  //         profile: "user",
+  //         role: responseData.user.role.id,
+  //       };
+  //       // addUser(userData);
+  //       navigation.replace("Bottom");
+  //     } else {
+  //       console.error("Error during sign-in:", res.status);
+  //       Alert.alert("Login Error", "An error occurred during login.");
+  //     }
+  //   } catch (error) {
+  //     console.error("Error during sign-in:", error);
+  //     Alert.alert("Login Error", "An error occurred during login.");
+  //   }
+  // };
+
+  // STRAPI NEW
+  const handleStrapiSignIn = async (values) => {
+    setLoader(true);
+    try {
+      const res = await greatApi.post("/auth/local", {
+        identifier: values.email,
+        password: values.password,
+      });
+
+      if (!res.data?.jwt || !res.data?.user) {
+        throw new Error("JWT / user tidak ada dari Strapi");
       }
+
+      const { jwt, user } = res.data;
+
+      await AsyncStorage.multiSet([
+        ["jwt", jwt],
+        ["user", user.email],
+        ["username", user.username],
+        ["userData", user.role?.id?.toString() || ""],
+      ]);
+
+      navigation.replace("Bottom");
     } catch (error) {
-      console.error("Error during sign-in:", error);
-      Alert.alert("Login Error", "An error occurred during login.");
+      console.error(
+        "STRAPI LOGIN ERROR:",
+        error.response?.data || error.message
+      );
+      Alert.alert(
+        "Login Error",
+        "Email / password salah atau Strapi tidak bisa diakses"
+      );
+    } finally {
+      setLoader(false);
     }
   };
 
@@ -222,7 +260,8 @@ const Signin = ({ navigation }) => {
         initialValues={{ email: "", password: "" }}
         validationSchema={validationSchema}
         onSubmit={(values) => {
-          login(values);
+          // fieldStrapi ? login(values) : handleStrapiSignIn(values);
+          handleStrapiSignIn(values);
         }}
       >
         {({
@@ -234,176 +273,178 @@ const Signin = ({ navigation }) => {
           isValid,
           setFieldTouched,
         }) => (
-          <View style={{ paddingTop: 30 }}>
-            <View style={styles.wrapper}>
-              <Text style={styles.label}>Email</Text>
-              <View>
-                <View
-                  style={styles.inputWrapper(
-                    touched.email ? COLORS.lightBlue : COLORS.lightGrey
-                  )}
-                >
-                  <MaterialCommunityIcons
-                    name="email-outline"
-                    size={20}
-                    color={COLORS.gray}
-                  />
-
-                  <WidthSpacer width={10} />
-
-                  <TextInput
-                    placeholder="Enter email"
-                    onFocus={() => {
-                      setFieldTouched("email");
-                    }}
-                    onBlur={() => {
-                      setFieldTouched("email", "");
-                    }}
-                    value={values.email}
-                    onChangeText={handleChange("email")}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={{ flex: 1 }}
-                  />
-                </View>
-                {touched.email && errors.email && (
-                  <Text style={styles.errorMessage}>{errors.email}</Text>
-                )}
-              </View>
-            </View>
-
-            <View style={styles.wrapper}>
-              <Text style={styles.label}>Password</Text>
-              <View>
-                <View
-                  style={styles.inputWrapper(
-                    touched.password ? COLORS.lightBlue : COLORS.lightGrey
-                  )}
-                >
-                  <MaterialCommunityIcons
-                    name="lock-outline"
-                    size={20}
-                    color={COLORS.gray}
-                  />
-
-                  <WidthSpacer width={10} />
-
-                  <TextInput
-                    secureTextEntry={obsecureText}
-                    placeholder="Enter password"
-                    onFocus={() => {
-                      setFieldTouched("password");
-                    }}
-                    onBlur={() => {
-                      setFieldTouched("password", "");
-                    }}
-                    value={values.password}
-                    onChangeText={handleChange("password")}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    style={{ flex: 1 }}
-                  />
-                  <TouchableOpacity
-                    onPress={() => {
-                      setObsecureText(!obsecureText);
-                    }}
+          <>
+            <View style={{ paddingTop: 30 }}>
+              <View style={styles.wrapper}>
+                <Text style={styles.label}>Email</Text>
+                <View>
+                  <View
+                    style={styles.inputWrapper(
+                      touched.email ? COLORS.lightBlue : COLORS.lightGrey
+                    )}
                   >
                     <MaterialCommunityIcons
-                      name={!obsecureText ? "eye-outline" : "eye-off-outline"}
-                      size={18}
+                      name="email-outline"
+                      size={20}
+                      color={COLORS.gray}
                     />
-                  </TouchableOpacity>
+
+                    <WidthSpacer width={10} />
+
+                    <TextInput
+                      placeholder="Enter email"
+                      onFocus={() => {
+                        setFieldTouched("email");
+                      }}
+                      onBlur={() => {
+                        setFieldTouched("email", "");
+                      }}
+                      value={values.email}
+                      onChangeText={handleChange("email")}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      style={{ flex: 1 }}
+                    />
+                  </View>
+                  {touched.email && errors.email && (
+                    <Text style={styles.errorMessage}>{errors.email}</Text>
+                  )}
                 </View>
-                {touched.password && errors.password && (
-                  <Text style={styles.errorMessage}>{errors.password}</Text>
+              </View>
+
+              <View style={styles.wrapper}>
+                <Text style={styles.label}>Password</Text>
+                <View>
+                  <View
+                    style={styles.inputWrapper(
+                      touched.password ? COLORS.lightBlue : COLORS.lightGrey
+                    )}
+                  >
+                    <MaterialCommunityIcons
+                      name="lock-outline"
+                      size={20}
+                      color={COLORS.gray}
+                    />
+
+                    <WidthSpacer width={10} />
+
+                    <TextInput
+                      secureTextEntry={obsecureText}
+                      placeholder="Enter password"
+                      onFocus={() => {
+                        setFieldTouched("password");
+                      }}
+                      onBlur={() => {
+                        setFieldTouched("password", "");
+                      }}
+                      value={values.password}
+                      onChangeText={handleChange("password")}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      style={{ flex: 1 }}
+                    />
+                    <TouchableOpacity
+                      onPress={() => {
+                        setObsecureText(!obsecureText);
+                      }}
+                    >
+                      <MaterialCommunityIcons
+                        name={!obsecureText ? "eye-outline" : "eye-off-outline"}
+                        size={18}
+                      />
+                    </TouchableOpacity>
+                  </View>
+                  {touched.password && errors.password && (
+                    <Text style={styles.errorMessage}>{errors.password}</Text>
+                  )}
+                </View>
+              </View>
+
+              <HeightSpacer height={20} />
+
+              <View style={reusable.rowWithSpace("space-between")}>
+                <AntDesign
+                  name="leftcircleo"
+                  size={45}
+                  color={COLORS.green}
+                  onPress={() => navigation.navigate("Onboard")}
+                // onPress={() => navigation.navigate("Bottom")}
+                // onPress={() => navigation.navigate("AuthTop")}
+                />
+
+                {fieldStrapi ? (
+                  <ReusableBtn
+                    onPress={isValid ? handleSubmit : errorLogin}
+                    btnText={"SIGN IN"}
+                    width={SIZES.width - 100}
+                    backgroundColor={COLORS.green}
+                    borderColor={COLORS.green}
+                    borderWidth={0}
+                    textColor={COLORS.white}
+                  />
+                ) : (
+                  <ReusableBtn
+                    onPress={
+                      isValid ? () => handleStrapiSignIn(values) : errorLogin
+                    }
+                    btnText={"SIGN IN WITH GREAT"}
+                    width={SIZES.width - 100}
+                    backgroundColor={COLORS.green}
+                    borderColor={COLORS.green}
+                    borderWidth={0}
+                    textColor={COLORS.white}
+                  />
+                )}
+              </View>
+
+              <View style={reusable.rowWithSpace("space-between")}>
+                {/* Start Sign In Google*/}
+                <TouchableOpacity onPress={googleSignIn}>
+                  <View style={styles.wrapperAuth}>
+                    <View>
+                      <View style={styles.inputWrapperAuth(COLORS.black)}>
+                        <Image
+                          source={require("../../assets/google-icon.png")}
+                          style={{ width: 25, height: 25 }}
+                        />
+                        <Text style={{ fontWeight: "bold" }}> o o g l e</Text>
+                      </View>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+                {/* end Sign In Google */}
+
+                {fieldStrapi ? (
+                  <TouchableOpacity onPress={defaultSignIn}>
+                    <View style={styles.wrapperAuth}>
+                      <View>
+                        <View style={styles.inputWrapperAuth(COLORS.black)}>
+                          <Text> Great</Text>
+                        </View>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity onPress={strapiSignIn}>
+                    <View style={styles.wrapperAuth}>
+                      <View>
+                        <View style={styles.inputWrapperAuth(COLORS.black)}>
+                          <AntDesign
+                            name="arrowleft"
+                            size={24}
+                            color={COLORS.black}
+                          />
+                          <Text style={{ fontWeight: "bold", marginLeft: 10 }}>
+                            Back
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
                 )}
               </View>
             </View>
-
-            <HeightSpacer height={20} />
-
-            <View style={reusable.rowWithSpace("space-between")}>
-              <AntDesign
-                name="leftcircleo"
-                size={45}
-                color={COLORS.green}
-                onPress={() => navigation.navigate("Onboard")}
-              // onPress={() => navigation.navigate("Bottom")}
-              // onPress={() => navigation.navigate("AuthTop")}
-              />
-
-              {fieldStrapi ? (
-                <ReusableBtn
-                  onPress={isValid ? handleSubmit : errorLogin}
-                  btnText={"SIGN IN"}
-                  width={SIZES.width - 100}
-                  backgroundColor={COLORS.green}
-                  borderColor={COLORS.green}
-                  borderWidth={0}
-                  textColor={COLORS.white}
-                />
-              ) : (
-                <ReusableBtn
-                  onPress={
-                    isValid ? () => handleStrapiSignIn(values) : errorLogin
-                  }
-                  btnText={"SIGN IN WITH GREAT"}
-                  width={SIZES.width - 100}
-                  backgroundColor={COLORS.green}
-                  borderColor={COLORS.green}
-                  borderWidth={0}
-                  textColor={COLORS.white}
-                />
-              )}
-            </View>
-
-            <View style={reusable.rowWithSpace("space-between")}>
-              {/* Start Sign In Google*/}
-              <TouchableOpacity onPress={googleSignIn}>
-                <View style={styles.wrapperAuth}>
-                  <View>
-                    <View style={styles.inputWrapperAuth(COLORS.black)}>
-                      <Image
-                        source={require("../../assets/google-icon.png")}
-                        style={{ width: 25, height: 25 }}
-                      />
-                      <Text style={{ fontWeight: "bold" }}> o o g l e</Text>
-                    </View>
-                  </View>
-                </View>
-              </TouchableOpacity>
-              {/* end Sign In Google */}
-
-              {fieldStrapi ? (
-                <TouchableOpacity onPress={defaultSignIn}>
-                  <View style={styles.wrapperAuth}>
-                    <View>
-                      <View style={styles.inputWrapperAuth(COLORS.black)}>
-                        <Text> Great</Text>
-                      </View>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              ) : (
-                <TouchableOpacity onPress={strapiSignIn}>
-                  <View style={styles.wrapperAuth}>
-                    <View>
-                      <View style={styles.inputWrapperAuth(COLORS.black)}>
-                        <AntDesign
-                          name="arrowleft"
-                          size={24}
-                          color={COLORS.black}
-                        />
-                        <Text style={{ fontWeight: "bold", marginLeft: 10 }}>
-                          Back
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-              )}
-            </View>
-          </View>
+          </>
         )}
       </Formik>
     </View>
