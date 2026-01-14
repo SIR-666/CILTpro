@@ -17,7 +17,8 @@ import { HeightSpacer } from "../../components";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Border, Color, FontSize } from "../../GlobalStyles";
 import checkUser from "../../hook/checkUser";
-import { sqlApi } from "../../utils/axiosInstance";
+// import { sqlApi } from "../../utils/axiosInstance";
+import { greatApi } from "../../utils/axiosInstance";
 
 const { width } = Dimensions.get("window");
 
@@ -63,11 +64,12 @@ const Home = ({ navigation }) => {
       console.log("userData :", userData);
 
       console.log("fetchUserData email", email);
-      console.log("fetchUserData fcmToken", fcmToken);
-      // console.log("profile", profile);
+      // console.log("fetchUserData fcmToken", fcmToken);
+      console.log("profile", profile);
 
-      const response1 = await sqlApi.get(`/getUser?email=${email}`);
+      // const response1 = await sqlApi.get(`/getUser?email=${email}`);
       // const response2 = await sqlApi.get(`/findIdByTokenFcm/${fcmToken}`);
+      const response1 = await greatApi.get("/users/me");
 
       // console.log("response1", response1);
       // console.log("response2", response2);
@@ -76,8 +78,9 @@ const Home = ({ navigation }) => {
         throw new Error("Network response was not ok");
       }
 
-      const data = await response1.data;
+      // const data = await response1.data;
       // const idToken = await response2.data;
+      const data = response1.data;
 
       console.log("data :", data);
       // console.log("idToken :", idToken);
@@ -89,8 +92,8 @@ const Home = ({ navigation }) => {
       // const response = await sqlApi.post("/greenTAGuserFcm", userData);
       // console.log("Response:", response.data);
 
-      setUsername(data.username);
-      setProfile(data.profile);
+      setUsername(data.username || "");
+      setProfile(data.role?.name || "");
     } catch (error) {
       console.error("Error:", error);
     }

@@ -2925,13 +2925,12 @@ const ListCILT = ({ navigation }) => {
         setUserRole(Number.isFinite(roleNum) ? roleNum : null);
       }
       try {
-        const client = sqlApi ?? api;
-        const response1 = await client.get(`/getUser`, { params: { email } });
-        const data = response1?.data || {};
+        const me = await greatApi.get("/users/me");
+        const data = me?.data || {};
         if (data?.username) setUsername(data.username);
-        if (data?.profile) setProfile(data.profile);
+        if (data?.role?.name) setProfile(data.role.name);
       } catch (e) {
-        console.warn("getUser fallback warning:", e?.message || e);
+        // console.warn("getUser fallback warning:", e?.message || e);
       }
     } catch (error) {
       console.error("Error fetching user data:", error);
@@ -2980,17 +2979,11 @@ const ListCILT = ({ navigation }) => {
 
   useEffect(() => {
     (async () => {
-      try { await fetchDataFromAPI(); }
-      catch (e) { console.warn("fetchDataFromAPI:", e?.message || e); }
-
       try { await fetchPlantOptions(); }
       catch (e) { console.warn("fetchPlantOptions:", e?.message || e); }
 
       try { await fetchPackageOptions(); }
       catch (e) { console.warn("fetchPackageOptions:", e?.message || e); }
-
-      try { await fetchAllLineOptions(); }
-      catch (e) { console.warn("fetchAllLineOptions:", e?.message || e); }
     })();
   }, []);
 
