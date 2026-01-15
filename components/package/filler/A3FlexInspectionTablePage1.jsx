@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -70,7 +70,7 @@ const Section = ({ title, children, defaultOpen = false }) => {
   );
 };
 
-const A3FlexInspectionTablePage1 = ({ 
+const A3FlexInspectionTablePage1 = ({
   line = "LINE_E",
   plant,
   machine,
@@ -204,6 +204,7 @@ const A3FlexInspectionTablePage1 = ({
 
   const [totalStop, setTotalStop] = useState("");
   const [catatanAkhir, setCatatanAkhir] = useState("");
+  const isInitialMount = useRef(true);
 
   // Load initial data jika ada
   useEffect(() => {
@@ -229,6 +230,10 @@ const A3FlexInspectionTablePage1 = ({
 
   // Kirim data ke parent setiap kali ada perubahan
   useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
     const combinedData = [
       {
         headerInfo,
@@ -238,18 +243,18 @@ const A3FlexInspectionTablePage1 = ({
         sampleOperator,
         cekLabelAlergen,
         mpmStripNote,
-        paperRows: paperRows.filter(row => 
+        paperRows: paperRows.filter(row =>
           Object.values(row).some(v => v && v.toString().trim() !== "")
         ),
         persiapanH2O2,
-        penambahanH2O2: penambahanH2O2.filter(row => 
+        penambahanH2O2: penambahanH2O2.filter(row =>
           Object.values(row).some(v => v && v.toString().trim() !== "")
         ),
-        mccpRows: mccpRows.filter(row => 
+        mccpRows: mccpRows.filter(row =>
           Object.values(row).some(v => v && v.toString().trim() !== "")
         ),
         checkKondisi,
-        ncRows: ncRows.filter(row => 
+        ncRows: ncRows.filter(row =>
           Object.values(row).some(v => v && v.toString().trim() !== "")
         ),
         totalStop,
@@ -260,13 +265,15 @@ const A3FlexInspectionTablePage1 = ({
         machine: machine,
       }
     ];
-    
-    onDataChange?.(combinedData);
+    const timer = setTimeout(() => {
+      onDataChange?.(combinedData);
+    }, 100);
+
+    return () => clearTimeout(timer);
   }, [
     headerInfo, persiapanProses, counterPack, inkubasiQC, sampleOperator,
     cekLabelAlergen, mpmStripNote, paperRows, persiapanH2O2, penambahanH2O2,
-    mccpRows, checkKondisi, ncRows, totalStop, catatanAkhir,
-    packageName, line, plant, machine, onDataChange
+    mccpRows, checkKondisi, ncRows, totalStop, catatanAkhir
   ]);
 
   /* HANDLER GENERIC */
@@ -584,6 +591,7 @@ const A3FlexInspectionTablePage1 = ({
                 style={styles.input}
                 value={counterPack.hourMeterStart}
                 onChangeText={(v) => updateCounterPack("hourMeterStart", v)}
+                keyboardType="numeric"
               />
             </View>
             <View style={styles.formGroup}>
@@ -592,6 +600,7 @@ const A3FlexInspectionTablePage1 = ({
                 style={styles.input}
                 value={counterPack.hourMeterStop}
                 onChangeText={(v) => updateCounterPack("hourMeterStop", v)}
+                keyboardType="numeric"
               />
             </View>
             <View style={styles.formGroup}>
@@ -600,6 +609,7 @@ const A3FlexInspectionTablePage1 = ({
                 style={styles.input}
                 value={counterPack.totalHourMeter}
                 onChangeText={(v) => updateCounterPack("totalHourMeter", v)}
+                keyboardType="numeric"
               />
             </View>
             <View style={styles.formGroup}>
