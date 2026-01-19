@@ -93,7 +93,7 @@ const Home = ({ navigation }) => {
       // console.log("Response:", response.data);
 
       setUsername(data.username || "");
-      setProfile(data.role?.name || "");
+      setProfile(data.role?.name === "Authenticated" ? "USER" : data.role?.name || "");
     } catch (error) {
       console.error("Error:", error);
     }

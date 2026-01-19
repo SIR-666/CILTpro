@@ -86,12 +86,7 @@ const Home = ({ navigation }) => {
     //   image: require("../../assets/pengaturan.png"),
     //   link: "Search",
     // },
-    {
-      id: 8,
-      title: "GREAT API",
-      image: require("../../assets/pengaturan.png"),
-      link: "GreatApiPage",
-    },
+
   ];
 
   const [options, setOptions] = useState(data);
@@ -137,7 +132,7 @@ const Home = ({ navigation }) => {
       // console.log("Response:", response.data);
 
       setUsername(data.username || "");
-      setProfile(data.role?.name || "");
+      setProfile(data.role?.name === "Authenticated" ? "USER" : data.role?.name || "");
     } catch (error) {
       console.error("Error:", error);
     }
