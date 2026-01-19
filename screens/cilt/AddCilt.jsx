@@ -1201,7 +1201,7 @@ const CILTinspection = ({ route, navigation }) => {
               )}
               {machine === "FILLER" && packageType === "PENGECEKAN PRESSURE" && (
                 <A3FlexInspectionTable
-                  key={`pressure-${processOrder}`}
+                  key={`pressure-${packageType}`}
                   plant={plant}
                   line={line}
                   machine={machine}

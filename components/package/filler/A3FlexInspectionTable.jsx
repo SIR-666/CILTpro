@@ -1,4 +1,4 @@
-import React, { useEffect, useState, memo, useCallback } from "react";
+import React, { useEffect, useState, memo, useCallback, useRef } from "react";
 import {
   ScrollView,
   View,
@@ -74,12 +74,16 @@ const validateValue = (value, param) => {
     const exact = parseFloat(param.exact_value);
     return numeric === exact ? "#4CAF50" : "#D32F2F";
   }
-
   return "#ccc";
 };
 
 /* TABLE 1 JAM */
-const PressureCheckTable = ({ line, onTableDataChange }) => {
+const PressureCheckTable = ({
+  line,
+  onTableDataChange,
+  tableState,
+  onTableStateChange
+}) => {
   const [params, setParams] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeSide, setActiveSide] = useState("left");
@@ -88,51 +92,84 @@ const PressureCheckTable = ({ line, onTableDataChange }) => {
   const hoursRight = [7, 8, 9, 10, 11, 12];
   const hours = activeSide === "left" ? hoursLeft : hoursRight;
 
-  const [table, setTable] = useState([]);
+  const [table, setTable] = useState(tableState || []);
+  const isSyncingFromParent = useRef(false);
 
   useEffect(() => {
+    if (tableState && !isSyncingFromParent.current) {
+      isSyncingFromParent.current = true;
+      setTable(tableState);
+    }
+  }, [tableState]);
+
+  useEffect(() => {
+    isSyncingFromParent.current = false;
+  }, [table]);
+
+  useEffect(() => {
+    let cancelled = false;
     const load = async () => {
+      setLoading(true);
       try {
         const res = await api.get(`/pressure-check?line=${line}`);
+        if (cancelled) return;
         setParams(res.data);
-
-        setTable(
-          res.data.map(() =>
-            Object.fromEntries(
-              [...hoursLeft, ...hoursRight].map((h) => [`jam${h}`, ""])
+        if (!tableState) {
+          setTable(
+            res.data.map(() =>
+              Object.fromEntries(
+                [...hoursLeft, ...hoursRight].map((h) => [`jam${h}`, ""])
+              )
             )
-          )
-        );
+          );
+        }
       } catch (e) {
         console.log("Fetch 1 Jam error:", e);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
     load();
+    return () => {
+      cancelled = true;
+    };
   }, [line]);
 
-  // Panggil callback ketika table berubah
+  const notifyParent = useCallback(() => {
+    if (
+      isSyncingFromParent.current ||
+      table.length === 0 ||
+      params.length === 0
+    ) return;
+
+    const formattedData = params.map((p, idx) => ({
+      parameter_name: p.parameter_name,
+      unit: p.unit,
+      value_type: p.value_type,
+      min_value: p.min_value,
+      max_value: p.max_value,
+      exact_value: p.exact_value,
+      values: table[idx] || {},
+      type: "pressure_1jam"
+    }));
+    onTableDataChange?.(formattedData, "1jam");
+  }, [table, params]);
+
   useEffect(() => {
-    if (table.length > 0 && params.length > 0) {
-      const formattedData = params.map((p, idx) => ({
-        parameter_name: p.parameter_name,
-        unit: p.unit,
-        value_type: p.value_type,
-        min_value: p.min_value,
-        max_value: p.max_value,
-        exact_value: p.exact_value,
-        values: table[idx] || {},
-        type: "pressure_1jam"
-      }));
-      onTableDataChange?.(formattedData, "pressure");
-    }
-  }, [table, params, onTableDataChange]);
+    if (isSyncingFromParent.current) return;
+    notifyParent();
+    onTableStateChange?.(table);
+  }, [table]);
 
   const updateValue = (row, col, val) => {
-    const updated = [...table];
-    updated[row][col] = val;
-    setTable(updated);
+    setTable(prev => {
+      const updated = [...prev];
+      if (!updated[row]) {
+        updated[row] = {};
+      }
+      updated[row][col] = val;
+      return updated;
+    });
   };
 
   if (loading) return <ActivityIndicator size="large" color="green" />;
@@ -219,7 +256,12 @@ const PressureCheckTable = ({ line, onTableDataChange }) => {
 };
 
 /* 30 MENIT */
-const ThirtyMinuteTable = ({ line, onTableDataChange }) => {
+const ThirtyMinuteTable = ({
+  line,
+  onTableDataChange,
+  tableState,
+  onTableStateChange
+}) => {
   const [params, setParams] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -236,24 +278,37 @@ const ThirtyMinuteTable = ({ line, onTableDataChange }) => {
   const [activeSide, setActiveSide] = useState("left");
   const packCols = activeSide === "left" ? packsLeft : packsRight;
 
-  const [table, setTable] = useState([]);
+  const [table, setTable] = useState(() => tableState || []);
+  const isSyncingFromParent = useRef(false);
+
+  useEffect(() => {
+    if (tableState && !isSyncingFromParent.current) {
+      isSyncingFromParent.current = true;
+      setTable(tableState);
+    }
+  }, [tableState]);
+
+  useEffect(() => {
+    isSyncingFromParent.current = false;
+  }, [table]);
 
   useEffect(() => {
     const load = async () => {
       try {
         const res = await api.get(`/pressure-check-30min?line=${line}`);
         setParams(res.data);
-
-        setTable(
-          res.data.map(() =>
-            Object.fromEntries(
-              [...packsLeft, ...packsRight].flatMap((c) => [
-                [c.keys[0], ""],
-                [c.keys[1], ""],
-              ])
+        if (!tableState) {
+          setTable(
+            res.data.map(() =>
+              Object.fromEntries(
+                [...packsLeft, ...packsRight].flatMap((c) => [
+                  [c.keys[0], ""],
+                  [c.keys[1], ""],
+                ])
+              )
             )
-          )
-        );
+          );
+        }
       } catch (e) {
         console.log("Fetch 30 menit error:", e);
       } finally {
@@ -263,27 +318,40 @@ const ThirtyMinuteTable = ({ line, onTableDataChange }) => {
     load();
   }, [line]);
 
-  // Panggil callback ketika table berubah
+  const notifyParent = useCallback(() => {
+    if (
+      isSyncingFromParent.current ||
+      table.length === 0 ||
+      params.length === 0
+    ) return;
+    const formattedData = params.map((p, idx) => ({
+      parameter_name: p.parameter_name,
+      unit: p.unit,
+      value_type: p.value_type,
+      min_value: p.min_value,
+      max_value: p.max_value,
+      exact_value: p.exact_value,
+      values: table[idx] || {},
+      type: "pressure_30min"
+    }));
+    onTableDataChange?.(formattedData, "30min");
+  }, [table, params]);
+
   useEffect(() => {
-    if (table.length > 0 && params.length > 0) {
-      const formattedData = params.map((p, idx) => ({
-        parameter_name: p.parameter_name,
-        unit: p.unit,
-        value_type: p.value_type,
-        min_value: p.min_value,
-        max_value: p.max_value,
-        exact_value: p.exact_value,
-        values: table[idx] || {},
-        type: "pressure_30min"
-      }));
-      onTableDataChange?.(formattedData, "30min");
-    }
-  }, [table, params, onTableDataChange]);
+    if (isSyncingFromParent.current) return;
+    notifyParent();
+    onTableStateChange?.(table);
+  }, [table]);
 
   const updateValue = (rowIdx, colKey, value) => {
-    const updated = [...table];
-    updated[rowIdx][colKey] = value;
-    setTable(updated);
+    setTable(prev => {
+      const updated = [...prev];
+      if (!updated[rowIdx]) {
+        updated[rowIdx] = {};
+      }
+      updated[rowIdx][colKey] = value;
+      return updated;
+    });
   };
 
   if (loading) return <ActivityIndicator size="large" color="green" />;
@@ -393,44 +461,38 @@ const ThirtyMinuteTable = ({ line, onTableDataChange }) => {
 };
 
 /* MAIN VIEW WRAPPER */
-const A3FlexInspectionTable = ({ 
-  line = "LINE_E", 
-  packageName, 
+const A3FlexInspectionTable = ({
+  line = "LINE_E",
+  packageName,
   onDataChange,  // Terima callback dari parent
-  initialData 
+  initialData
 }) => {
-  const [tab, setTab] = useState("pressure");
+  const [tab, setTab] = useState("1jam");
   const [pressureData, setPressureData] = useState([]);
   const [thirtyMinData, setThirtyMinData] = useState([]);
+  const tableCacheRef = useRef({});
+
+  const handleTableStateChange = useCallback((mode, tableState) => {
+    const key = `${line}_${mode}`;
+    tableCacheRef.current[key] = tableState;
+  }, [line]);
+
+  const getCachedTable = (mode) => {
+    const key = `${line}_${mode}`;
+    return tableCacheRef.current[key];
+  };
 
   const isPressure = packageName === "PENGECEKAN PRESSURE";
 
   // Callback untuk menerima data dari child tables
   const handleTableDataChange = useCallback((data, type) => {
-    if (type === "pressure") {
+    if (type === "1jam") {
       setPressureData(data);
     } else if (type === "30min") {
       setThirtyMinData(data);
     }
   }, []);
 
-  // Gabungkan data dan kirim ke parent setiap kali berubah
-  useEffect(() => {
-    const combinedData = [
-      {
-        pressureCheck1Jam: pressureData,
-        pressureCheck30Min: thirtyMinData,
-        packageType: packageName,
-        line: line,
-        activeTab: tab
-      }
-    ];
-    
-    // Panggil callback ke parent
-    onDataChange?.(combinedData);
-  }, [pressureData, thirtyMinData, packageName, line, tab, onDataChange]);
-
-  // Load initial data jika ada
   useEffect(() => {
     if (initialData && initialData.length > 0) {
       const initial = initialData[0];
@@ -442,6 +504,27 @@ const A3FlexInspectionTable = ({
       }
     }
   }, [initialData]);
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      const combinedData = [
+        {
+          pressureCheck1Jam: pressureData,
+          pressureCheck30Min: thirtyMinData,
+          packageType: packageName,
+          line: line,
+          activeTab: tab
+        }
+      ];
+
+      // Panggil callback ke parent
+      if (onDataChange) {
+        onDataChange(combinedData);
+      }
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [pressureData, thirtyMinData, packageName, line, tab]);
 
   if (!isPressure) {
     return (
@@ -463,19 +546,19 @@ const A3FlexInspectionTable = ({
       {/* TABS */}
       <View style={styles.tabRow}>
         <TouchableOpacity
-          style={[styles.tabBtn, tab === "pressure" && styles.tabActive]}
-          onPress={() => setTab("pressure")}
+          style={[styles.tabBtn, tab === "1jam" && styles.tabActive]}
+          onPress={() => setTab("1jam")}
         >
-          <Text style={[styles.tabText, tab === "pressure" && styles.tabTextActive]}>
+          <Text style={[styles.tabText, tab === "1jam" && styles.tabTextActive]}>
             1 Jam
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.tabBtn, tab === "30" && styles.tabActive]}
-          onPress={() => setTab("30")}
+          style={[styles.tabBtn, tab === "30min" && styles.tabActive]}
+          onPress={() => setTab("30min")}
         >
-          <Text style={[styles.tabText, tab === "30" && styles.tabTextActive]}>
+          <Text style={[styles.tabText, tab === "30min" && styles.tabTextActive]}>
             30 Menit
           </Text>
         </TouchableOpacity>
@@ -484,17 +567,23 @@ const A3FlexInspectionTable = ({
       {/* CONTENT */}
       <ScrollView style={{ padding: 12 }}>
         {/* Render hanya jika package = PENGECEKAN PRESSURE */}
-        {isPressure && tab === "pressure" && (
-          <PressureCheckTable 
-            line={line} 
+        {isPressure && tab === "1jam" && (
+          <PressureCheckTable
+            key={`pressure1-${line}`}
+            line={line}
             onTableDataChange={handleTableDataChange}
+            tableState={getCachedTable("1jam")}
+            onTableStateChange={(t) => handleTableStateChange("1jam", t)}
           />
         )}
 
-        {isPressure && tab === "30" && (
-          <ThirtyMinuteTable 
+        {isPressure && tab === "30min" && (
+          <ThirtyMinuteTable
+            key={`30min-${line}`}
             line={line}
             onTableDataChange={handleTableDataChange}
+            tableState={getCachedTable("30min")}
+            onTableStateChange={(t) => handleTableStateChange("30min", t)}
           />
         )}
       </ScrollView>

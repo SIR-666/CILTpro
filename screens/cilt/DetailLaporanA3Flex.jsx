@@ -13,6 +13,61 @@ import {
 } from "react-native";
 import { COLORS } from "../../constants/theme";
 
+const normalizePressureInspection = (inspectionData = []) => {
+  if (!Array.isArray(inspectionData)) return { jam: [], min30: [] };
+
+  // hasil submit sekarang
+  if (inspectionData[0]?.pressureCheck1Jam || inspectionData[0]?.pressureCheck30Min) {
+    return {
+      jam: inspectionData[0]?.pressureCheck1Jam || [],
+      min30: inspectionData[0]?.pressureCheck30Min || [],
+    };
+  }
+};
+
+const renderPressureTable = (title, data, type) => {
+  if (!data.length) return null;
+
+  return (
+    <View style={{ marginTop: 12 }}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      <ScrollView horizontal>
+        <View>
+          {data.map((row, idx) => (
+            <View key={idx} style={{ flexDirection: "row", marginBottom: 6 }}>
+              <Text style={{ width: 180, fontSize: 11 }}>
+                {row.parameter_name} {row.unit ? `(${row.unit})` : ""}
+              </Text>
+
+              {Array.from({ length: 12 }).map((_, i) => {
+                const v =
+                  type === "1jam"
+                    ? row.values?.[`jam${i + 1}`] ?? "-"
+                    : `${row.values?.[`p${i + 1}_1`] ?? "-"} / ${row.values?.[`p${i + 1}_2`] ?? "-"}`;
+
+                return (
+                  <Text
+                    key={i}
+                    style={{
+                      width: 60,
+                      textAlign: "center",
+                      fontSize: 11,
+                      borderWidth: 0.5,
+                      borderColor: "#ccc",
+                    }}
+                  >
+                    {v}
+                  </Text>
+                );
+              })}
+            </View>
+          ))}
+        </View>
+      </ScrollView>
+    </View>
+  );
+};
+
 /* Utils */
 const esc = (s = "") =>
   String(s)
@@ -54,98 +109,117 @@ export const generatePDFHTML = (item) => {
     inspectionData = [];
   }
   const data = inspectionData[0] || {};
-
-  // Page 1 Data
   const headerInfo = data.headerInfo || {};
-  const persiapanProses = data.persiapanProses || {};
-  const counterPack = data.counterPack || {};
-  const inkubasiQC = data.inkubasiQC || {};
-  const sampleOperator = data.sampleOperator || {};
-  const paperRows = data.paperRows || [];
-  const persiapanH2O2 = data.persiapanH2O2 || {};
-  const penambahanH2O2 = data.penambahanH2O2 || [];
-  const mccpRows = data.mccpRows || [];
-  const checkKondisi = data.checkKondisi || {};
-  const ncRows = data.ncRows || [];
-  const totalStop = data.totalStop || "";
-  const catatanAkhir = data.catatanAkhir || "";
 
-  // Page 2 Data
-  const pressureCheck1Jam = data.pressureCheck1Jam || [];
-  const pressureCheck30Min = data.pressureCheck30Min || [];
-
-  // Generate Paper Table
-  const paperTableRows = paperRows.length > 0
-    ? paperRows.map((row, idx) => `
-      <tr>
-        <td>${idx + 1}</td>
-        <td>${esc(row.jam)}</td>
-        <td>${esc(row.roll)}</td>
-        <td>${esc(row.paperOrder)}</td>
-        <td>${esc(row.qtyLabel)}</td>
-        <td>${esc(row.globalId)}</td>
-        <td>${esc(row.countReading)}</td>
-        <td>${esc(row.kondisiPaper)}</td>
-        <td>${esc(row.splicingPaper)}</td>
-        <td>${esc(row.jamMpm)}</td>
-        <td>${esc(row.lotNo)}</td>
-        <td>${esc(row.kode)}</td>
-      </tr>
-    `).join("")
-    : '<tr><td colspan="12">No data</td></tr>';
-
-  // Generate H2O2 Rows
-  const h2o2Rows = penambahanH2O2.length > 0
-    ? penambahanH2O2.map((row, idx) => `
-      <tr><td>${idx + 1}</td><td>${esc(row.volume)}</td><td>${esc(row.jam)}</td><td>${esc(row.oleh)}</td></tr>
-    `).join("")
-    : '<tr><td colspan="4">No data</td></tr>';
-
-  // Generate MCCP Rows
-  const mccpTableRows = mccpRows.length > 0
-    ? mccpRows.map((row, idx) => `
-      <tr><td>${idx + 1}</td><td>${esc(row.jam)}</td><td>${esc(row.persen)}</td><td>${esc(row.oleh)}</td></tr>
-    `).join("")
-    : '<tr><td colspan="4">No data</td></tr>';
-
-  // Generate NC Rows
-  const ncTableRows = ncRows.length > 0
-    ? ncRows.map((row, idx) => `
-      <tr>
-        <td>${idx + 1}</td>
-        <td>${esc(row.waktuMulai)}</td>
-        <td>${esc(row.waktuSelesai)}</td>
-        <td>${esc(row.jumlahMenit)}</td>
-        <td>${esc(row.uraianMasalah)}</td>
-        <td>${esc(row.tindakan)}</td>
-        <td>${esc(row.dilakukanOleh)}</td>
-      </tr>
-    `).join("")
-    : '<tr><td colspan="7">No data</td></tr>';
+  // Pressure Inspection Data
+  const {
+    jam: pressureCheck1Jam,
+    min30: pressureCheck30Min,
+  } = normalizePressureInspection(inspectionData);
 
   // Generate Pressure Check 1 Jam
   const pressure1JamRows = pressureCheck1Jam.length > 0
     ? pressureCheck1Jam.map((param) => {
-        const values = param.values || {};
-        const cells = Array.from({ length: 12 }, (_, i) => `<td>${esc(values[`jam${i + 1}`])}</td>`).join("");
-        return `<tr><td style="text-align:left;">${esc(param.parameter_name)} ${param.unit ? `(${param.unit})` : ""}</td>${cells}</tr>`;
-      }).join("")
+      const values = param.values || {};
+      const cells = Array.from({ length: 12 }, (_, i) => `<td>${esc(values[`jam${i + 1}`])}</td>`).join("");
+      return `<tr><td style="text-align:left;">${esc(param.parameter_name)} ${param.unit ? `(${param.unit})` : ""}</td>${cells}</tr>`;
+    }).join("")
     : '<tr><td colspan="13">No data</td></tr>';
 
   // Generate Pressure Check 30 Min
   const pressure30MinRows = pressureCheck30Min.length > 0
     ? pressureCheck30Min.map((param) => {
-        const values = param.values || {};
-        const cells = Array.from({ length: 12 }, (_, i) => {
-          const v1 = values[`p${i + 1}_1`] || "-";
-          const v2 = values[`p${i + 1}_2`] || "-";
-          return `<td>${esc(v1)} / ${esc(v2)}</td>`;
-        }).join("");
-        return `<tr><td style="text-align:left;">${esc(param.parameter_name)} ${param.unit ? `(${param.unit})` : ""}</td>${cells}</tr>`;
-      }).join("")
+      const values = param.values || {};
+      const cells = Array.from({ length: 12 }, (_, i) => {
+        const v1 = values[`p${i + 1}_1`] || "-";
+        const v2 = values[`p${i + 1}_2`] || "-";
+        return `
+          <td class="dual-value">
+            ${esc(v1)}<br/>
+            ${esc(v2)}
+          </td>
+        `;
+      }).join("");
+      return `<tr><td style="text-align:left;">${esc(param.parameter_name)} ${param.unit ? `(${param.unit})` : ""}</td>${cells}</tr>`;
+    }).join("")
     : '<tr><td colspan="13">No data</td></tr>';
 
   return `
+   <style>
+    /* ===== PAGE SETUP ===== */
+    @page {
+      size: A3 landscape;
+      margin: 10mm;
+    }
+
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 11px;
+      color: #000;
+    }
+
+    /* ===== SECTION TITLE ===== */
+    .section-title {
+      text-align: center;
+      font-weight: bold;
+      font-size: 14px;
+      margin: 10px 0 6px;
+      padding: 0;
+      border: none;
+      background: transparent !important;
+      color: #1f4fd8;
+    }
+
+    /* ===== TABLE GENERAL ===== */
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      margin-bottom: 18px;
+    }
+
+    .data-table th,
+    .data-table td {
+      border: 0.5 px solid #000;
+      padding: 4px 6px;
+      font-size: 11px;
+    }
+
+    /* ===== HEADER ===== */
+    .data-table th {
+      background: #c6efce;
+      color: #000;
+      font-weight: bold;
+      text-align: center;
+    }
+
+    /* ===== PARAMETER COLUMN ===== */
+    .data-table td:first-child,
+    .data-table th:first-child {
+      text-align: left;
+      font-weight: bold;
+      width: 22%;
+      border-right: 0px solid #555;
+    }
+
+    /* ===== JAM / PACK COLUMN ===== */
+    .data-table th:not(:first-child),
+    .data-table td:not(:first-child) {
+      width: calc(78% / 12);
+      text-align: center;
+    }
+
+    /* ===== PRESSURE TABLE SPECIFIC ===== */
+    .pressure-table td {
+      height: 22px;
+    }
+
+    /* ===== 30 MENIT FORMAT ===== */
+    .pressure-table .dual-value {
+      font-size: 10px;
+      letter-spacing: 0.5px;
+    }
+  </style>
     <section class="report-section a3flex-section">
       <div class="header-container">
         <table class="header-main-table">
@@ -179,89 +253,22 @@ export const generatePDFHTML = (item) => {
         </table>
       </div>
 
-      <h3 class="section-title">INFORMASI PRODUK</h3>
-      <table class="data-table">
-        <tr><th>Tanggal</th><td>${esc(headerInfo.tanggal)}</td><th>Nama Produk</th><td>${esc(headerInfo.namaProduk)}</td></tr>
-        <tr><th>Mesin</th><td>${esc(headerInfo.mesin)}</td><th>Line Mesin</th><td>${esc(headerInfo.lineMesin)}</td></tr>
-        <tr><th>Kode Produksi</th><td>${esc(headerInfo.kodeProduksi)}</td><th>Kode Kadaluwarsa</th><td>${esc(headerInfo.kodeKadaluwarsa)}</td></tr>
-      </table>
-
-      <h3 class="section-title">PERSIAPAN PROSES</h3>
-      <table class="data-table">
-        <tr>
-          <th>Prepare to Tube Seal</th><th>Tube Seal</th><th>Heat Sterilization</th><th>Spraying</th>
-          <th>Sterilization Done</th><th>Production</th><th>Stop Production</th>
-        </tr>
-        <tr>
-          <td>${esc(persiapanProses.prepareToTubeSeal)}</td>
-          <td>${esc(persiapanProses.tubeSeal)}</td>
-          <td>${esc(persiapanProses.heatSterilization)}</td>
-          <td>${esc(persiapanProses.spraying)}</td>
-          <td>${esc(persiapanProses.sterilizationDone)}</td>
-          <td>${esc(persiapanProses.production)}</td>
-          <td>${esc(persiapanProses.stopProduction)}</td>
-        </tr>
-      </table>
-
-      <h3 class="section-title">COUNTER PACK</h3>
-      <table class="data-table">
-        <tr>
-          <th>Counter 1 Stop</th><th>Counter 1 Start</th><th>Total Counter Pack</th><th>Waste Counter 2</th>
-          <th>Hour Meter Start</th><th>Hour Meter Stop</th><th>Total Hour Meter</th>
-        </tr>
-        <tr>
-          <td>${esc(counterPack.counter1Stop)}</td>
-          <td>${esc(counterPack.counter1Start)}</td>
-          <td>${esc(counterPack.totalCounterPack)}</td>
-          <td>${esc(counterPack.wasteCounter2)}</td>
-          <td>${esc(counterPack.hourMeterStart)}</td>
-          <td>${esc(counterPack.hourMeterStop)}</td>
-          <td>${esc(counterPack.totalHourMeter)}</td>
-        </tr>
-      </table>
-
-      <h3 class="section-title">DATA PAPER</h3>
-      <table class="data-table" style="font-size:8px;">
-        <tr><th>No</th><th>Jam</th><th>Roll</th><th>Paper Order</th><th>Qty Label</th><th>Global ID</th><th>Count Reading</th><th>Kondisi Paper</th><th>Splicing Paper</th><th>Jam MPM</th><th>Lot No</th><th>Kode</th></tr>
-        ${paperTableRows}
-      </table>
-
-      <h3 class="section-title">PENAMBAHAN H2O2</h3>
-      <table class="data-table">
-        <tr><th>No</th><th>Volume</th><th>Jam</th><th>Oleh</th></tr>
-        ${h2o2Rows}
-      </table>
-
-      <h3 class="section-title">MCCP-4</h3>
-      <table class="data-table">
-        <tr><th>No</th><th>Jam</th><th>Persen (%)</th><th>Oleh</th></tr>
-        ${mccpTableRows}
-      </table>
-
-      <h3 class="section-title">CHECK KONDISI</h3>
-      <table class="data-table">
-        <tr><th>Kondisi Inductor</th><th>Kondisi Dolly</th></tr>
-        <tr><td>${esc(checkKondisi.kondisiInductor)}</td><td>${esc(checkKondisi.kondisiDolly)}</td></tr>
-      </table>
-
-      <h3 class="section-title">CATATAN KETIDAKSESUAIAN</h3>
-      <table class="data-table">
-        <tr><th>No</th><th>Waktu Mulai</th><th>Waktu Selesai</th><th>Jml Menit</th><th>Uraian Masalah</th><th>Tindakan</th><th>Dilakukan Oleh</th></tr>
-        ${ncTableRows}
-      </table>
-      <p><strong>Total Stop:</strong> ${esc(totalStop)}</p>
-      ${catatanAkhir ? `<div class="notes-box"><strong>Catatan:</strong> ${esc(catatanAkhir)}</div>` : ""}
-
       <div style="page-break-before: always;"></div>
       <h3 class="section-title">PENGECEKAN PRESSURE (1 JAM)</h3>
-      <table class="data-table" style="font-size:8px;">
-        <tr><th>Parameter</th>${Array.from({ length: 12 }, (_, i) => `<th>Jam ${i + 1}</th>`).join("")}</tr>
+      <table class="data-table pressure-table">
+        <tr>
+        <th>Parameter</th>
+        ${Array.from({ length: 12 }, (_, i) => `<th>Jam ${i + 1}</th>`).join("")}
+        </tr>
         ${pressure1JamRows}
       </table>
 
       <h3 class="section-title">PENGECEKAN PRESSURE (30 MENIT)</h3>
-      <table class="data-table" style="font-size:8px;">
-        <tr><th>Parameter</th>${Array.from({ length: 12 }, (_, i) => `<th>Pack ${i + 1}</th>`).join("")}</tr>
+      <table class="data-table pressure-table">
+        <tr>
+        <th>Parameter</th>
+        ${Array.from({ length: 12 }, (_, i) => `<th>Pack ${i + 1}</th>`).join("")}
+        </tr>
         ${pressure30MinRows}
       </table>
     </section>
@@ -274,10 +281,14 @@ const DetailLaporanA3Flex = ({ route, navigation }) => {
   const headerMeta = getHeaderMeta(item.line);
 
   const [inspectionData] = useState(() => {
-    try { return JSON.parse(item.inspectionData); } 
+    try { return JSON.parse(item.inspectionData); }
     catch (e) { return []; }
   });
   const data = inspectionData[0] || {};
+  const {
+    jam: pressureCheck1Jam,
+    min30: pressureCheck30Min,
+  } = normalizePressureInspection(inspectionData);
 
   const handleLanjutkanDraft = () => navigation.navigate("EditCilt", { item });
 
@@ -286,28 +297,6 @@ const DetailLaporanA3Flex = ({ route, navigation }) => {
       <html>
         <head>
           <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-          <style>
-            body { font-family: Arial, sans-serif; margin: 15px; font-size: 10px; }
-            .header-main-table { width: 100%; border-collapse: collapse; border: 1px solid #000; }
-            .header-main-table td { border: 1px solid #000; padding: 8px; }
-            .logo-section { width: 120px; background-color: #90EE90; text-align: center; }
-            .logo-green { font-weight: bold; font-size: 16px; color: #2d5016; }
-            .company-section { text-align: center; font-weight: bold; font-size: 14px; }
-            .meta-section { width: 150px; font-size: 10px; }
-            .meta-info-table td { border: none; padding: 2px; }
-            .meta-label { font-weight: 600; width: 50px; }
-            .header-title-table { width: 100%; border-collapse: collapse; border: 1px solid #000; border-top: none; }
-            .header-title-table td { border: 1px solid #000; padding: 8px; }
-            .title-label { width: 120px; text-align: center; background-color: #f5f5f5; }
-            .title-content { text-align: center; font-weight: bold; font-size: 12px; }
-            .section-title { font-weight: bold; background-color: #d9f0e3; padding: 8px; margin: 15px 0 8px 0; }
-            .data-table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 9px; }
-            .data-table th, .data-table td { border: 1px solid #ccc; padding: 5px; text-align: center; }
-            .data-table th { background-color: #e7f2ed; }
-            .general-info-table { width: 100%; border-collapse: collapse; margin: 10px 0; }
-            .general-info-table td { border: 1px solid #000; padding: 5px; }
-            .notes-box { background: #f8f9fa; padding: 10px; border-radius: 4px; margin-top: 10px; border-left: 3px solid #2e7d32; }
-          </style>
         </head>
         <body>${generatePDFHTML(item)}</body>
       </html>
@@ -352,26 +341,70 @@ const DetailLaporanA3Flex = ({ route, navigation }) => {
         </View>
 
         <View style={styles.dataSection}>
-          <Text style={styles.sectionTitle}>Informasi Produk</Text>
-          <Text style={styles.dataText}>Nama Produk: {data.headerInfo?.namaProduk || "-"}</Text>
-          <Text style={styles.dataText}>Mesin: {data.headerInfo?.mesin || "-"}</Text>
-        </View>
-
-        <View style={styles.dataSection}>
           <Text style={styles.sectionTitle}>Pressure Check</Text>
-          <Text style={styles.dataText}>1 Jam: {(data.pressureCheck1Jam || []).length} parameters</Text>
-          <Text style={styles.dataText}>30 Menit: {(data.pressureCheck30Min || []).length} parameters</Text>
-        </View>
+          <Text style={styles.sectionTitle}>Pengecekan Pressure (1 Jam)</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={styles.pressureTable}>
+              {pressureCheck1Jam.map((param, idx) => (
+                <View key={idx} style={styles.pressureRow}>
+                  <View style={styles.pressureCellParam}>
+                    <Text style={styles.pressureCellText}>
+                      {param.parameter_name}
+                    </Text>
+                  </View>
+                  {Array.from({ length: 12 }, (_, i) => (
+                    <View key={i} style={styles.pressureCell}>
+                      <Text style={styles.pressureCellText}>
+                        {param.values?.[`jam${i + 1}`] ?? "-"}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+          <Text style={styles.sectionTitle}>Pengecekan Pressure (30 Menit)</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <View style={styles.pressureTable}>
+              {pressureCheck30Min.map((param, idx) => (
+                <View key={idx} style={styles.pressureRow}>
+                  <View style={styles.pressureCellParam}>
+                    <Text style={styles.pressureCellText}>
+                      {param.parameter_name}
+                    </Text>
+                  </View>
+                  {Array.from({ length: 12 }, (_, i) => {
+                    const v1 = param.values?.[`p${i + 1}_1`] ?? "-";
+                    const v2 = param.values?.[`p${i + 1}_2`] ?? "-";
+                    return (
+                      <View key={i} style={styles.pressureCell}>
 
-        {item.status === 1 ? (
-          <TouchableOpacity style={styles.submitButton} onPress={handleLanjutkanDraft}>
-            <Text style={styles.submitButtonText}>LANJUTKAN DRAFT</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity style={styles.submitButton} onPress={printToFile}>
-            <Text style={styles.submitButtonText}>DOWNLOAD REPORT</Text>
-          </TouchableOpacity>
-        )}
+                        <Text style={styles.pressureCellText}>
+                          {v1 || v2 ? `${v1 || ""} | ${v2 || ""}` : ""}
+                        </Text>
+
+                        {/* <Text style={styles.pressureCellText}>
+                          {v1}  |  {v2}
+                        </Text> */}
+
+                      </View>
+                    );
+                  })}
+                </View>
+              ))}
+            </View>
+          </ScrollView>
+
+          {item.status === 1 ? (
+            <TouchableOpacity style={styles.submitButton} onPress={handleLanjutkanDraft}>
+              <Text style={styles.submitButtonText}>LANJUTKAN DRAFT</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.submitButton} onPress={printToFile}>
+              <Text style={styles.submitButtonText}>DOWNLOAD REPORT</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -401,6 +434,38 @@ const styles = StyleSheet.create({
   dataText: { fontSize: 12, color: "#333", marginBottom: 4 },
   submitButton: { backgroundColor: COLORS.blue, padding: 15, borderRadius: 8, alignItems: "center", marginHorizontal: 12, marginBottom: 20 },
   submitButtonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
+  pressureTable: {
+    borderWidth: 1,
+    borderColor: "#d0d7de",
+    borderRadius: 6,
+    overflow: "hidden",
+    marginTop: 6,
+  },
+  pressureRow: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  pressureCellParam: {
+    width: 140,
+    padding: 6,
+    borderRightWidth: 1,
+    borderColor: "#e5e7eb",
+    backgroundColor: "#f8fafc",
+  },
+  pressureCell: {
+    width: 48,
+    height: 32,
+    borderRightWidth: 1,
+    borderColor: "#e5e7eb",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pressureCellText: {
+    fontSize: 11,
+    color: "#333",
+  },
+
 });
 
 export default DetailLaporanA3Flex;
