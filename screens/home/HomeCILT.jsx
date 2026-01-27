@@ -32,12 +32,12 @@ const Home = ({ navigation }) => {
       image: require("../../assets/ciltproblack.png"),
       link: "AddCilt",
     },
-    // {
-    //   id: 1,
-    //   title: "ADD DOWNTIME",
-    //   image: require("../../assets/downtime.png"),
-    //   link: "AddDowntime",
-    // },
+    {
+      id: 1,
+      title: "ADD DOWNTIME",
+      image: require("../../assets/downtime.png"),
+      link: "AddDowntime",
+    },
     // {
     //   id: 1,
     //   title: "CILT SHIFTLY",
@@ -62,18 +62,18 @@ const Home = ({ navigation }) => {
       image: require("../../assets/handover.png"),
       link: "ListCILT",
     },
-    // {
-    //   id: 5,
-    //   title: "LIST DOWNTIME",
-    //   image: require("../../assets/list-downtime.png"),
-    //   link: "ListDowntime",
-    // },
-    // {
-    //   id: 6,
-    //   title: "LIST SAVE AS DRAFT",
-    //   image: require("../../assets/listHO.png"),
-    //   link: "ListCILTDraft",
-    // },
+    {
+      id: 5,
+      title: "LIST DOWNTIME",
+      image: require("../../assets/list-downtime.png"),
+      link: "ListDowntime",
+    },
+    {
+      id: 6,
+      title: "LIST SAVE AS DRAFT",
+      image: require("../../assets/listHO.png"),
+      link: "ListCILTDraft",
+    },
     {
       id: 7,
       title: "REPORT CIP",
@@ -86,7 +86,6 @@ const Home = ({ navigation }) => {
     //   image: require("../../assets/pengaturan.png"),
     //   link: "Search",
     // },
-
   ];
 
   const [options, setOptions] = useState(data);
