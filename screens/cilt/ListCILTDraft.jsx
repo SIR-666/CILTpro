@@ -12,6 +12,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Alert,
 } from "react-native";
 import { Searchbar } from "react-native-paper";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -28,10 +29,6 @@ const ListCILTDraft = ({ navigation }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
-  const [sortConfig, setSortConfig] = useState({
-    key: "date",
-    direction: "ascending",
-  });
   const [selectedPlant, setSelectedPlant] = useState(null);
   const [selectedLine, setSelectedLine] = useState(null);
   const [selectedShift, setSelectedShift] = useState(null);
@@ -59,8 +56,8 @@ const ListCILTDraft = ({ navigation }) => {
   const fetchDataFromAPI = async () => {
     setIsLoading(true);
     try {
-      const response = await api.get(`/cilt?status=1`);
-      setDataGreentag(response.data);
+      const response = await api.get(`/draft`);
+      setDataGreentag(Array.isArray(response.data) ? response.data : []);
       setIsLoading(false);
     } catch (error) {
       console.error("Error fetching data:", error);
@@ -100,12 +97,23 @@ const ListCILTDraft = ({ navigation }) => {
 
   const filteredData = useMemo(() => {
     return dataGreentag.filter((item) => {
+      // hanya draft yang benar-benar punya isi
+      const hasInspection =
+        item.inspectionData && item.inspectionData.length > 0;
+
+      const hasDescription =
+        item.descriptionData && item.descriptionData.length > 0;
+
+      const isAutoSaved = item.autoSaved === true;
+
+      if (!hasInspection && !hasDescription && !isAutoSaved) return false;
       const matchesSearch = item.processOrder
         .toLowerCase()
         .includes(searchQuery.toLowerCase());
 
       const matchesDate = selectedDate
-        ? moment(item.date).isSame(moment(selectedDate), "day")
+        ? moment(item.date || item.formOpenTime || item.createdAt)
+          .isSame(moment(selectedDate), "day")
         : true;
 
       const matchesPlant = selectedPlant
@@ -137,136 +145,87 @@ const ListCILTDraft = ({ navigation }) => {
     selectedShift,
   ]);
 
+  const groupedAndSortedData = useMemo(() => {
+    const map = new Map();
+
+    filteredData.forEach((item) => {
+      const key = `${item.id}`;
+      if (!map.has(key)) {
+        map.set(key, item);
+      } else {
+        const existing = map.get(key);
+        if (
+          moment(item.updatedAt).isAfter(moment(existing.updatedAt))
+        ) {
+          map.set(key, item);
+        }
+      }
+    });
+
+    return Array.from(map.values()).sort((a, b) => {
+      // pending submit selalu paling atas
+      if (a.pendingSubmit && !b.pendingSubmit) return -1;
+      if (!a.pendingSubmit && b.pendingSubmit) return 1;
+
+      return moment(b.updatedAt).diff(moment(a.updatedAt));
+    });
+  }, [filteredData]);
+
   const paginatedData = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage;
-    return filteredData.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredData, currentPage]);
-
-  const totalPages = Math.ceil(filteredData.length / itemsPerPage);
-
-  const handleDetailPress = (item) => {
-    if (item.packageType === "CILT") {
-      navigation.navigate("DetailLaporanShiftlyCILT", { item }); // Pass the selected item to the new page
-    } else if (
-      item.packageType === "GI/GR" &&
-      item.machine === "Robot Palletizer"
-    ) {
-      navigation.navigate("DetailLaporanCILTGIGR", { item }); // Pass the selected item to the new page
-    } else {
-      navigation.navigate("DetailLaporanCILT", { item }); // Pass the selected item to the new page
-    }
-  };
-
-  const sortData = (key) => {
-    let direction = "ascending";
-    if (sortConfig.key === key && sortConfig.direction === "ascending") {
-      direction = "descending";
-    }
-    setSortConfig({ key, direction });
-    setDataGreentag(
-      [...dataGreentag].sort((a, b) => {
-        if (a[key] < b[key]) {
-          return direction === "ascending" ? -1 : 1;
-        }
-        if (a[key] > b[key]) {
-          return direction === "ascending" ? 1 : -1;
-        }
-        return 0;
-      })
+    return groupedAndSortedData.slice(
+      startIndex,
+      startIndex + itemsPerPage
     );
-  };
+  }, [groupedAndSortedData, currentPage]);
+
+  // reset pagination saat filter berubah
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    searchQuery,
+    selectedDate,
+    selectedPlant,
+    selectedLine,
+    selectedShift,
+  ]);
+
+  const totalPages = Math.ceil(
+    groupedAndSortedData.length / itemsPerPage
+  );
 
   const TableHeader = () => (
     <View style={styles.tableHeader}>
-      <TouchableOpacity
-        onPress={() => sortData("date")}
-        style={styles.tableHeaderCell}
-      >
-        <Text style={styles.tableHeaderText}>Date</Text>
-        <Icon name="arrow-drop-down" size={24} color={COLORS.blue} />
-      </TouchableOpacity>
-      <TouchableOpacity
-        onPress={() => sortData("processOrder")}
-        style={styles.tableHeaderCell}
-      >
-        <Text style={styles.tableHeaderText}>Process Order</Text>
-        <Icon name="arrow-drop-down" size={24} color={COLORS.blue} />
-      </TouchableOpacity>
-      <TouchableOpacity
-        onPress={() => sortData("packageType")}
-        style={styles.tableHeaderCell}
-      >
-        <Text style={styles.tableHeaderText}>Package</Text>
-        <Icon name="arrow-drop-down" size={24} color={COLORS.blue} />
-      </TouchableOpacity>
-      <TouchableOpacity
-        onPress={() => sortData("plant")}
-        style={styles.tableHeaderCell}
-      >
-        <Text style={styles.tableHeaderText}>Plant</Text>
-        <Icon name="arrow-drop-down" size={24} color={COLORS.blue} />
-      </TouchableOpacity>
-      <TouchableOpacity
-        onPress={() => sortData("line")}
-        style={styles.tableHeaderCell}
-      >
-        <Text style={styles.tableHeaderText}>Line</Text>
-        <Icon name="arrow-drop-down" size={24} color={COLORS.blue} />
-      </TouchableOpacity>
-      <TouchableOpacity
-        onPress={() => sortData("shift")}
-        style={styles.tableHeaderCell}
-      >
-        <Text style={styles.tableHeaderText}>Shift</Text>
-        <Icon name="arrow-drop-down" size={24} color={COLORS.blue} />
-      </TouchableOpacity>
-      <TouchableOpacity
-        onPress={() => sortData("product")}
-        style={styles.tableHeaderCell}
-      >
-        <Text style={styles.tableHeaderText}>Product</Text>
-        <Icon name="arrow-drop-down" size={24} color={COLORS.blue} />
-      </TouchableOpacity>
-      <TouchableOpacity
-        onPress={() => sortData("machine")}
-        style={styles.tableHeaderCell}
-      >
-        <Text style={styles.tableHeaderText}>Machine</Text>
-        <Icon name="arrow-drop-down" size={24} color={COLORS.blue} />
-      </TouchableOpacity>
+      <View style={styles.tableHeaderCell}><Text style={styles.tableHeaderText}>Date</Text></View>
+      <View style={styles.tableHeaderCell}><Text style={styles.tableHeaderText}>Process Order</Text></View>
+      <View style={styles.tableHeaderCell}><Text style={styles.tableHeaderText}>Package</Text></View>
+      <View style={styles.tableHeaderCell}><Text style={styles.tableHeaderText}>Plant</Text></View>
+      <View style={styles.tableHeaderCell}><Text style={styles.tableHeaderText}>Line</Text></View>
+      <View style={styles.tableHeaderCell}><Text style={styles.tableHeaderText}>Shift</Text></View>
+      <View style={styles.tableHeaderCell}><Text style={styles.tableHeaderText}>Product</Text></View>
+      <View style={styles.tableHeaderCell}><Text style={styles.tableHeaderText}>Machine</Text></View>
     </View>
   );
 
-  const countOccurrences = {};
-  const seenItems = new Set();
-
-  paginatedData.forEach((item) => {
-    const key = `${item.processOrder}-${item.packageType}-${item.product}`;
-    countOccurrences[key] = (countOccurrences[key] || 0) + 1;
-  });
-
   const renderItem = (item) => {
-    const key = `${item.processOrder}-${item.packageType}-${item.product}`;
-
-    if (item.packageType === "CILT" && seenItems.has(key)) {
-      return null; // Jika sudah ada dalam Set, tidak ditampilkan lagi
-    }
-
-    seenItems.add(key); // Simpan kombinasi unik dalam Set
-
     return (
-      <TouchableOpacity key={item.id} onPress={() => handleDetailPress(item)}>
+      <TouchableOpacity
+        key={item.id}
+        onPress={() => {
+          navigation.navigate("AddCilt", {
+            resumeDraft: {
+              draftId: item.id,
+            },
+          });
+        }}
+      >
         <View style={styles.tableRow}>
           <Text style={styles.tableCell}>
-            {moment(item.date, "YYYY-MM-DD HH:mm:ss.SSS").format(
-              "DD/MM/YY HH:mm:ss"
-            )}
+            {moment(item.date || item.formOpenTime || item.createdAt)
+              .format("DD/MM/YY HH:mm")}
           </Text>
           <Text style={styles.tableCell}>{item.processOrder}</Text>
-          <Text style={styles.tableCell}>
-            {item.packageType}{" "}
-            {item.packageType === "CILT" ? `(${countOccurrences[key]})` : ""}
-          </Text>
+          <Text style={styles.tableCell}>{item.packageType}</Text>
           <Text style={styles.tableCell}>{item.plant}</Text>
           <Text style={styles.tableCell}>{item.line}</Text>
           <Text style={styles.tableCell}>{item.shift}</Text>

@@ -46,7 +46,7 @@ const BottomTabNavigation = () => {
         }}
       />
 
-      <Tab.Screen
+      {/* <Tab.Screen
         name="Settings"
         component={Home}
         options={{
@@ -62,9 +62,9 @@ const BottomTabNavigation = () => {
             // <ion-icon name="bag-handle-outline"></ion-icon><Ionicons name="md-notifications-outline" size={24} color="black" />
           ),
         }}
-      />
+      /> */}
 
-      <Tab.Screen
+      {/* <Tab.Screen
         name="Notifikasi"
         component={Home}
         options={{
@@ -81,7 +81,7 @@ const BottomTabNavigation = () => {
             />
           ),
         }}
-      />
+      /> */}
 
       <Tab.Screen
         name="Profile"

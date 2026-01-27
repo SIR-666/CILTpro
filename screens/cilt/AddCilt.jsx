@@ -101,6 +101,13 @@ const hasDescriptionData = (descriptionData) => {
   );
 };
 
+// CILT DRAFT LIFECYCLE CONSTANT
+const CILT_STATUS = {
+  IN_PROGRESS: "IN_PROGRESS",
+  DRAFT: "DRAFT",
+  SUBMITTED: "SUBMITTED",
+};
+
 // PRODUCT FILTER BY LINE
 const filterProductsByLine = (products, line) => {
   if (!line) return products;
@@ -137,6 +144,8 @@ const CILTinspection = ({ route, navigation }) => {
   const { username } = route.params;
   const [processOrder, setProcessOrder] = useState("");
   const [packageType, setPackageType] = useState("");
+  const [activeDraftId, setActiveDraftId] = useState(null);
+  const isDraftModeRef = useRef(false);
   const [plant, setPlant] = useState("");
   const [line, setLine] = useState("");
   const [date, setDate] = useState(new Date());
@@ -178,6 +187,46 @@ const CILTinspection = ({ route, navigation }) => {
 
   const savedSelectionsRef = useRef({ plant: "", line: "", machine: "" });
 
+  // DRAFT & CONTEXT MANAGEMENT
+  const [lockedContext, setLockedContext] = useState(null);
+  const [packageLifecycle, setPackageLifecycle] = useState({});
+  const [draftIds, setDraftIds] = useState({});
+  const [packageProcessOrderMap, setPackageProcessOrderMap] = useState({});
+
+  // Refs to avoid re-subscribing listeners & always access latest state
+  const inspectionDataRef = useRef([]);
+  const segregationDescriptionRef = useRef([]);
+  const packageDataCacheRef = useRef({});
+  const packageDescriptionCacheRef = useRef({});
+  const processOrderRef = useRef("");
+  const contextRef = useRef(null);
+  const lastAutoSaveRef = useRef(0);
+  const isSubmittingRef = useRef(false);
+  const isResumingRef = useRef(false);
+  const prevShiftRef = useRef(shift);
+  const prevProcessOrderRef = useRef("");
+
+  useEffect(() => { inspectionDataRef.current = inspectionData; }, [inspectionData]);
+  useEffect(() => { segregationDescriptionRef.current = segregationDescriptionData; }, [segregationDescriptionData]);
+  useEffect(() => { packageDataCacheRef.current = packageDataCache; }, [packageDataCache]);
+  useEffect(() => { packageDescriptionCacheRef.current = packageDescriptionCache; }, [packageDescriptionCache]);
+  useEffect(() => {
+    processOrderRef.current = processOrder;
+    if (shift === prevShiftRef.current && processOrder) {
+      prevProcessOrderRef.current = processOrder;
+    }
+  }, [processOrder, shift]);
+  useEffect(() => { contextRef.current = lockedContext; }, [lockedContext]);
+
+  useEffect(() => {
+    const resume = route?.params?.resumeDraft;
+    if (!resume) return;
+    const { draftId, packageType } = resume;
+    console.log("Resume draft received:", draftId, packageType);
+    resumeDraft(draftId, packageType);
+    navigation.setParams({ resumeDraft: null });
+  }, [route?.params?.resumeDraft]);
+
   const mergedMachineOptions = useMemo(() => {
     const base = Array.isArray(machineOptions) ? machineOptions : [];
     const custom = Array.isArray(customMachines) ? customMachines : [];
@@ -191,6 +240,15 @@ const CILTinspection = ({ route, navigation }) => {
   // callbacks ke children (stabil, anti-loop)
   const handleInspectionChange = useCallback((data) => {
     setInspectionData(data);
+    if (packageType) {
+      setPackageLifecycle(prev => ({
+        ...prev,
+        [packageType]: {
+          status: CILT_STATUS.IN_PROGRESS,
+          updatedAt: moment().tz("Asia/Jakarta").format(),
+        }
+      }));
+    }
     // Simpan ke cache berdasarkan package type
     if (packageType) {
       setPackageDataCache(prev => ({
@@ -203,6 +261,15 @@ const CILTinspection = ({ route, navigation }) => {
 
   const handleSegregationDescriptionChange = useCallback((data) => {
     setSegregationDescriptionData(data);
+    if (packageType) {
+      setPackageLifecycle(prev => ({
+        ...prev,
+        [packageType]: {
+          status: CILT_STATUS.IN_PROGRESS,
+          updatedAt: moment().tz("Asia/Jakarta").format(),
+        }
+      }));
+    }
 
     // Simpan description data ke cache
     if (packageType === "SEGREGASI") {
@@ -325,6 +392,21 @@ const CILTinspection = ({ route, navigation }) => {
     initializeData();
     setFormOpenTime(moment().tz("Asia/Jakarta").format());
   }, []);
+
+  // Lock context ONCE when form becomes "ready"
+  useEffect(() => {
+    if (lockedContext) return; // already locked
+    if (!plant || !line || !machine || !shift) return;
+    // date selalu ada, tapi tetap aman
+    setLockedContext({
+      plant,
+      line,
+      machine,
+      shift,
+      date,
+      openedAt: moment().tz("Asia/Jakarta").format(),
+    });
+  }, [plant, line, machine, shift, date, lockedContext]);
 
   useEffect(() => {
     if (!packageMasterRaw.length) {
@@ -467,39 +549,37 @@ const CILTinspection = ({ route, navigation }) => {
     }
   };
 
-  // Function untuk clear storage spesifik berdasarkan package dan product setelah submit berhasil
+  // Function untuk clear storage spesifik berdasarkan package setelah submit berhasil
   const clearPackageStorageAfterSubmit = async () => {
     try {
+      // FILLER PACKAGES
       if (packageType === "PEMAKAIAN PAPER" && globalThis.clearPaperStorage) {
         await globalThis.clearPaperStorage();
-        console.log("Cleared paper storage after submit");
-      } else if (packageType === "PEMAKAIAN SCREW CAP" && globalThis.clearScrewCapStorage) {
+      }
+
+      if (packageType === "PEMAKAIAN SCREW CAP" && globalThis.clearScrewCapStorage) {
         await globalThis.clearScrewCapStorage();
-        console.log("Cleared screw cap storage after submit");
-      } else if (packageType === "SEGREGASI" && globalThis.clearSegregasiStorage) {
+      }
+
+      if (packageType === "SEGREGASI" && globalThis.clearSegregasiStorage) {
         await globalThis.clearSegregasiStorage();
-        console.log("Cleared segregasi storage after submit");
+      }
 
-        // Clear storage untuk Artema Cardboard
-        if (packageType === "LAPORAN ARTEMA & SMS CARDBOARD") {
-          const storageKey = `artema_cardboard_${(username || "user").replace(/\s+/g, "_")}`;
-          await AsyncStorage.removeItem(storageKey);
-          console.log("Cleared Artema Cardboard storage after submit");
-        }
+      // PACKER PACKAGES
+      if (packageType === "LAPORAN ARTEMA & SMS CARDBOARD") {
+        const storageKey = `artema_cardboard_${(username || "user").replace(/\s+/g, "_")}`;
+        await AsyncStorage.removeItem(storageKey);
+      }
 
-        // Clear storage untuk Frans Case Packer
-        if (packageType === "LAPORAN FRANS WP 25 CASE") {
-          const storageKey = `frans_casepacker_${(username || "user").replace(/\s+/g, "_")}`;
-          await AsyncStorage.removeItem(storageKey);
-          console.log("Cleared Frans Case Packer storage after submit");
-        }
+      if (packageType === "LAPORAN FRANS WP 25 CASE") {
+        const storageKey = `frans_casepacker_${(username || "user").replace(/\s+/g, "_")}`;
+        await AsyncStorage.removeItem(storageKey);
+      }
 
-        // Clear storage untuk Robot Palletizer
-        if (packageType === "ROBOT PALLETIZER FILLER") {
-          const storageKey = `robot_palletizer_${(username || "user").replace(/\s+/g, "_")}`;
-          await AsyncStorage.removeItem(storageKey);
-          console.log("Cleared Robot Palletizer storage after submit");
-        }
+      // ROBOT PACKAGE
+      if (packageType === "ROBOT PALLETIZER FILLER") {
+        const storageKey = `robot_palletizer_${(username || "user").replace(/\s+/g, "_")}`;
+        await AsyncStorage.removeItem(storageKey);
       }
     } catch (error) {
       console.error("Error clearing package storage after submit:", error);
@@ -536,7 +616,8 @@ const CILTinspection = ({ route, navigation }) => {
   }, [plant, line]);
 
   useEffect(() => {
-    if (!plant || !line || !machine || !packageType || !shift) return;
+    if (isDraftModeRef.current) return;
+    if (!plant || !line || !date || !shift || !machine || !packageType) return;
 
     const formattedPlant = plant.replace(/\s+/g, "-");
     const formattedLine = line.replace(/\s+/g, "-");
@@ -547,9 +628,14 @@ const CILTinspection = ({ route, navigation }) => {
 
     const updated = `${formattedPlant}_${formattedLine}_${formattedDate}_${formattedShift}_${formattedMachine}_${formattedPackage}`;
     setProcessOrder(updated);
+    setPackageProcessOrderMap(prev => ({
+      ...prev,
+      [packageType]: updated,
+    }));
   }, [plant, line, date, shift, machine, packageType]);
 
   useEffect(() => {
+    if (isDraftModeRef.current || activeDraftId) return;
     if (!plant || !line || !date || !shift || !machine || !packageType) return;
     checkIfDataExists();
   }, [processOrder]);
@@ -561,7 +647,7 @@ const CILTinspection = ({ route, navigation }) => {
 
     // Load inspection data dari cache jika ada
     if (packageDataCache[packageType]) {
-      console.log(` Loading inspection data from cache for: ${packageType}`);
+      console.log(`Loading inspection data from cache for: ${packageType}`);
       setInspectionData(packageDataCache[packageType]);
     } else {
       console.log(`No cache found for: ${packageType}, resetting inspection data`);
@@ -605,6 +691,166 @@ const CILTinspection = ({ route, navigation }) => {
     }
   };
 
+  // Resume Draft function
+  const resumeDraft = async (draftId) => {
+    try {
+      isDraftModeRef.current = true;
+      isResumingRef.current = true;
+      const res = await api.get(`/draft/${draftId}`);
+      if (res.status !== 200) return;
+      const draft = res.data;
+      setProcessOrder(draft.processOrder);
+
+      setPackageProcessOrderMap(prev => ({
+        ...prev,
+        [draft.packageType]: draft.processOrder,
+      }));
+
+      setPackageType(draft.packageType);
+      setActiveDraftId(draft.id);
+      setLockedContext({
+        plant: draft.plant,
+        line: draft.line,
+        machine: draft.machine,
+        shift: draft.shift,
+        date: draft.date,
+        openedAt: draft.formOpenTime || moment().tz("Asia/Jakarta").format(),
+      });
+
+      setDraftIds(prev => ({
+        ...prev,
+        [draft.packageType]: draft.id,
+      }));
+
+      const inspection = draft.inspectionData
+        ? JSON.parse(draft.inspectionData)
+        : [];
+
+      const description = draft.descriptionData
+        ? JSON.parse(draft.descriptionData)
+        : [];
+
+      // set data aktif
+      setInspectionData(inspection);
+      setSegregationDescriptionData(description);
+
+      // cache supaya konsisten
+      setPackageDataCache(prev => ({
+        ...prev,
+        [draft.packageType]: inspection,
+      }));
+
+      if (draft.packageType === "SEGREGASI") {
+        setPackageDescriptionCache(prev => ({
+          ...prev,
+          [draft.packageType]: description,
+        }));
+      }
+      console.log("Draft resumed:", draft.packageType, inspection.length);
+      isResumingRef.current = false;
+    } catch (err) {
+      console.error("Resume draft failed:", err);
+    }
+  };
+
+  const autoSaveDraft = async ({ overrideShift, overrideProcessOrder } = {}) => {
+    if (isResumingRef.current) {
+      console.log("AutoSave skipped (resuming draft)");
+      return;
+    }
+    if (isSubmittingRef.current) return;
+    const now = Date.now();
+    if (now - lastAutoSaveRef.current < 2000) {
+      console.log("AutoSave skipped (debounced)");
+      return;
+    }
+    lastAutoSaveRef.current = now;
+    const ctx = contextRef.current;
+    if (!ctx) return;
+
+    const cache = packageDataCacheRef.current || {};
+    const descCache = packageDescriptionCacheRef.current || {};
+    const basePo = processOrderRef.current;
+    if (!basePo) return;
+
+    try {
+      if (!packageType) return;
+
+      const pkg = activeDraftId
+        ? Object.keys(draftIds)[0] || packageType
+        : packageType;
+      const insp = cache[pkg] || [];
+      const desc = pkg === "SEGREGASI" ? (descCache[pkg] || []) : [];
+
+      const hasTouchedInspection = hasAnyInspectionTouched(insp);
+      const hasTouchedDescription =
+        pkg === "SEGREGASI" && hasDescriptionData(desc);
+
+      if (!hasTouchedInspection && !hasTouchedDescription) {
+        return;
+      }
+
+      const pkgProcessOrder =
+        overrideProcessOrder || packageProcessOrderMap[pkg];
+      if (!pkgProcessOrder) return;
+
+      const payload = {
+        id: draftIds?.[pkg] || null,
+        processOrder: pkgProcessOrder,
+        packageType: pkg,
+        autoSaved: !!overrideShift,
+        plant: ctx.plant,
+        line: ctx.line,
+        machine: ctx.machine,
+        shift: overrideShift || ctx.shift,
+        date: ctx.date,
+        product: product || baseProduct || "",
+        inspectionData: insp,
+        descriptionData: desc,
+        status: CILT_STATUS.DRAFT,
+      };
+
+      // backend UPSERT by processOrder+packageType
+      const res = await api.post("/draft/autosave", payload);
+      if (res?.data?.id) {
+        setDraftIds(prev => ({
+          ...prev,
+          [pkg]: res.data.id,
+        }));
+      }
+
+      setPackageLifecycle((prev) => ({
+        ...prev,
+        [pkg]: { status: CILT_STATUS.DRAFT, updatedAt: moment().tz("Asia/Jakarta").format() },
+      }));
+    } catch (err) {
+      console.error("Auto save draft failed:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (!lockedContext) return;
+    if (isDraftModeRef.current || activeDraftId) return;
+    if (shift !== prevShiftRef.current && prevProcessOrderRef.current) {
+      console.log("Shift boundary detected → force autosave previous shift");
+
+      autoSaveDraft({
+        overrideShift: prevShiftRef.current,
+        overrideProcessOrder: prevProcessOrderRef.current,
+      });
+
+      prevShiftRef.current = shift;
+    }
+  }, [shift]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("beforeRemove", () => {
+      if (isSubmittingRef.current) return;
+      autoSaveDraft();
+    });
+    return unsubscribe;
+  }, [navigation]); // pasang sekali
+
   // Updated handleSubmit function
   const handleSubmit = async (status) => {
     Alert.alert(
@@ -618,6 +864,7 @@ const CILTinspection = ({ route, navigation }) => {
         {
           text: "Ya, Submit",
           onPress: async () => {
+            isSubmittingRef.current = true;
             // langsung pakai format final untuk disimpan ke DB
             const submitTime = moment()
               .tz("Asia/Jakarta")
@@ -666,7 +913,7 @@ const CILTinspection = ({ route, navigation }) => {
 
               // Prepare order object
               order = {
-                processOrder,
+                processOrder: packageProcessOrderMap[packageType] || processOrder,
                 packageType,
                 plant,
                 line,
@@ -710,6 +957,15 @@ const CILTinspection = ({ route, navigation }) => {
               const response = await api.post("/cilt", order);
 
               if (response.status === 201) {
+                isDraftModeRef.current = false;
+                if (draftIds?.[packageType]) {
+                  await api.delete(`/draft/${draftIds[packageType]}`);
+                  setDraftIds(prev => {
+                    const next = { ...prev };
+                    delete next[packageType];
+                    return next;
+                  });
+                }
                 Alert.alert("Success", "Data submitted successfully!");
                 await clearOfflineData();
 
@@ -750,6 +1006,17 @@ const CILTinspection = ({ route, navigation }) => {
               }
             } catch (error) {
               console.error("Submit failed, saving offline data:", error);
+              // Mark draft as pending-submit
+              if (draftIds?.[packageType]) {
+                await api.post(`/draft/submit/${draftIds[packageType]}`);
+
+                // bersihkan local state draft
+                setDraftIds(prev => {
+                  const next = { ...prev };
+                  delete next[packageType];
+                  return next;
+                });
+              }
               await saveOfflineData(order);
               Alert.alert(
                 "Offline",
@@ -786,6 +1053,8 @@ const CILTinspection = ({ route, navigation }) => {
   // RESET ALL selections & caches
   const resetForm = async () => {
     try {
+      isDraftModeRef.current = false;
+      setActiveDraftId(null);
       // Bersihkan storage yang menyimpan pilihan terakhir
       savedSelectionsRef.current = { plant: "", line: "", machine: "" };
       await AsyncStorage.multiRemove(["plant", "line", "machine", "product"]);
