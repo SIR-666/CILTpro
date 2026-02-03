@@ -19,6 +19,9 @@ const ChecklistCILTInspectionTable = ({
   line,
   machine,
   type,
+  processOrder,
+  shift,
+  product,
 }) => {
   const [inspectionData, setInspectionData] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -27,7 +30,7 @@ const ChecklistCILTInspectionTable = ({
   // const hasLoadedData = useRef(false);
 
   // Track previous params untuk deteksi perubahan
-  const prevParams = useRef({ plant, line, machine, type });
+  const prevParams = useRef({ plant, line, machine, type, processOrder, shift, product });
 
   const uploadImageToServer = async (uri) => {
     const formData = new FormData();
@@ -107,7 +110,7 @@ const ChecklistCILTInspectionTable = ({
   };
 
   const getStorageKey = () =>
-    `checklist_cilt_${plant}_${line}_${machine}_${type}_${username || "user"}`;
+    `checklist_cilt_${processOrder || `${plant}_${line}_${machine}_${type}`}_${product || "no_product"}_${username || "user"}`;
 
   const saveDataToStorage = async (data) => {
     try {
@@ -135,7 +138,7 @@ const ChecklistCILTInspectionTable = ({
       if (typeof window !== "undefined") delete window.clearChecklistStorage;
       delete globalThis.clearChecklistStorage;
     };
-  }, [plant, line, machine, type]);
+  }, [plant, line, machine, type, processOrder, shift, product]);
 
   useEffect(() => {
     const loadData = async () => {
@@ -174,17 +177,20 @@ const ChecklistCILTInspectionTable = ({
       prevParams.current.plant !== plant ||
       prevParams.current.line !== line ||
       prevParams.current.machine !== machine ||
-      prevParams.current.type !== type;
+      prevParams.current.type !== type ||
+      prevParams.current.processOrder !== processOrder ||
+      prevParams.current.shift !== shift ||
+      prevParams.current.product !== product;
 
     // Update ref
-    prevParams.current = { plant, line, machine, type };
+    prevParams.current = { plant, line, machine, type, processOrder, shift, product };
 
     if (plant && line && machine && type) {
       if (paramsChanged || inspectionData.length === 0) {
         loadData();
       }
     }
-  }, [plant, line, machine, type, initialData]);
+  }, [plant, line, machine, type, initialData, processOrder, shift, product]);
 
   // Auto-save on data change
   useEffect(() => {
