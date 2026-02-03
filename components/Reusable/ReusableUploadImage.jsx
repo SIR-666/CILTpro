@@ -9,7 +9,7 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
-import { ReusableBtn } from "../../components";
+import ReusableBtn from "../Buttons/ReusableBtn";
 import { COLORS, SIZES } from "../../constants/theme";
 import { uploadImageApi } from "../../utils/axiosInstance";
 

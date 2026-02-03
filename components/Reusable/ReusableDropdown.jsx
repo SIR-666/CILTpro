@@ -13,7 +13,10 @@ import styles from "./signin.style";
 import React, { useState } from "react";
 import { COLORS, SIZES, TEXT } from "../../constants/theme";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { WidthSpacer, HeightSpacer, ReusableBtn, AppBar } from "..";
+import WidthSpacer from "./WidthSpacer";
+import HeightSpacer from "./HeightSpacer";
+import ReusableBtn from "../Buttons/ReusableBtn";
+import AppBar from "./AppBar";
 import { Picker } from "@react-native-picker/picker";
 
 const ReusableDropdown = ({ selectedValue, onValueChange, itemOptions }) => {
