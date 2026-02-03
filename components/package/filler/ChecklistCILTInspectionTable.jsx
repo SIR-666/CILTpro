@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   Platform,
   StyleSheet,
@@ -105,8 +106,70 @@ const ChecklistCILTInspectionTable = ({
     }
   };
 
+  const getStorageKey = () =>
+    `checklist_cilt_${plant}_${line}_${machine}_${type}_${username || "user"}`;
+
+  const saveDataToStorage = async (data) => {
+    try {
+      if (data && data.length > 0) {
+        await AsyncStorage.setItem(getStorageKey(), JSON.stringify(data));
+      }
+    } catch (e) {
+      console.error("Error saving checklist data:", e);
+    }
+  };
+
+  const clearStorageData = async () => {
+    try {
+      await AsyncStorage.removeItem(getStorageKey());
+      console.log("Checklist storage cleared");
+    } catch (e) {
+      console.error("Error clearing checklist storage:", e);
+    }
+  };
+
   useEffect(() => {
-    // Cek apakah params berubah
+    if (typeof window !== "undefined") window.clearChecklistStorage = clearStorageData;
+    globalThis.clearChecklistStorage = clearStorageData;
+    return () => {
+      if (typeof window !== "undefined") delete window.clearChecklistStorage;
+      delete globalThis.clearChecklistStorage;
+    };
+  }, [plant, line, machine, type]);
+
+  useEffect(() => {
+    const loadData = async () => {
+      // 1. Try Initial Data
+      if (initialData && initialData.length > 0) {
+        console.log(`Using initialData for Line ${line}`);
+        setInspectionData(initialData);
+        return;
+      }
+
+      // 2. Try AsyncStorage
+      try {
+        const stored = await AsyncStorage.getItem(getStorageKey());
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && parsed.length > 0) {
+            console.log(`Loaded from AsyncStorage for Line ${line}`);
+            setInspectionData(parsed);
+            onDataChange(parsed);
+            return;
+          }
+        }
+      } catch (e) {
+        console.error("Error loading checklist storage:", e);
+      }
+
+      // 3. Fetch API
+      if (plant && line && machine && type) {
+        console.log(`Fetching from API for Line ${line}...`);
+        fetchInspection(plant, line, machine, type);
+      }
+    };
+
+    // Check if params changed or data is empty
     const paramsChanged =
       prevParams.current.plant !== plant ||
       prevParams.current.line !== line ||
@@ -116,44 +179,19 @@ const ChecklistCILTInspectionTable = ({
     // Update ref
     prevParams.current = { plant, line, machine, type };
 
-    // Load initial data dari parent jika ada dan belum pernah load
-    // if (initialData.length > 0 && !hasLoadedData.current) {
-    //   console.log("Loading from initialData:", initialData.length);
-    //   setInspectionData(initialData);
-    //   hasLoadedData.current = true;
-    //   return;
-    // }
-
-    // // Fetch dari API hanya jika:
-    // // 1. Belum pernah load data, DAN
-    // // 2. Semua params lengkap
-    // if (!hasLoadedData.current && plant && line && machine && type) {
-    //   console.log("Fetching data from API");
-    //   fetchInspection(plant, line, machine, type);
-    //   return;
-    // }
-
     if (plant && line && machine && type) {
       if (paramsChanged || inspectionData.length === 0) {
-        console.log(`Params changed or empty data, fetching for Line ${line}...`);
-        fetchInspection(plant, line, machine, type);
+        loadData();
       }
     }
-  }, [plant, line, machine, type]);
+  }, [plant, line, machine, type, initialData]);
 
-  //   // Jika params berubah dan sudah pernah load, fetch ulang
-  //   if (paramsChanged && hasLoadedData.current && plant && line && machine && type) {
-  //     console.log("Params changed, refetching");
-  //     fetchInspection(plant, line, machine, type);
-  //   }
-  // }, [plant, line, machine, type, initialData]);
-
+  // Auto-save on data change
   useEffect(() => {
-    if (initialData.length > 0 && inspectionData.length === 0) {
-      console.log(`Loading from initialData for Line ${line}:`, initialData.length);
-      setInspectionData(initialData);
+    if (inspectionData.length > 0) {
+      saveDataToStorage(inspectionData);
     }
-  }, [initialData]);
+  }, [inspectionData]);
 
   useEffect(() => {
     globalThis.checklistForceRefresh = () => {
@@ -241,10 +279,10 @@ const ChecklistCILTInspectionTable = ({
     <View style={styles.table}>
       <View style={styles.tableHead}>
         <Text style={[styles.tableCaption, { width: "20%" }]}>Job Type</Text>
-        <Text style={[styles.tableCaption, { width: "20%" }]}>Component</Text>
-        <Text style={[styles.tableCaption, { width: "30%" }]}>Standart</Text>
+        <Text style={[styles.tableCaption, { width: "25%" }]}>Component</Text>
+        <Text style={[styles.tableCaption, { width: "35%" }]}>Standart</Text>
         <Text style={[styles.tableCaption, { width: "20%" }]}>Hasil</Text>
-        <Text style={[styles.tableCaption, { width: "10%" }]}>Photo</Text>
+        {/* <Text style={[styles.tableCaption, { width: "10%" }]}>Photo</Text> */}
       </View>
 
       {inspectionData.map((item, index) => (
@@ -252,10 +290,10 @@ const ChecklistCILTInspectionTable = ({
           <View style={{ width: "20%" }}>
             <Text style={styles.tableData}>{item.job_type}</Text>
           </View>
-          <View style={{ width: "20%" }}>
+          <View style={{ width: "25%" }}>
             <Text style={styles.tableData}>{item.componen}</Text>
           </View>
-          <View style={{ width: "30%" }}>
+          <View style={{ width: "35%" }}>
             <Text style={styles.tableData}>{item.standart}</Text>
           </View>
 
@@ -265,14 +303,14 @@ const ChecklistCILTInspectionTable = ({
           </View>
 
           {/* Photo */}
-          <View style={{ width: "10%" }}>
+          {/* <View style={{ width: "10%" }}>
             <View style={[styles.tableData, styles.centeredContent]}>
               <ReusableOfflineUploadImage
                 onImageSelected={(uri) => handleImageSelected(uri, index)}
                 uploadImage={uploadImageToServer}
               />
             </View>
-          </View>
+          </View> */}
         </View>
       ))}
     </View>
