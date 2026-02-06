@@ -16,7 +16,7 @@ import { COLORS } from "../../constants/theme";
 import { api } from "../../utils/axiosInstance";
 
 const DetailShiftlyDowntime = ({ route, navigation }) => {
-  const { item } = route.params;
+  const { item: headerItem } = route.params;
   const [selectedImage, setSelectedImage] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
 
@@ -24,7 +24,21 @@ const DetailShiftlyDowntime = ({ route, navigation }) => {
   const modalImageSize = width * 0.8; // 80% of screen width
 
   // Set inspection data
-  const inspectionData = item.data;
+  const inspectionData = headerItem.data;
+
+  const normalizeDetailItem = (row) => ({
+    id: row.id ?? row.event_id,
+    plant: row.plant ?? headerItem.plant ?? headerItem.Plant,
+    line: row.line ?? headerItem.line ?? headerItem.Line,
+    shift: row.shift ?? headerItem.shift ?? headerItem.Shift,
+    downtime_category:
+      row.downtime_category ?? row.Downtime_Category ?? headerItem.downtime_category,
+    mesin: row.mesin ?? row.Mesin,
+    jenis: row.jenis ?? row.Jenis,
+    keterangan: row.keterangan ?? row.Keterangan,
+    minutes: row.minutes ?? row.Minutes,
+    start_time: row.start_time ?? row.Date ?? row.date,
+  });
 
   const deleteInspectionById = async (id) => {
     const response = await api.delete(`/downtime/${id}`);
@@ -244,19 +258,19 @@ const DetailShiftlyDowntime = ({ route, navigation }) => {
           <Text style={styles.infoTextBold}>
             Date:{"    "}
             <Text style={styles.infoText}>
-              {moment(item.date, "YYYY-MM-DD HH:mm:ss.SSS").format("DD/MM/YY")}
+              {moment(headerItem.date, "YYYY-MM-DD HH:mm:ss.SSS").format("DD/MM/YY")}
             </Text>
           </Text>
           <Text style={styles.infoTextBold}>
-            Plant: {"  "} <Text style={styles.infoText}>{item.plant}</Text>
+            Plant: {"  "} <Text style={styles.infoText}>{headerItem.plant}</Text>
           </Text>
           <Text style={styles.infoTextBold}>
             Line: {"    "}
-            <Text style={styles.infoText}>{item.line}</Text>
+            <Text style={styles.infoText}>{headerItem.line}</Text>
           </Text>
           <Text style={styles.infoTextBold}>
             Shift: {"   "}
-            <Text style={styles.infoText}>{item.shift}</Text>
+            <Text style={styles.infoText}>{headerItem.shift}</Text>
           </Text>
         </View>
 
@@ -331,7 +345,7 @@ const DetailShiftlyDowntime = ({ route, navigation }) => {
                     </Text>
                   </View>
                   <View style={[styles.cell, { width: "15%" }]}>
-                    <Text style={styles.cellText}>{item.mesin}</Text>
+                    <Text style={styles.cellText}>{item.mesin ?? "-"}</Text>
                   </View>
                   <View style={[styles.cell, { width: "14%" }]}>
                     <Text style={styles.cellText}>{item.jenis}</Text>
@@ -372,7 +386,9 @@ const DetailShiftlyDowntime = ({ route, navigation }) => {
                         <TouchableOpacity
                           style={styles.updateButton}
                           onPress={() =>
-                            navigation.navigate("EditDowntime", { item })
+                            navigation.navigate("EditDowntime", {
+                              item: normalizeDetailItem(item),
+                            })
                           }
                         >
                           <Text style={styles.buttonText}>Update</Text>
@@ -419,8 +435,8 @@ const DetailShiftlyDowntime = ({ route, navigation }) => {
                   marginVertical: 10,
                   borderRadius: 5,
                 }}
-                // style={styles.imageModal}
-                // resizeMode="contain"
+              // style={styles.imageModal}
+              // resizeMode="contain"
               />
             )}
           </View>

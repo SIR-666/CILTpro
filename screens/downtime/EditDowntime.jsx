@@ -34,15 +34,21 @@ const getShiftByHour = (hour) => {
 
 //  moment(new Date(item.start_time)).tz("UTC").format("YYYY-MM-DD HH:mm:ss")
 const EditDowntimePage = ({ route, navigation }) => {
-  const { item } = route.params;
+  const { item = {} } = route.params || {};
   const [plant, setPlant] = useState("");
   const [line, setLine] = useState("");
   const [date, setDate] = useState(new Date());
   const [endTime, setEndTime] = useState(new Date());
+  const initialStartTime =
+    item.start_time ?? item.Date ?? item.date ?? null;
+  const initialShift =
+    item.shift ?? item.Shift ?? null;
   const [shift, setShift] = useState(
-    getShiftByHour(
-      moment(new Date(item.start_time)).tz("Asia/Jakarta").format("HH")
-    )
+    initialShift && String(initialShift).startsWith("Shift")
+      ? initialShift
+      : getShiftByHour(
+        moment(new Date(initialStartTime)).tz("Asia/Jakarta").format("HH")
+      )
   );
 
   const [machine, setMachine] = useState("");
@@ -81,15 +87,19 @@ const EditDowntimePage = ({ route, navigation }) => {
 
   useEffect(() => {
     if (item) {
-      setPlant(item.plant);
-      setLine(item.line);
-      setCategory(item.downtime_category);
-      setMachine(item.mesin);
-      setDowntime(item.jenis);
-      setRemarks(item.keterangan ?? "");
-      setDuration(String(item.minutes));
+      setPlant(item.plant ?? item.Plant ?? "");
+      setLine(item.line ?? item.Line ?? "");
+      setCategory(item.downtime_category ?? item.Downtime_Category ?? "");
+      setMachine(item.mesin ?? item.Mesin ?? "-");
+      setDowntime(item.jenis ?? item.Jenis ?? "");
+      setRemarks(item.keterangan ?? item.Keterangan ?? "");
+      setDuration(String(item.minutes ?? item.Minutes ?? ""));
 
-      setDate(moment.utc(item.start_time).subtract(7, "hours").toDate());
+      if (initialStartTime) {
+        setDate(
+          moment(initialStartTime).tz("Asia/Jakarta").toDate()
+        );
+      }
     }
   }, []);
 
@@ -107,18 +117,31 @@ const EditDowntimePage = ({ route, navigation }) => {
     let order = {}; // Objek untuk menyimpan data order
 
     try {
+      const shiftValue = shiftMapCILT[shift] || shift.replace(/\D/g, "");
+      const startTimeStr = moment(date)
+        .tz("Asia/Jakarta")
+        .format("YYYY-MM-DD HH:mm");
+      const runIdRes = await api.get(
+        `/resolveRunId?plant=${encodeURIComponent(plant)}&line=${encodeURIComponent(line)}&shift=${encodeURIComponent(shiftValue)}&start_time=${encodeURIComponent(startTimeStr)}`
+      );
+      const runId = runIdRes.data?.run_id;
+      if (!runId) {
+        Alert.alert("Error", "Run ID tidak ditemukan untuk waktu tersebut.");
+        return;
+      }
       // Siapkan objek order
       order = {
         id: item.id,
         plant: plant,
-        date: moment(date).tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm"),
-        shift: shiftMapCILT[shift] || shift.replace(/\D/g, ""),
+        date: startTimeStr,
+        shift: shiftValue,
         line: line,
         downtime_category: category,
         mesin: machine,
         jenis: downtime,
         keterangan: remarks ?? "-",
         minutes: duration,
+        run_id: runId,
       };
 
       console.log("Simpan data order:", order);

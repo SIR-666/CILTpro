@@ -47,8 +47,6 @@ const AddDowntimePage = () => {
   const [duration, setDuration] = useState("");
   const [isLoading, setIsLoading] = useState(false); // State to manage loading animation
   const [downtimeData, setDowntimeData] = useState([]);
-  const [areas, setAreas] = useState([]);
-  const [lineOptions, setLineOptions] = useState([]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
 
@@ -93,9 +91,9 @@ const AddDowntimePage = () => {
     );
   };
 
-  const handleSelect = (category, machine, itemDowntime) => {
+  const handleSelect = (category, itemDowntime) => {
     setSelectedCategory(category);
-    setSelectedMachine(machine);
+    setSelectedMachine("");
     setSelectedItemDowntime(itemDowntime);
     setShowModal(false);
     setShowDetailModal(true); // tampilkan modal input detail
@@ -106,27 +104,21 @@ const AddDowntimePage = () => {
       const response = await api.get(`/getDowntimeMasterByLine?line=${line}`);
       const raw = response.data;
 
-      // Proses jadi format: [{ category: "...", items: [...] }]
+      // Proses jadi format: [{ category: "...", downtime: [...] }]
       const grouped = raw.reduce((acc, item) => {
-        const { downtime_category, mesin, downtime } = item;
+        const { downtime_category, downtime } = item;
+        if (!downtime_category) return acc;
 
         // cari kategori
         let cat = acc.find((c) => c.category === downtime_category);
         if (!cat) {
-          cat = { category: downtime_category, mesin: [] };
+          cat = { category: downtime_category, downtime: [] };
           acc.push(cat);
         }
 
-        // cari mesin
-        let m = cat.mesin.find((m) => m.name === mesin);
-        if (!m) {
-          m = { name: mesin, downtime: [] };
-          cat.mesin.push(m);
-        }
-
         // tambahkan downtime jika belum ada
-        if (!m.downtime.includes(downtime)) {
-          m.downtime.push(downtime);
+        if (downtime && !cat.downtime.includes(downtime)) {
+          cat.downtime.push(downtime);
         }
 
         return acc;
@@ -180,6 +172,31 @@ const AddDowntimePage = () => {
     "Shift 3": "III",
   };
 
+  const plantOptions = [
+    "Milk Filling Packing",
+    "Milk Processing",
+    "Yogurt",
+    "Cheese",
+  ];
+  const lineOptionsByPlant = {
+    "Milk Filling Packing": [
+      "LINE A",
+      "LINE B",
+      "LINE C",
+      "LINE D",
+      "LINE E",
+      "LINE F",
+      "LINE G",
+      "LINE H",
+      "LINE BIB",
+      "LINE J",
+    ],
+    "Milk Processing": ["FLEX 1", "FLEX 2", "GEA 3", "GEA 4", "GEA 5"],
+    Yogurt: ["YA", "YB", "YRTD", "PASTEURIZER"],
+    Cheese: ["MOZ 200", "MOZ 1000", "RICO"],
+  };
+  const lineOptions = lineOptionsByPlant[plant] || [];
+
   useEffect(() => {
     const loadDate = async () => {
       const savedDate = await AsyncStorage.getItem("date");
@@ -193,12 +210,7 @@ const AddDowntimePage = () => {
     loadDate();
   }, []);
 
-  useEffect(() => {
-    fetchAreaData(); // Fetch area data on component mount
-  }, []);
-
   const fetchData = async () => {
-    filterOptions();
     const dateLocal = await AsyncStorage.getItem("date");
     const shiftMapped = shiftMapCILT[shift] || shift;
     await fetchDowntimeData(plant, dateLocal, line, shiftMapped);
@@ -207,15 +219,6 @@ const AddDowntimePage = () => {
   useEffect(() => {
     fetchData();
   }, [plant, line, currentDate, shift]);
-
-  const fetchAreaData = async () => {
-    try {
-      const response = await api.get("/getDowntimeList");
-      setAreas(response.data);
-    } catch (error) {
-      console.error("Error fetching data:", error);
-    }
-  };
 
   const fetchDowntimeData = async (plant, date, line, shift) => {
     try {
@@ -228,15 +231,6 @@ const AddDowntimePage = () => {
     }
   };
 
-  const filterOptions = () => {
-    const filteredLines = areas
-      .filter((area) => area.plant === plant)
-      .map((area) => area.line)
-      .filter((value, index, self) => self.indexOf(value) === index);
-
-    setLineOptions(filteredLines);
-  };
-
   // Submit form
   const handleSubmit = async () => {
     let order = {};
@@ -246,19 +240,32 @@ const AddDowntimePage = () => {
     }
 
     try {
+      const shiftValue = shiftMapCILT[shift] || shift.replace(/\D/g, "");
+      const startTimeStr = moment(startTime)
+        .tz("Asia/Jakarta")
+        .format("YYYY-MM-DD HH:mm");
+      const runIdRes = await api.get(
+        `/resolveRunId?plant=${encodeURIComponent(plant)}&line=${encodeURIComponent(line)}&shift=${encodeURIComponent(shiftValue)}&start_time=${encodeURIComponent(startTimeStr)}`
+      );
+      const runId = runIdRes.data?.run_id;
+      if (!runId) {
+        Alert.alert("Error", "Run ID tidak ditemukan untuk waktu tersebut.");
+        return;
+      }
       order = {
         plant: plant,
-        date: moment(startTime).tz("Asia/Jakarta").format("YYYY-MM-DD HH:mm"),
-        shift: shiftMapCILT[shift] || shift.replace(/\D/g, ""),
+        date: startTimeStr,
+        shift: shiftValue,
         line: line,
         downtime_category:
           selectedCategory == "Breakdown/Minor Stop"
             ? "Minor Stop"
             : selectedCategory,
-        mesin: selectedMachine,
+        mesin: selectedMachine || "-",
         jenis: selectedItemDowntime,
         keterangan: remarks || "-",
         minutes: duration,
+        run_id: runId,
         ...(editingItem && { id: editingItem.id }), // tambahkan id jika edit
       };
 
@@ -288,7 +295,7 @@ const AddDowntimePage = () => {
 
   const handleEdit = (item) => {
     setSelectedCategory(item.Downtime_Category);
-    setSelectedMachine(item.Mesin);
+    setSelectedMachine(item.Mesin ?? "");
     setSelectedItemDowntime(item.Jenis);
     setStartTime(moment(item.Date, "YYYY-MM-DD HH:mm:ss.SSS").toDate());
     setDuration(String(item.Minutes));
@@ -353,19 +360,12 @@ const AddDowntimePage = () => {
                     onValueChange={async (itemValue) => {
                       setPlant(itemValue);
                       await AsyncStorage.setItem("plant", itemValue);
-                      filterOptions();
                     }}
                   >
                     <Picker.Item label="Select option" value="" />
-                    {[...new Set(areas.map((area) => area.plant))].map(
-                      (option, index) => (
-                        <Picker.Item
-                          key={index}
-                          label={option}
-                          value={option}
-                        />
-                      )
-                    )}
+                    {plantOptions.map((option, index) => (
+                      <Picker.Item key={index} label={option} value={option} />
+                    ))}
                   </Picker>
                 </View>
               </View>
@@ -384,7 +384,6 @@ const AddDowntimePage = () => {
                     onValueChange={async (itemValue) => {
                       setLine(itemValue);
                       await AsyncStorage.setItem("line", itemValue);
-                      filterOptions();
                     }}
                   >
                     <Picker.Item label="Select option" value="" />
@@ -517,7 +516,9 @@ const AddDowntimePage = () => {
                         </Text>
                       </View>
                       <View style={[styles.cell, { width: "15%" }]}>
-                        <Text style={styles.cellText}>{item.Mesin}</Text>
+                        <Text style={styles.cellText}>
+                          {item.Mesin ?? "-"}
+                        </Text>
                       </View>
                       <View style={[styles.cell, { width: "14%" }]}>
                         <Text style={styles.cellText}>{item.Jenis}</Text>
@@ -588,9 +589,11 @@ const AddDowntimePage = () => {
                 <Text style={styles.downtimeLabel}>
                   Category: {selectedCategory}
                 </Text>
-                <Text style={styles.downtimeLabel}>
-                  Machine: {selectedMachine}
-                </Text>
+                {selectedMachine ? (
+                  <Text style={styles.downtimeLabel}>
+                    Machine: {selectedMachine}
+                  </Text>
+                ) : null}
                 <Text style={styles.downtimeLabel}>
                   Downtime: {selectedItemDowntime}
                 </Text>

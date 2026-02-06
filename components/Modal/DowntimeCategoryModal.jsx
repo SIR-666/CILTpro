@@ -11,12 +11,22 @@ import {
 
 const DowntimeCategoryModal = ({ visible, onClose, onSelect, data }) => {
   const [selectedCategory, setSelectedCategory] = useState(null);
-  const [selectedMesin, setSelectedMesin] = useState(null);
   const [search, setSearch] = useState("");
 
   const filteredCategories = data.filter((cat) =>
     cat.category.toLowerCase().includes(search.toLowerCase())
   );
+  const filteredDowntimes = selectedCategory
+    ? (selectedCategory.downtime || []).filter((item) =>
+        String(item).toLowerCase().includes(search.toLowerCase())
+      )
+    : [];
+
+  const handleClose = () => {
+    setSelectedCategory(null);
+    setSearch("");
+    onClose();
+  };
 
   return (
     <Modal visible={visible} transparent animationType="slide">
@@ -24,13 +34,11 @@ const DowntimeCategoryModal = ({ visible, onClose, onSelect, data }) => {
         <View style={styles.modal}>
           <View style={styles.header}>
             <Text style={styles.headerText}>
-              {selectedMesin
+              {selectedCategory
                 ? "Select Downtime"
-                : selectedCategory
-                ? "Select Machine"
                 : "Select Downtime Category"}
             </Text>
-            <TouchableOpacity onPress={onClose}>
+            <TouchableOpacity onPress={handleClose}>
               <Text style={styles.close}>X</Text>
             </TouchableOpacity>
           </View>
@@ -60,39 +68,16 @@ const DowntimeCategoryModal = ({ visible, onClose, onSelect, data }) => {
             />
           )}
 
-          {selectedCategory && !selectedMesin && (
+          {selectedCategory && (
             <FlatList
-              data={selectedCategory.mesin}
-              keyExtractor={(item) => item.name}
+              data={filteredDowntimes}
+              keyExtractor={(item, idx) => `${item}-${idx}`}
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={styles.item}
                   onPress={() => {
-                    setSelectedMesin(item);
-                    setSearch("");
-                  }}
-                >
-                  <Text>{item.name}</Text>
-                </TouchableOpacity>
-              )}
-            />
-          )}
-
-          {selectedMesin && (
-            <FlatList
-              data={selectedMesin.downtime}
-              keyExtractor={(item) => item}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.item}
-                  onPress={() => {
-                    onSelect(
-                      selectedCategory.category,
-                      selectedMesin.name,
-                      item
-                    );
+                    onSelect(selectedCategory.category, item);
                     setSelectedCategory(null);
-                    setSelectedMesin(null);
                     setSearch("");
                     onClose();
                   }}
@@ -104,17 +89,17 @@ const DowntimeCategoryModal = ({ visible, onClose, onSelect, data }) => {
           )}
 
           <View style={styles.footer}>
-            {selectedMesin && (
-              <TouchableOpacity onPress={() => setSelectedMesin(null)}>
+            {selectedCategory && (
+              <TouchableOpacity
+                onPress={() => {
+                  setSelectedCategory(null);
+                  setSearch("");
+                }}
+              >
                 <Text style={styles.back}>Back</Text>
               </TouchableOpacity>
             )}
-            {selectedCategory && !selectedMesin && (
-              <TouchableOpacity onPress={() => setSelectedCategory(null)}>
-                <Text style={styles.back}>Back</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity onPress={onClose}>
+            <TouchableOpacity onPress={handleClose}>
               <Text style={styles.cancel}>Cancel</Text>
             </TouchableOpacity>
           </View>
