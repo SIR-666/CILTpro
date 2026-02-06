@@ -59,7 +59,7 @@ const extractGroupNameForSubItem = (activity, allData) => {
 };
 
 const GnrPerformanceInspectionTable = ({
-  username, onDataChange, initialData, plant, line, machine, type, shift: parentShift, processOrder
+  username, onDataChange, initialData, plant, line, machine, type, shift: parentShift, processOrder, selectedDate
 }) => {
   const [inspectionData, setInspectionData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -819,22 +819,79 @@ const GnrPerformanceInspectionTable = ({
       : `${String(hour).padStart(2, "0")}:30 - ${String(nextHour).padStart(2, "0")}:00`;
   };
 
-  const is30SlotAccessible = (slot) => {
-    const now = moment().tz("Asia/Jakarta");
+  const getBaseMoment = () =>
+    (selectedDate ? moment(selectedDate) : moment()).tz("Asia/Jakarta");
+
+  const getShiftWindow = (shiftName) => {
+    const base = getBaseMoment();
+    let start = base.clone().startOf("day").second(0).millisecond(0);
+    let end;
+
+    if (shiftName === "Shift 1") {
+      start = start.hour(6).minute(0);
+      end = start.clone().hour(14).minute(0);
+    } else if (shiftName === "Shift 2") {
+      start = start.hour(14).minute(0);
+      end = start.clone().hour(22).minute(0);
+    } else {
+      start = start.hour(22).minute(0);
+      if (base.hour() < 6) start = start.subtract(1, "day");
+      end = start.clone().add(8, "hours");
+    }
+
+    return { start, end };
+  };
+
+  const isSlotWithinShift = (slotHour, shiftName) => {
+    if (shiftName === "Shift 1") return slotHour >= 6 && slotHour <= 14;
+    if (shiftName === "Shift 2") return slotHour >= 14 && slotHour <= 22;
+    return slotHour >= 22 || slotHour <= 6;
+  };
+
+  const getSlotRange = (slot, shiftName) => {
     const [startStr, endStr] = slot.split("-").map(s => s.trim());
     const [sh, sm] = startStr.split(":").map(Number);
     const [eh, em] = endStr.split(":").map(Number);
-    const start = now.clone().hour(sh).minute(sm).second(0).millisecond(0);
-    const end = now.clone().hour(eh).minute(em).second(0).millisecond(0);
-    return end.isSameOrBefore(now) || (now.isSameOrAfter(start) && now.isBefore(end));
+    const { start } = getShiftWindow(shiftName);
+
+    let slotStart = start.clone().hour(sh).minute(sm).second(0).millisecond(0);
+    let slotEnd = start.clone().hour(eh).minute(em).second(0).millisecond(0);
+
+    if (shiftName === "Shift 3") {
+      if (sh < 22) slotStart = slotStart.add(1, "day");
+      if (eh < 22) slotEnd = slotEnd.add(1, "day");
+    } else if (slotEnd.isBefore(slotStart)) {
+      slotEnd = slotEnd.add(1, "day");
+    }
+
+    return { slotStart, slotEnd };
+  };
+
+  const is30SlotAccessible = (slot) => {
+    if (!slot) return false;
+    const now = moment().tz("Asia/Jakarta");
+    const currentShift = shift || getCurrentShift();
+    const { start, end } = getShiftWindow(currentShift);
+
+    if (now.isBefore(start)) return false;
+    if (now.isAfter(end)) return true;
+
+    const { slotStart, slotEnd } = getSlotRange(slot, currentShift);
+    return slotEnd.isSameOrBefore(now) || (now.isSameOrAfter(slotStart) && now.isBefore(slotEnd));
   };
 
   const isSlotAccessible = (slot) => {
-    const currentHour = moment().tz("Asia/Jakarta").hour();
+    const now = moment().tz("Asia/Jakarta");
+    const currentHour = now.hour();
     const slotHour = parseInt(slot.split(":")[0], 10);
     const currentShift = shift || getCurrentShift();
-    if (currentShift === "Shift 1") return slotHour >= 6 && slotHour <= currentHour && currentHour <= 14;
-    if (currentShift === "Shift 2") return slotHour >= 14 && slotHour <= currentHour && currentHour <= 22;
+    const { start, end } = getShiftWindow(currentShift);
+
+    if (now.isBefore(start)) return false;
+    if (now.isAfter(end)) return isSlotWithinShift(slotHour, currentShift);
+
+    if (currentShift === "Shift 1") return slotHour >= 6 && slotHour <= currentHour;
+    if (currentShift === "Shift 2") return slotHour >= 14 && slotHour <= currentHour;
     if (currentShift === "Shift 3") {
       if (currentHour >= 22) return slotHour >= 22 || slotHour <= 6;
       if (currentHour <= 6) return (slotHour >= 22 && slotHour <= 23) || (slotHour >= 0 && slotHour <= currentHour);
