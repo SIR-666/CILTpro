@@ -3138,6 +3138,58 @@ const ListCILT = ({ navigation }) => {
     }
   };
 
+  // Download guard: item bisa di-download jika minimal sudah disetujui Coor/SPV
+  const isApprovedForDownload = (item) => {
+    if (!item || typeof item !== "object") return false;
+
+    const isApproved = (value) => {
+      if (value === null || value === undefined) return false;
+      if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        if (normalized === "1" || normalized === "approved") return true;
+      }
+      return Number(value) === 1;
+    };
+
+    const isRejected = (value) => {
+      if (value === null || value === undefined) return false;
+      if (typeof value === "string") {
+        const normalized = value.trim().toLowerCase();
+        if (normalized.includes("reject")) return true;
+      }
+      const numeric = Number(value);
+      return numeric === -1 || numeric === 2;
+    };
+
+    const coorApprovalValue =
+      item.approval_coor ??
+      item.approvalCoor ??
+      item.coordinator_approval ??
+      item.coordinatorApproval;
+    const spvApprovalValue =
+      item.approval_spv ??
+      item.approvalSpv ??
+      item.supervisor_approval ??
+      item.supervisorApproval;
+
+    const hasAnyApproval =
+      isApproved(coorApprovalValue) ||
+      isApproved(spvApprovalValue) ||
+      isApproved(item.approval) ||
+      isApproved(item.status) ||
+      isApproved(item.approval_status);
+
+    const hasRejectedState = [
+      item.status,
+      item.approval_status,
+      item.approval,
+      coorApprovalValue,
+      spvApprovalValue,
+    ].some(isRejected);
+
+    return hasAnyApproval && !hasRejectedState;
+  };
+
   /* Download & PDF */
   const handleDownloadByShift = async () => {
     if (!selectedShift) {
@@ -3166,16 +3218,18 @@ const ListCILT = ({ navigation }) => {
         const matchesPackage = selectedPackage ? item.packageType === selectedPackage : true;
         return matchesShift && matchesSearch && matchesDate && matchesPlant && matchesLine && matchesPackage;
       });
+      const approvedShiftData = shiftData.filter(isApprovedForDownload);
 
       const includeCIP = !selectedPackage || selectedPackage === "REPORT CIP" || selectedPackage === "CIP";
-      const cipList = includeCIP ? await fetchCIPForFilters() : [];
+      const cipListRaw = includeCIP ? await fetchCIPForFilters() : [];
+      const cipList = (cipListRaw || []).filter(isApprovedForDownload);
 
-      if (shiftData.length === 0 && cipList.length === 0) {
-        Alert.alert("Info", "Tidak ada data untuk filter yang dipilih");
+      if (approvedShiftData.length === 0 && cipList.length === 0) {
+        Alert.alert("Info", "Tidak ada data yang sudah approved untuk filter yang dipilih");
         return;
       }
 
-      await generatePDFFile(selectedShift, shiftData, cipList);
+      await generatePDFFile(selectedShift, approvedShiftData, cipList);
     } catch (error) {
       console.error("Download error:", error);
       Alert.alert("Error", "Gagal mendownload data: " + (error?.message || "Unknown error"));
@@ -3186,11 +3240,12 @@ const ListCILT = ({ navigation }) => {
 
   // Download berdasarkan filter apapun yang aktif (tanpa wajib pilih Shift)
   const handleDownloadFiltered = async () => {
-    if (!filteredData || filteredData.length === 0) {
-      Alert.alert("Info", "Tidak ada data sesuai filter saat ini.");
+    const approvedPreviewCount = (filteredData || []).filter(isApprovedForDownload).length;
+    if (approvedPreviewCount === 0) {
+      Alert.alert("Info", "Tidak ada data yang sudah approved sesuai filter saat ini.");
       return;
     }
-    Alert.alert("Download Konfirmasi", `Download ${filteredData.length} item sesuai filter saat ini?`, [
+    Alert.alert("Download Konfirmasi", `Download ${approvedPreviewCount} item approved sesuai filter saat ini?`, [
       { text: "Batal", style: "cancel" },
       { text: "Download", onPress: () => { downloadFilteredData().catch(e => console.warn("downloadFilteredData failed:", e?.message || e)); } },
     ]);
@@ -3200,13 +3255,15 @@ const ListCILT = ({ navigation }) => {
     setIsDownloading(true);
     try {
       // data utama sesuai filter aktif pada List (sudah dihitung oleh useMemo filteredData)
-      const rawData = filteredData;
+      const rawData = (filteredData || []).filter(isApprovedForDownload);
 
       const includeCIP = !selectedPackage || selectedPackage === "REPORT CIP" || selectedPackage === "CIP";
-      const cipList = includeCIP && typeof fetchCIPForFilters === "function" ? await fetchCIPForFilters() : [];
+      const cipListRaw =
+        includeCIP && typeof fetchCIPForFilters === "function" ? await fetchCIPForFilters() : [];
+      const cipList = (cipListRaw || []).filter(isApprovedForDownload);
 
       if ((rawData?.length ?? 0) === 0 && (cipList?.length ?? 0) === 0) {
-        Alert.alert("Info", "Tidak ada data untuk filter yang dipilih.");
+        Alert.alert("Info", "Tidak ada data yang sudah approved untuk filter yang dipilih.");
         return;
       }
 
@@ -3653,6 +3710,8 @@ const ListCILT = ({ navigation }) => {
     );
   };
 
+  const approvedFilteredCount = filteredData.filter(isApprovedForDownload).length;
+
   const hasAnyFilter = useMemo(
     () => [searchQuery, selectedDate, selectedPlant, selectedLine, selectedPackage, selectedShift, selectedMonth, selectedYear].some(Boolean),
     [searchQuery, selectedDate, selectedPlant, selectedLine, selectedPackage, selectedShift, selectedMonth, selectedYear]
@@ -3859,20 +3918,43 @@ const ListCILT = ({ navigation }) => {
     );
   };
 
-  const TableHeader = () => (
-    <View className="tableHeader" style={styles.tableHeader}>
-      {["Date", "Process Order", "Package", "Plant", "Line", "Shift", "Product", "Machine", "Approval"].map((col, i) => (
-        <TouchableOpacity
-          key={i}
-          onPress={() => sortData(["date", "processOrder", "packageType", "plant", "line", "shift", "product", "machine"][i])}
-          style={styles.tableHeaderCell}
-        >
-          <Text style={styles.tableHeaderText}>{col}</Text>
-          <Icon name="arrow-drop-down" size={24} color={COLORS.blue} />
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
+  const TableHeader = () => {
+    const columns = [
+      { label: "Date", key: "date" },
+      { label: "Process Order", key: "processOrder" },
+      { label: "Package", key: "packageType" },
+      { label: "Plant", key: "plant" },
+      { label: "Line", key: "line" },
+      { label: "Shift", key: "shift" },
+      { label: "Product", key: "product" },
+      { label: "Machine", key: "machine" },
+      { label: "Approval", key: null },
+    ];
+
+    return (
+      <View className="tableHeader" style={styles.tableHeader}>
+        {columns.map((col, i) => {
+          if (!col.key) {
+            return (
+              <View key={i} style={styles.tableHeaderCell}>
+                <Text style={styles.tableHeaderText}>{col.label}</Text>
+              </View>
+            );
+          }
+          return (
+            <TouchableOpacity
+              key={i}
+              onPress={() => sortData(col.key)}
+              style={styles.tableHeaderCell}
+            >
+              <Text style={styles.tableHeaderText}>{col.label}</Text>
+              <Icon name="arrow-drop-down" size={24} color={COLORS.blue} />
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    );
+  };
 
   // Updated rendering logic to show latest PERFORMA only
   const seenPerformaItems = new Set();
@@ -4069,7 +4151,9 @@ const ListCILT = ({ navigation }) => {
       <View style={styles.downloadSection}>
         <View style={styles.downloadInfo}>
           <Text style={styles.downloadInfoText}>
-            {hasAnyFilter ? `Data ditampilkan: ${filteredData.length} item` : "Pilih minimal satu filter untuk mengaktifkan download"}
+            {hasAnyFilter
+              ? `Data approved untuk download: ${approvedFilteredCount} item`
+              : "Pilih minimal satu filter untuk mengaktifkan download"}
           </Text>
         </View>
         {/* Notifikasi kecil di UI jika package = CHECKLIST CILT dan tanggal dipilih */}
@@ -4079,9 +4163,9 @@ const ListCILT = ({ navigation }) => {
           </Text>
         )}
         <TouchableOpacity
-          style={[styles.downloadButton, (isDownloading || !hasAnyFilter || filteredData.length === 0) && styles.downloadButtonDisabled]}
+          style={[styles.downloadButton, (isDownloading || !hasAnyFilter || approvedFilteredCount === 0) && styles.downloadButtonDisabled]}
           onPress={handleDownloadFiltered}
-          disabled={isDownloading || !hasAnyFilter || filteredData.length === 0}
+          disabled={isDownloading || !hasAnyFilter || approvedFilteredCount === 0}
         >
           <Icon name={isDownloading ? "hourglass-empty" : "picture-as-pdf"} size={20} color="#fff" style={styles.downloadIcon} />
           <Text style={styles.downloadButtonText}>{isDownloading ? "Generating PDF..." : "Download Data PDF"}</Text>
