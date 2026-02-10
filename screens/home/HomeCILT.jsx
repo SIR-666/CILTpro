@@ -68,12 +68,12 @@ const Home = ({ navigation }) => {
       image: require("../../assets/list-downtime.png"),
       link: "ListDowntime",
     },
-    {
-      id: 6,
-      title: "LIST SAVE AS DRAFT",
-      image: require("../../assets/listHO.png"),
-      link: "ListCILTDraft",
-    },
+    // {
+    //   id: 6,
+    //   title: "LIST SAVE AS DRAFT",
+    //   image: require("../../assets/listHO.png"),
+    //   link: "ListCILTDraft",
+    // },
     {
       id: 7,
       title: "REPORT CIP",

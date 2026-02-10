@@ -31,6 +31,16 @@ const ChecklistCILTInspectionTable = ({
 
   // Track previous params untuk deteksi perubahan
   const prevParams = useRef({ plant, line, machine, type, processOrder, shift, product });
+  const normalizeShiftToken = (value) =>
+    String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "-");
+  const isProcessOrderShiftAligned = (po, currentShift) => {
+    if (!po || !currentShift) return false;
+    const shiftToken = normalizeShiftToken(currentShift);
+    return normalizeShiftToken(po).includes(shiftToken);
+  };
 
   const uploadImageToServer = async (uri) => {
     const formData = new FormData();
@@ -109,8 +119,14 @@ const ChecklistCILTInspectionTable = ({
     }
   };
 
-  const getStorageKey = () =>
-    `checklist_cilt_${processOrder || `${plant}_${line}_${machine}_${type}`}_${product || "no_product"}_${username || "user"}`;
+  const getStorageKey = () => {
+    const fallbackContext = `${plant || "no_plant"}_${line || "no_line"}_${machine || "no_machine"}_${type || "no_type"}_${shift || "no_shift"}`;
+    const contextKey =
+      processOrder && isProcessOrderShiftAligned(processOrder, shift)
+        ? processOrder
+        : fallbackContext;
+    return `checklist_cilt_v2_${contextKey}_${product || "no_product"}_${username || "user"}`;
+  };
 
   const saveDataToStorage = async (data) => {
     try {

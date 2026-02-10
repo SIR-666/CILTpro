@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { CommonActions } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Picker } from "@react-native-picker/picker";
 import * as ScreenOrientation from "expo-screen-orientation";
@@ -82,30 +83,99 @@ const getShiftByHour = (hour) => {
   return "Unknown Shift";
 };
 
-// Helper function to check if description data has any meaningful content
-const hasDescriptionData = (descriptionData) => {
-  if (!descriptionData || !Array.isArray(descriptionData)) return false;
-
-  return descriptionData.some(item =>
-    item.flavour ||
-    item.prodTypeStatus ||
-    item.kodeProd ||
-    item.kodeExp ||
-    item.startTime ||
-    item.stopTime ||
-    item.startNum ||
-    item.stopNum ||
-    item.counterOutfeed ||
-    item.totalOutfeed ||
-    item.waste
-  );
+const getDraftContextCacheKey = (type, po, shiftName) => {
+  if (!type || !po || !shiftName) return "";
+  return `${type}__${po}__${shiftName}`;
 };
 
-// CILT DRAFT LIFECYCLE CONSTANT
-const CILT_STATUS = {
-  IN_PROGRESS: "IN_PROGRESS",
-  DRAFT: "DRAFT",
-  SUBMITTED: "SUBMITTED",
+const getDraftShiftCacheKey = (type, shiftName, plant, line, machine) => {
+  if (!type || !shiftName) return "";
+  return `${type}__${shiftName}__${plant || ""}__${line || ""}__${machine || ""}`;
+};
+
+const DRAFT_IGNORED_KEYS = new Set([
+  "id",
+  "plant",
+  "line",
+  "machine",
+  "packageType",
+  "processOrder",
+  "product",
+  "batch",
+  "shift",
+  "currentShift",
+  "username",
+  "user",
+  "time",
+  "done",
+  "status",
+  "content",
+  "useButtons",
+  "isGroupHeader",
+  "isSubItem",
+  "groupName",
+  "periode",
+  "good",
+  "need",
+  "reject",
+  "hourSlot",
+  "timeSlot",
+  "evaluatedResult",
+  "createdAt",
+  "updatedAt",
+  "formOpenTime",
+  "submitTime",
+  "date",
+  "saved",
+  "savedAt",
+  "lastModifiedBy",
+  "lastModifiedTime",
+  "activeTab",
+  "page",
+  "data",
+  "grouped",
+  "type",
+  "parameter_name",
+  "unit",
+  "value_type",
+  "min_value",
+  "max_value",
+  "exact_value",
+  "frm",
+  "rev",
+  "berlaku",
+  "hal",
+  "lineMc",
+  "mesinLine",
+  "no",
+  "activity",
+  "globalId",
+]);
+
+const hasMeaningfulDraftValue = (value, key = "") => {
+  if (value === null || value === undefined) return false;
+
+  if (Array.isArray(value)) {
+    return value.some((item) => hasMeaningfulDraftValue(item));
+  }
+
+  if (typeof value === "object") {
+    return Object.entries(value).some(([childKey, childValue]) => {
+      if (DRAFT_IGNORED_KEYS.has(childKey)) return false;
+      return hasMeaningfulDraftValue(childValue, childKey);
+    });
+  }
+
+  if (typeof value === "string") return value.trim() !== "";
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value === "boolean") return value === true;
+
+  return false;
+};
+
+const getMeaningfulDraftRows = (rows) => {
+  if (!Array.isArray(rows)) return [];
+  return rows.filter((row) => hasMeaningfulDraftValue(row));
 };
 
 // PRODUCT FILTER BY LINE
@@ -144,8 +214,6 @@ const CILTinspection = ({ route, navigation }) => {
   const { username } = route.params;
   const [processOrder, setProcessOrder] = useState("");
   const [packageType, setPackageType] = useState("");
-  const [activeDraftId, setActiveDraftId] = useState(null);
-  const isDraftModeRef = useRef(false);
   const [plant, setPlant] = useState("");
   const [line, setLine] = useState("");
   const [date, setDate] = useState(new Date());
@@ -156,7 +224,6 @@ const CILTinspection = ({ route, navigation }) => {
   const [productOptions, setProductOptions] = useState([]);
   const [baseProduct, setBaseProduct] = useState("");
   const [product, setProduct] = useState("");
-
   const [machine, setMachine] = useState("");
   const [batch, setBatch] = useState("");
   const [remarks, setRemarks] = useState("");
@@ -164,7 +231,6 @@ const CILTinspection = ({ route, navigation }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [formOpenTime, setFormOpenTime] = useState(null);
   const [hideDateInput, setHideDateInput] = useState(false);
-
   const [inspectionData, setInspectionData] = useState([]);
   const [segregationDescriptionData, setSegregationDescriptionData] = useState([]);
   const [plantOptions, setPlantOptions] = useState([]);
@@ -172,60 +238,40 @@ const CILTinspection = ({ route, navigation }) => {
   const [machineOptions, setMachineOptions] = useState([]);
   const [packageOptions, setPackageOptions] = useState([]);
   const [packageMasterRaw, setPackageMasterRaw] = useState([]);
+
   // Cache untuk menyimpan data inspection per package type
   const [packageDataCache, setPackageDataCache] = useState({});
+
   // Cache untuk menyimpan description data (khusus Segregasi)
   const [packageDescriptionCache, setPackageDescriptionCache] = useState({});
+
   // state custom plants, machines, packages
   const [customPlants, setCustomPlants] = useState([]);
   const [customMachines, setCustomMachines] = useState([]);
   const [customPackages, setCustomPackages] = useState([]);
   const [isCustomDataLoaded, setIsCustomDataLoaded] = useState(false);
+
   // State untuk trigger clear data inspection setelah submit
   const [shouldClearInspectionData, setShouldClearInspectionData] = useState(false);
   const clearTriggerRef = useRef(0);
-
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const savedSelectionsRef = useRef({ plant: "", line: "", machine: "" });
 
-  // DRAFT & CONTEXT MANAGEMENT
-  const [lockedContext, setLockedContext] = useState(null);
-  const [packageLifecycle, setPackageLifecycle] = useState({});
-  const [draftIds, setDraftIds] = useState({});
-  const [packageProcessOrderMap, setPackageProcessOrderMap] = useState({});
-
-  // Refs to avoid re-subscribing listeners & always access latest state
-  const inspectionDataRef = useRef([]);
-  const segregationDescriptionRef = useRef([]);
+  // autosave states
+  const [draftId, setDraftId] = useState(null);
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
+  const autosaveTimer = useRef(null);
+  const isHydratingDraftRef = useRef(false);
+  const shiftBoundaryInProgressRef = useRef(false);
   const packageDataCacheRef = useRef({});
   const packageDescriptionCacheRef = useRef({});
-  const processOrderRef = useRef("");
-  const contextRef = useRef(null);
-  const lastAutoSaveRef = useRef(0);
-  const isSubmittingRef = useRef(false);
-  const isResumingRef = useRef(false);
-  const prevShiftRef = useRef(shift);
-  const prevProcessOrderRef = useRef("");
-
-  useEffect(() => { inspectionDataRef.current = inspectionData; }, [inspectionData]);
-  useEffect(() => { segregationDescriptionRef.current = segregationDescriptionData; }, [segregationDescriptionData]);
-  useEffect(() => { packageDataCacheRef.current = packageDataCache; }, [packageDataCache]);
-  useEffect(() => { packageDescriptionCacheRef.current = packageDescriptionCache; }, [packageDescriptionCache]);
-  useEffect(() => {
-    processOrderRef.current = processOrder;
-    if (shift === prevShiftRef.current && processOrder) {
-      prevProcessOrderRef.current = processOrder;
-    }
-  }, [processOrder, shift]);
-  useEffect(() => { contextRef.current = lockedContext; }, [lockedContext]);
-
-  useEffect(() => {
-    const resume = route?.params?.resumeDraft;
-    if (!resume) return;
-    const { draftId, packageType } = resume;
-    console.log("Resume draft received:", draftId, packageType);
-    resumeDraft(draftId, packageType);
-    navigation.setParams({ resumeDraft: null });
-  }, [route?.params?.resumeDraft]);
+  const draftContextMetaRef = useRef({});
+  const draftIdByContextRef = useRef({});
+  const lastClockShiftRef = useRef(
+    getShiftByHour(moment(new Date()).tz("Asia/Jakarta").format("HH"))
+  );
+  const lastAppliedContextRef = useRef("");
+  const isFromDraftList = route?.params?.fromDraftList === true;
 
   const mergedMachineOptions = useMemo(() => {
     const base = Array.isArray(machineOptions) ? machineOptions : [];
@@ -237,49 +283,130 @@ const CILTinspection = ({ route, navigation }) => {
     return filterProductsByLine(productOptions, line);
   }, [productOptions, line]);
 
+  const meaningfulInspectionData = useMemo(
+    () => getMeaningfulDraftRows(inspectionData),
+    [inspectionData]
+  );
+  const meaningfulDescriptionData = useMemo(
+    () => getMeaningfulDraftRows(segregationDescriptionData),
+    [segregationDescriptionData]
+  );
+  const hasMeaningfulDraftInput =
+    meaningfulInspectionData.length > 0 || meaningfulDescriptionData.length > 0;
+  const currentContextKey = useMemo(
+    () => getDraftContextCacheKey(packageType, processOrder, shift),
+    [packageType, processOrder, shift]
+  );
+  const currentShiftKey = useMemo(
+    () => getDraftShiftCacheKey(packageType, shift, plant, line, machine),
+    [packageType, shift, plant, line, machine]
+  );
+  const currentInspectionInitialData = useMemo(() => {
+    if (!packageType) return [];
+    if (
+      currentContextKey &&
+      Array.isArray(packageDataCache[currentContextKey])
+    ) {
+      return packageDataCache[currentContextKey];
+    }
+    if (currentShiftKey && Array.isArray(packageDataCache[currentShiftKey])) {
+      return packageDataCache[currentShiftKey];
+    }
+    return [];
+  }, [packageType, currentContextKey, currentShiftKey, packageDataCache]);
+  const currentDescriptionInitialData = useMemo(() => {
+    if (!packageType) return [];
+    if (
+      currentContextKey &&
+      Array.isArray(packageDescriptionCache[currentContextKey])
+    ) {
+      return packageDescriptionCache[currentContextKey];
+    }
+    if (
+      currentShiftKey &&
+      Array.isArray(packageDescriptionCache[currentShiftKey])
+    ) {
+      return packageDescriptionCache[currentShiftKey];
+    }
+    return [];
+  }, [packageType, currentContextKey, currentShiftKey, packageDescriptionCache]);
+
+  useEffect(() => {
+    packageDataCacheRef.current = packageDataCache;
+  }, [packageDataCache]);
+
+  useEffect(() => {
+    packageDescriptionCacheRef.current = packageDescriptionCache;
+  }, [packageDescriptionCache]);
+
+  useEffect(() => {
+    if (!currentContextKey) {
+      if (draftId !== null) setDraftId(null);
+      return;
+    }
+    const mappedId = draftIdByContextRef.current[currentContextKey] || null;
+    if (mappedId !== draftId) {
+      setDraftId(mappedId);
+    }
+  }, [currentContextKey, draftId]);
+
   // callbacks ke children (stabil, anti-loop)
   const handleInspectionChange = useCallback((data) => {
     setInspectionData(data);
-    if (packageType) {
-      setPackageLifecycle(prev => ({
-        ...prev,
-        [packageType]: {
-          status: CILT_STATUS.IN_PROGRESS,
-          updatedAt: moment().tz("Asia/Jakarta").format(),
-        }
-      }));
-    }
     // Simpan ke cache berdasarkan package type
     if (packageType) {
+      const contextKey = getDraftContextCacheKey(packageType, processOrder, shift);
+      const shiftKey = getDraftShiftCacheKey(packageType, shift, plant, line, machine);
       setPackageDataCache(prev => ({
         ...prev,
-        [packageType]: data
+        [packageType]: data,
+        ...(contextKey ? { [contextKey]: data } : {}),
+        ...(shiftKey ? { [shiftKey]: data } : {}),
       }));
+      if (contextKey) {
+        draftContextMetaRef.current[contextKey] = {
+          packageType,
+          processOrder,
+          shift,
+          plant,
+          line,
+          machine,
+          product,
+          batch,
+        };
+      }
       console.log(`Cached inspection data for: ${packageType}`, data.length, "items");
     }
-  }, [packageType]);
+  }, [packageType, processOrder, shift, plant, line, machine, product, batch]);
 
   const handleSegregationDescriptionChange = useCallback((data) => {
     setSegregationDescriptionData(data);
-    if (packageType) {
-      setPackageLifecycle(prev => ({
-        ...prev,
-        [packageType]: {
-          status: CILT_STATUS.IN_PROGRESS,
-          updatedAt: moment().tz("Asia/Jakarta").format(),
-        }
-      }));
-    }
 
     // Simpan description data ke cache
     if (packageType === "SEGREGASI") {
+      const contextKey = getDraftContextCacheKey(packageType, processOrder, shift);
+      const shiftKey = getDraftShiftCacheKey(packageType, shift, plant, line, machine);
       setPackageDescriptionCache(prev => ({
         ...prev,
-        [packageType]: data
+        [packageType]: data,
+        ...(contextKey ? { [contextKey]: data } : {}),
+        ...(shiftKey ? { [shiftKey]: data } : {}),
       }));
+      if (contextKey) {
+        draftContextMetaRef.current[contextKey] = {
+          packageType,
+          processOrder,
+          shift,
+          plant,
+          line,
+          machine,
+          product,
+          batch,
+        };
+      }
       console.log(`Cached description data for: ${packageType}`, data.length, "items");
     }
-  }, [packageType]);
+  }, [packageType, processOrder, shift, plant, line, machine, product, batch]);
 
   // fungsi fetch custom data
   const fetchCustomData = async () => {
@@ -344,8 +471,6 @@ const CILTinspection = ({ route, navigation }) => {
       // Line options (hanya dari package_master)
       const uniqueLines = [...new Set(data.map((item) => item.line).filter(Boolean))];
       setLineOptions(uniqueLines.sort());
-
-      // JANGAN set packageOptions di sini - biarkan useEffect filtering yang handle
       console.log("Package master loaded:", data.length, "items");
     } catch (error) {
       console.error("Failed to fetch /package-master:", error);
@@ -385,28 +510,15 @@ const CILTinspection = ({ route, navigation }) => {
     const initializeData = async () => {
       await lockOrientation();
       const saved = await loadSavedSelections();
-      console.log("Loaded saved selections:", saved);
-      console.log("Ref values:", savedSelectionsRef.current);
+      const resume = route?.params?.resumeDraft;
+      if (resume?.draftId) {
+        await loadDraftDetail(resume.draftId);
+      }
       await fetchCustomData();
     };
     initializeData();
     setFormOpenTime(moment().tz("Asia/Jakarta").format());
   }, []);
-
-  // Lock context ONCE when form becomes "ready"
-  useEffect(() => {
-    if (lockedContext) return; // already locked
-    if (!plant || !line || !machine || !shift) return;
-    // date selalu ada, tapi tetap aman
-    setLockedContext({
-      plant,
-      line,
-      machine,
-      shift,
-      date,
-      openedAt: moment().tz("Asia/Jakarta").format(),
-    });
-  }, [plant, line, machine, shift, date, lockedContext]);
 
   useEffect(() => {
     if (!packageMasterRaw.length) {
@@ -505,84 +617,94 @@ const CILTinspection = ({ route, navigation }) => {
     }
   };
 
+  const lastCheckRef = useRef("");
+  const buildCheckKey = (po, pt) => `${po}__${pt}`;
+
   const checkIfDataExists = async () => {
+    const po = processOrder;
+    const pt = packageType;
+
+    if (!po || !pt) return;
+    const checkKey = buildCheckKey(po, pt);
+    lastCheckRef.current = checkKey;
+
     try {
-      const response = await api.get(
-        `/cilt/getCILTByProcessOrder?processOrder=${processOrder}`
-      );
+      const response = await api.get(`/cilt/getCILTByProcessOrder?processOrder=${po}`);
+
+      if (lastCheckRef.current !== checkKey) return;
 
       if (response.data.exists) {
-        // Jika sudah ada, preload data sebelumnya
-        const parsedData = JSON.parse(response.data.data.inspectionData);
-        setInspectionData(parsedData);
+        const parsedData = JSON.parse(response.data.data.inspectionData || "[]");
+        const contextKey = getDraftContextCacheKey(pt, po, shift);
+        const shiftKey = getDraftShiftCacheKey(pt, shift, plant, line, machine);
 
-        // Simpan ke cache juga
+        if (inspectionData.length === 0) {
+          setInspectionData(parsedData);
+        }
+
         setPackageDataCache(prev => ({
           ...prev,
-          [packageType]: parsedData
+          [pt]: parsedData,
+          ...(contextKey ? { [contextKey]: parsedData } : {}),
+          ...(shiftKey ? { [shiftKey]: parsedData } : {}),
         }));
 
-        // Load description data if exists for segregation
-        if (packageType === "SEGREGASI" && response.data.data.descriptionData) {
-          try {
-            const parsedDescriptionData = JSON.parse(response.data.data.descriptionData);
-            setSegregationDescriptionData(parsedDescriptionData);
-
-            // Simpan description ke cache
-            setPackageDescriptionCache(prev => ({
-              ...prev,
-              [packageType]: parsedDescriptionData
-            }));
-          } catch (error) {
-            console.error("Failed to parse description data:", error);
-            setSegregationDescriptionData([]);
-          }
+        if (pt === "SEGREGASI" && response.data.data.descriptionData) {
+          const parsedDesc = JSON.parse(response.data.data.descriptionData || "[]");
+          setSegregationDescriptionData(parsedDesc);
+          setPackageDescriptionCache(prev => ({
+            ...prev,
+            [pt]: parsedDesc,
+            ...(contextKey ? { [contextKey]: parsedDesc } : {}),
+            ...(shiftKey ? { [shiftKey]: parsedDesc } : {}),
+          }));
         }
 
         Alert.alert("Info", "Data ditemukan. Form akan dilanjutkan.");
-      } else {
-        console.log("No existing data found for processOrder:", processOrder);
       }
-    } catch (error) {
-      console.error("Failed to check existing data:", error);
+    } catch (e) {
+      console.error("Failed to check existing data:", e);
       Alert.alert("Error", "Gagal cek data. Coba lagi.");
     }
   };
 
-  // Function untuk clear storage spesifik berdasarkan package setelah submit berhasil
+  // Clear package-specific storage after successful submit
   const clearPackageStorageAfterSubmit = async () => {
     try {
-      // FILLER PACKAGES
       if (packageType === "PEMAKAIAN PAPER" && globalThis.clearPaperStorage) {
         await globalThis.clearPaperStorage();
+        return;
       }
 
       if (packageType === "PEMAKAIAN SCREW CAP" && globalThis.clearScrewCapStorage) {
         await globalThis.clearScrewCapStorage();
+        return;
       }
 
       if (packageType === "SEGREGASI" && globalThis.clearSegregasiStorage) {
         await globalThis.clearSegregasiStorage();
+        return;
       }
 
-      // PACKER PACKAGES
       if (packageType === "LAPORAN ARTEMA & SMS CARDBOARD") {
         const storageKey = `artema_cardboard_${(username || "user").replace(/\s+/g, "_")}`;
         await AsyncStorage.removeItem(storageKey);
+        return;
       }
 
       if (packageType === "LAPORAN FRANS WP 25 CASE") {
         const storageKey = `frans_casepacker_${(username || "user").replace(/\s+/g, "_")}`;
         await AsyncStorage.removeItem(storageKey);
+        return;
       }
 
-      // ROBOT PACKAGE
       if (packageType === "ROBOT PALLETIZER FILLER") {
         const storageKey = `robot_palletizer_${(username || "user").replace(/\s+/g, "_")}`;
         await AsyncStorage.removeItem(storageKey);
+        return;
       }
-    } catch (error) {
-      console.error("Error clearing package storage after submit:", error);
+    } catch (e) {
+      console.error("Error clearing package storage after submit:", e);
     }
   };
 
@@ -612,12 +734,12 @@ const CILTinspection = ({ route, navigation }) => {
   };
 
   useEffect(() => {
+    if (!plant) return;
     fetchProductOptions(plant);
-  }, [plant, line]);
+  }, [plant]);
 
   useEffect(() => {
-    if (isDraftModeRef.current) return;
-    if (!plant || !line || !date || !shift || !machine || !packageType) return;
+    if (!plant || !line || !machine || !packageType || !shift) return;
 
     const formattedPlant = plant.replace(/\s+/g, "-");
     const formattedLine = line.replace(/\s+/g, "-");
@@ -628,46 +750,268 @@ const CILTinspection = ({ route, navigation }) => {
 
     const updated = `${formattedPlant}_${formattedLine}_${formattedDate}_${formattedShift}_${formattedMachine}_${formattedPackage}`;
     setProcessOrder(updated);
-    setPackageProcessOrderMap(prev => ({
-      ...prev,
-      [packageType]: updated,
-    }));
   }, [plant, line, date, shift, machine, packageType]);
 
   useEffect(() => {
-    if (isDraftModeRef.current || activeDraftId) return;
-    if (!plant || !line || !date || !shift || !machine || !packageType) return;
+    if (!processOrder || !packageType) return;
     checkIfDataExists();
-  }, [processOrder]);
+  }, [processOrder, packageType]);
+
+  useEffect(() => {
+    return () => {
+      if (autosaveTimer.current) {
+        clearTimeout(autosaveTimer.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!packageType) return;
 
+    if (isHydratingDraftRef.current === true) {
+      console.log("Skip package reset - hydrating draft");
+      return;
+    }
+
     console.log(`Package changed to: ${packageType}`);
 
-    // Load inspection data dari cache jika ada
-    if (packageDataCache[packageType]) {
-      console.log(`Loading inspection data from cache for: ${packageType}`);
-      setInspectionData(packageDataCache[packageType]);
-    } else {
-      console.log(`No cache found for: ${packageType}, resetting inspection data`);
-      setInspectionData([]);
+    if (isHydratingDraftRef.current) {
+      console.log("Hydrating draft... skip reset on package change");
+      return;
+    }
+
+    const contextKey = getDraftContextCacheKey(packageType, processOrder, shift);
+    const shiftKey = getDraftShiftCacheKey(packageType, shift, plant, line, machine);
+    const cachedInspectionByContext =
+      contextKey && Array.isArray(packageDataCache[contextKey])
+        ? packageDataCache[contextKey]
+        : null;
+    const cachedInspectionByShift =
+      shiftKey && Array.isArray(packageDataCache[shiftKey])
+        ? packageDataCache[shiftKey]
+        : null;
+    const cachedDescriptionByContext =
+      contextKey && Array.isArray(packageDescriptionCache[contextKey])
+        ? packageDescriptionCache[contextKey]
+        : null;
+    const cachedDescriptionByShift =
+      shiftKey && Array.isArray(packageDescriptionCache[shiftKey])
+        ? packageDescriptionCache[shiftKey]
+        : null;
+
+    // Load inspection data dari cache context jika ada
+    if (cachedInspectionByContext && cachedInspectionByContext.length > 0) {
+      console.log(` Loading inspection data from context cache for: ${packageType}`);
+      setInspectionData(cachedInspectionByContext);
+    }
+    else if (cachedInspectionByShift && cachedInspectionByShift.length > 0) {
+      console.log(` Loading inspection data from shift cache for: ${packageType}`);
+      setInspectionData(cachedInspectionByShift);
+    }
+    else {
+      if (!draftId) {
+        setInspectionData([]);
+      }
     }
 
     // Load description data dari cache untuk Segregasi
-    if (packageType === "SEGREGASI" && packageDescriptionCache[packageType]) {
-      console.log(` Loading description data from cache for: ${packageType}`);
-      setSegregationDescriptionData(packageDescriptionCache[packageType]);
+    if (packageType === "SEGREGASI" && cachedDescriptionByContext) {
+      console.log(` Loading description data from context cache for: ${packageType}`);
+      setSegregationDescriptionData(cachedDescriptionByContext);
+    } else if (packageType === "SEGREGASI" && cachedDescriptionByShift) {
+      console.log(` Loading description data from shift cache for: ${packageType}`);
+      setSegregationDescriptionData(cachedDescriptionByShift);
     } else if (packageType === "SEGREGASI") {
       console.log(`No description cache found for: ${packageType}, resetting`);
       setSegregationDescriptionData([]);
     }
-  }, [packageType]);
+  }, [
+    packageType,
+    processOrder,
+    shift,
+    plant,
+    line,
+    machine,
+    draftId,
+    packageDataCache,
+    packageDescriptionCache,
+  ]);
 
-  const handleImageSelected = (uri, index) => {
-    let data = [...inspectionData];
-    data[index].picture = uri;
-    setInspectionData(data);
+  useEffect(() => {
+    if (!packageType || !processOrder || !shift) return;
+    if (isHydratingDraftRef.current) return;
+
+    const contextKey = getDraftContextCacheKey(packageType, processOrder, shift);
+    const shiftKey = getDraftShiftCacheKey(packageType, shift, plant, line, machine);
+    if (!contextKey) return;
+    if (lastAppliedContextRef.current === contextKey) return;
+    lastAppliedContextRef.current = contextKey;
+
+    const inspectionByContext = packageDataCache[contextKey];
+    const inspectionByShift = packageDataCache[shiftKey];
+    const descByContext = packageDescriptionCache[contextKey];
+    const descByShift = packageDescriptionCache[shiftKey];
+
+    if (Array.isArray(inspectionByContext)) {
+      setInspectionData(inspectionByContext);
+    } else if (Array.isArray(inspectionByShift)) {
+      setInspectionData(inspectionByShift);
+    } else if (!draftId) {
+      setInspectionData([]);
+    }
+
+    if (packageType === "SEGREGASI") {
+      if (Array.isArray(descByContext)) {
+        setSegregationDescriptionData(descByContext);
+      } else if (Array.isArray(descByShift)) {
+        setSegregationDescriptionData(descByShift);
+      } else if (!draftId) {
+        setSegregationDescriptionData([]);
+      }
+    }
+  }, [
+    packageType,
+    processOrder,
+    shift,
+    plant,
+    line,
+    machine,
+    draftId,
+    packageDataCache,
+    packageDescriptionCache,
+  ]);
+
+  useEffect(() => {
+    if (isSubmitting) return;
+    if (!processOrder || !plant || !line || !machine || !packageType) return;
+    if (!hasMeaningfulDraftInput) return;
+
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+
+    autosaveTimer.current = setTimeout(() => {
+      autoSaveDraft();
+    }, 4000);
+
+  }, [
+    inspectionData,
+    segregationDescriptionData,
+    isSubmitting,
+    draftId,
+    processOrder,
+    packageType,
+    plant,
+    line,
+    machine,
+    shift,
+    product,
+    batch,
+    hasMeaningfulDraftInput,
+  ]);
+
+  const loadDraftDetail = async (id) => {
+    try {
+      isHydratingDraftRef.current = true;
+      const res = await api.get(`/draft/${id}`);
+      const d = res.data;
+
+      const parsedInspection =
+        typeof d.inspectionData === "string"
+          ? JSON.parse(d.inspectionData || "[]")
+          : d.inspectionData || [];
+
+      const parsedDesc =
+        typeof d.descriptionData === "string"
+          ? JSON.parse(d.descriptionData || "[]")
+          : d.descriptionData || [];
+      const draftShift = d.currentShift || d.shift;
+      const contextKey = getDraftContextCacheKey(d.packageType, d.processOrder, draftShift);
+      const shiftKey = getDraftShiftCacheKey(d.packageType, draftShift, d.plant, d.line, d.machine);
+
+      setDraftId(d.id);
+      if (contextKey) {
+        draftIdByContextRef.current[contextKey] = d.id;
+        draftContextMetaRef.current[contextKey] = {
+          packageType: d.packageType,
+          processOrder: d.processOrder,
+          shift: draftShift,
+          plant: d.plant,
+          line: d.line,
+          machine: d.machine,
+          product: d.product,
+          batch: d.batch,
+        };
+      }
+
+      if (d.packageType) {
+        setPackageDataCache(prev => ({
+          ...prev,
+          [d.packageType]: parsedInspection,
+          ...(contextKey ? { [contextKey]: parsedInspection } : {}),
+          ...(shiftKey ? { [shiftKey]: parsedInspection } : {}),
+        }));
+      }
+
+      if (d.packageType === "SEGREGASI") {
+        setPackageDescriptionCache(prev => ({
+          ...prev,
+          [d.packageType]: parsedDesc,
+          ...(contextKey ? { [contextKey]: parsedDesc } : {}),
+          ...(shiftKey ? { [shiftKey]: parsedDesc } : {}),
+        }));
+      }
+
+      setProcessOrder(d.processOrder);
+      setPlant(d.plant);
+      setLine(d.line);
+      setMachine(d.machine);
+      setShift(draftShift);
+      setPackageType(d.packageType);
+      setProduct(d.product);
+      setBatch(d.batch);
+
+      if (d.date) {
+        setDate(new Date(d.date));
+      } else if (d.formOpenTime) {
+        setDate(new Date(d.formOpenTime));
+      }
+
+      if (d.packageType) {
+        setPackageDataCache(prev => ({
+          ...prev,
+          [d.packageType]: parsedInspection,
+          ...(contextKey ? { [contextKey]: parsedInspection } : {}),
+          ...(shiftKey ? { [shiftKey]: parsedInspection } : {}),
+        }));
+      }
+
+      setInspectionData(parsedInspection);
+      if (d.packageType) {
+        setPackageDataCache(prev => ({
+          ...prev,
+          [d.packageType]: parsedInspection,
+          ...(contextKey ? { [contextKey]: parsedInspection } : {}),
+          ...(shiftKey ? { [shiftKey]: parsedInspection } : {}),
+        }));
+      }
+
+      setSegregationDescriptionData(parsedDesc);
+      if (d.packageType === "SEGREGASI") {
+        setPackageDescriptionCache(prev => ({
+          ...prev,
+          [d.packageType]: parsedDesc,
+          ...(contextKey ? { [contextKey]: parsedDesc } : {}),
+          ...(shiftKey ? { [shiftKey]: parsedDesc } : {}),
+        }));
+      }
+      if (contextKey) lastAppliedContextRef.current = contextKey;
+
+    } catch (e) {
+      console.log("Load draft failed", e.message);
+    } finally {
+      setTimeout(() => {
+        isHydratingDraftRef.current = false;
+      }, 0);
+    }
   };
 
   // Function for refresh inspection data (line universal)
@@ -691,165 +1035,277 @@ const CILTinspection = ({ route, navigation }) => {
     }
   };
 
-  // Resume Draft function
-  const resumeDraft = async (draftId) => {
-    try {
-      isDraftModeRef.current = true;
-      isResumingRef.current = true;
-      const res = await api.get(`/draft/${draftId}`);
-      if (res.status !== 200) return;
-      const draft = res.data;
-      setProcessOrder(draft.processOrder);
+  const autoSaveDraft = useCallback(async (options = {}) => {
+    const {
+      force = false,
+      contextKeyOverride,
+      draftIdOverride,
+      packageTypeOverride,
+      processOrderOverride,
+      shiftOverride,
+      plantOverride,
+      lineOverride,
+      machineOverride,
+      productOverride,
+      batchOverride,
+      inspectionDataOverride,
+      descriptionDataOverride,
+    } = options;
 
-      setPackageProcessOrderMap(prev => ({
-        ...prev,
-        [draft.packageType]: draft.processOrder,
-      }));
+    if (isSubmitting) return { saved: false, reason: "submitting" };
+    if (!force && isAutoSaving) return { saved: false, reason: "already-saving" };
 
-      setPackageType(draft.packageType);
-      setActiveDraftId(draft.id);
-      setLockedContext({
-        plant: draft.plant,
-        line: draft.line,
-        machine: draft.machine,
-        shift: draft.shift,
-        date: draft.date,
-        openedAt: draft.formOpenTime || moment().tz("Asia/Jakarta").format(),
-      });
+    const effectivePackageType = packageTypeOverride || packageType;
+    const effectiveProcessOrder = processOrderOverride || processOrder;
+    const effectiveShift = shiftOverride || shift;
+    const effectivePlant = plantOverride || plant;
+    const effectiveLine = lineOverride || line;
+    const effectiveMachine = machineOverride || machine;
+    const effectiveProduct =
+      productOverride !== undefined ? productOverride : product;
+    const effectiveBatch =
+      batchOverride !== undefined ? batchOverride : batch;
 
-      setDraftIds(prev => ({
-        ...prev,
-        [draft.packageType]: draft.id,
-      }));
-
-      const inspection = draft.inspectionData
-        ? JSON.parse(draft.inspectionData)
-        : [];
-
-      const description = draft.descriptionData
-        ? JSON.parse(draft.descriptionData)
-        : [];
-
-      // set data aktif
-      setInspectionData(inspection);
-      setSegregationDescriptionData(description);
-
-      // cache supaya konsisten
-      setPackageDataCache(prev => ({
-        ...prev,
-        [draft.packageType]: inspection,
-      }));
-
-      if (draft.packageType === "SEGREGASI") {
-        setPackageDescriptionCache(prev => ({
-          ...prev,
-          [draft.packageType]: description,
-        }));
-      }
-      console.log("Draft resumed:", draft.packageType, inspection.length);
-      isResumingRef.current = false;
-    } catch (err) {
-      console.error("Resume draft failed:", err);
+    if (!effectiveProcessOrder || !effectivePackageType) {
+      return { saved: false, reason: "missing-context" };
     }
-  };
 
-  const autoSaveDraft = async ({ overrideShift, overrideProcessOrder } = {}) => {
-    if (isResumingRef.current) {
-      console.log("AutoSave skipped (resuming draft)");
-      return;
-    }
-    if (isSubmittingRef.current) return;
-    const now = Date.now();
-    if (now - lastAutoSaveRef.current < 2000) {
-      console.log("AutoSave skipped (debounced)");
-      return;
-    }
-    lastAutoSaveRef.current = now;
-    const ctx = contextRef.current;
-    if (!ctx) return;
+    const inspectionSource = Array.isArray(inspectionDataOverride)
+      ? inspectionDataOverride
+      : meaningfulInspectionData;
+    const descriptionSource = Array.isArray(descriptionDataOverride)
+      ? descriptionDataOverride
+      : meaningfulDescriptionData;
 
-    const cache = packageDataCacheRef.current || {};
-    const descCache = packageDescriptionCacheRef.current || {};
-    const basePo = processOrderRef.current;
-    if (!basePo) return;
+    const inspectionToSave = getMeaningfulDraftRows(inspectionSource);
+    const descriptionToSave = getMeaningfulDraftRows(descriptionSource);
+    if (!inspectionToSave.length && !descriptionToSave.length) {
+      return { saved: false, reason: "no-meaningful-data" };
+    }
+
+    const resolvedContextKey =
+      contextKeyOverride ||
+      getDraftContextCacheKey(
+        effectivePackageType,
+        effectiveProcessOrder,
+        effectiveShift
+      );
+    const mappedDraftId =
+      resolvedContextKey && draftIdByContextRef.current[resolvedContextKey]
+        ? draftIdByContextRef.current[resolvedContextKey]
+        : undefined;
+    const effectiveDraftId =
+      draftIdOverride !== undefined
+        ? draftIdOverride
+        : mappedDraftId || (resolvedContextKey === currentContextKey ? draftId : undefined);
 
     try {
-      if (!packageType) return;
-
-      const pkg = activeDraftId
-        ? Object.keys(draftIds)[0] || packageType
-        : packageType;
-      const insp = cache[pkg] || [];
-      const desc = pkg === "SEGREGASI" ? (descCache[pkg] || []) : [];
-
-      const hasTouchedInspection = hasAnyInspectionTouched(insp);
-      const hasTouchedDescription =
-        pkg === "SEGREGASI" && hasDescriptionData(desc);
-
-      if (!hasTouchedInspection && !hasTouchedDescription) {
-        return;
-      }
-
-      const pkgProcessOrder =
-        overrideProcessOrder || packageProcessOrderMap[pkg];
-      if (!pkgProcessOrder) return;
+      setIsAutoSaving(true);
 
       const payload = {
-        id: draftIds?.[pkg] || null,
-        processOrder: pkgProcessOrder,
-        packageType: pkg,
-        autoSaved: !!overrideShift,
-        plant: ctx.plant,
-        line: ctx.line,
-        machine: ctx.machine,
-        shift: overrideShift || ctx.shift,
-        date: ctx.date,
-        product: product || baseProduct || "",
-        inspectionData: insp,
-        descriptionData: desc,
-        status: CILT_STATUS.DRAFT,
+        id: effectiveDraftId || undefined,
+        processOrder: effectiveProcessOrder,
+        packageType: effectivePackageType,
+        plant: effectivePlant,
+        line: effectiveLine,
+        machine: effectiveMachine,
+        shift: effectiveShift,
+        product: effectiveProduct,
+        batch: effectiveBatch,
+        inspectionData: inspectionToSave,
+        descriptionData: descriptionToSave,
       };
 
-      // backend UPSERT by processOrder+packageType
       const res = await api.post("/draft/autosave", payload);
-      if (res?.data?.id) {
-        setDraftIds(prev => ({
-          ...prev,
-          [pkg]: res.data.id,
-        }));
+
+      if (res.data?.mode === "skip") {
+        console.log("Autosave skipped by backend (no meaningful inspection)");
+        return { saved: false, reason: "backend-skip" };
       }
 
-      setPackageLifecycle((prev) => ({
-        ...prev,
-        [pkg]: { status: CILT_STATUS.DRAFT, updatedAt: moment().tz("Asia/Jakarta").format() },
-      }));
-    } catch (err) {
-      console.error("Auto save draft failed:", err);
+      const resolvedId = res.data?.id || effectiveDraftId || null;
+      if (resolvedContextKey) {
+        if (resolvedId) {
+          draftIdByContextRef.current[resolvedContextKey] = resolvedId;
+        }
+        draftContextMetaRef.current[resolvedContextKey] = {
+          packageType: effectivePackageType,
+          processOrder: effectiveProcessOrder,
+          shift: effectiveShift,
+          plant: effectivePlant,
+          line: effectiveLine,
+          machine: effectiveMachine,
+          product: effectiveProduct,
+          batch: effectiveBatch,
+        };
+      }
+      if (resolvedContextKey === currentContextKey && resolvedId !== draftId) {
+        setDraftId(resolvedId);
+      }
+
+      return { saved: true, id: resolvedId, contextKey: resolvedContextKey };
+    } catch (e) {
+      console.log("Autosave failed", e.message);
+      return { saved: false, reason: "request-failed", error: e };
+    } finally {
+      setIsAutoSaving(false);
     }
-  };
+  }, [
+    isSubmitting,
+    isAutoSaving,
+    packageType,
+    processOrder,
+    shift,
+    plant,
+    line,
+    machine,
+    product,
+    batch,
+    meaningfulInspectionData,
+    meaningfulDescriptionData,
+    currentContextKey,
+    draftId,
+  ]);
 
-  useEffect(() => {
-    if (!lockedContext) return;
-    if (isDraftModeRef.current || activeDraftId) return;
-    if (shift !== prevShiftRef.current && prevProcessOrderRef.current) {
-      console.log("Shift boundary detected → force autosave previous shift");
+  const saveAllPendingDraftContexts = useCallback(async (targetShift) => {
+    const shiftToSave = targetShift || shift;
+    const contextsToSave = [];
+    const seen = new Set();
 
-      autoSaveDraft({
-        overrideShift: prevShiftRef.current,
-        overrideProcessOrder: prevProcessOrderRef.current,
+    Object.entries(draftContextMetaRef.current || {}).forEach(([contextKey, meta]) => {
+      if (!meta || meta.shift !== shiftToSave) return;
+
+      const inspectionRows = getMeaningfulDraftRows(
+        packageDataCacheRef.current?.[contextKey] || []
+      );
+      const descriptionRows = getMeaningfulDraftRows(
+        packageDescriptionCacheRef.current?.[contextKey] || []
+      );
+      if (!inspectionRows.length && !descriptionRows.length) return;
+
+      contextsToSave.push({
+        contextKey,
+        meta,
+        inspectionRows,
+        descriptionRows,
       });
+      seen.add(contextKey);
+    });
 
-      prevShiftRef.current = shift;
+    const activeContextKey = getDraftContextCacheKey(
+      packageType,
+      processOrder,
+      shiftToSave
+    );
+    if (activeContextKey && !seen.has(activeContextKey)) {
+      const activeInspectionRows = getMeaningfulDraftRows(inspectionData);
+      const activeDescriptionRows = getMeaningfulDraftRows(segregationDescriptionData);
+      if (activeInspectionRows.length || activeDescriptionRows.length) {
+        contextsToSave.push({
+          contextKey: activeContextKey,
+          meta: {
+            packageType,
+            processOrder,
+            shift: shiftToSave,
+            plant,
+            line,
+            machine,
+            product,
+            batch,
+          },
+          inspectionRows: activeInspectionRows,
+          descriptionRows: activeDescriptionRows,
+        });
+      }
     }
-  }, [shift]);
+
+    let savedCount = 0;
+    for (const entry of contextsToSave) {
+      const result = await autoSaveDraft({
+        force: true,
+        contextKeyOverride: entry.contextKey,
+        draftIdOverride: draftIdByContextRef.current[entry.contextKey],
+        packageTypeOverride: entry.meta.packageType,
+        processOrderOverride: entry.meta.processOrder,
+        shiftOverride: entry.meta.shift,
+        plantOverride: entry.meta.plant,
+        lineOverride: entry.meta.line,
+        machineOverride: entry.meta.machine,
+        productOverride: entry.meta.product,
+        batchOverride: entry.meta.batch,
+        inspectionDataOverride: entry.inspectionRows,
+        descriptionDataOverride: entry.descriptionRows,
+      });
+      if (result?.saved) savedCount += 1;
+    }
+
+    return {
+      total: contextsToSave.length,
+      savedCount,
+    };
+  }, [
+    shift,
+    packageType,
+    processOrder,
+    plant,
+    line,
+    machine,
+    product,
+    batch,
+    inspectionData,
+    segregationDescriptionData,
+    autoSaveDraft,
+  ]);
 
   useEffect(() => {
-    const unsubscribe = navigation.addListener("beforeRemove", () => {
-      if (isSubmittingRef.current) return;
-      autoSaveDraft();
-    });
-    return unsubscribe;
-  }, [navigation]); // pasang sekali
+    const interval = setInterval(() => {
+      const liveShift = getShiftByHour(
+        moment(new Date()).tz("Asia/Jakarta").format("HH")
+      );
+      const previousLiveShift = lastClockShiftRef.current;
+
+      if (!liveShift || liveShift === previousLiveShift) return;
+      lastClockShiftRef.current = liveShift;
+
+      // Hanya trigger jika user sedang berada di shift yang baru saja berakhir.
+      if (shift !== previousLiveShift) return;
+      if (isSubmitting || isHydratingDraftRef.current) return;
+      if (shiftBoundaryInProgressRef.current) return;
+
+      shiftBoundaryInProgressRef.current = true;
+      if (autosaveTimer.current) {
+        clearTimeout(autosaveTimer.current);
+        autosaveTimer.current = null;
+      }
+
+      const previousShift = shift;
+
+      (async () => {
+        try {
+          const saveResult = await saveAllPendingDraftContexts(previousShift);
+
+          const now = new Date();
+          setProcessOrder("");
+          lastAppliedContextRef.current = "";
+          setDraftId(null);
+          setInspectionData([]);
+          setSegregationDescriptionData([]);
+          setDate(now);
+          setShift(liveShift);
+
+          if ((saveResult?.savedCount || 0) > 0) {
+            navigation.navigate("ListCILTDraft");
+          }
+        } catch (e) {
+          console.log("Auto shift rollover handling failed", e?.message || e);
+        } finally {
+          shiftBoundaryInProgressRef.current = false;
+        }
+      })();
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [shift, isSubmitting, saveAllPendingDraftContexts, navigation]);
 
   // Updated handleSubmit function
   const handleSubmit = async (status) => {
@@ -864,7 +1320,7 @@ const CILTinspection = ({ route, navigation }) => {
         {
           text: "Ya, Submit",
           onPress: async () => {
-            isSubmittingRef.current = true;
+            setIsSubmitting(true);
             // langsung pakai format final untuk disimpan ke DB
             const submitTime = moment()
               .tz("Asia/Jakarta")
@@ -913,7 +1369,7 @@ const CILTinspection = ({ route, navigation }) => {
 
               // Prepare order object
               order = {
-                processOrder: packageProcessOrderMap[packageType] || processOrder,
+                processOrder,
                 packageType,
                 plant,
                 line,
@@ -954,19 +1410,45 @@ const CILTinspection = ({ route, navigation }) => {
               console.log("Submitting order:", order);
 
               // Send to server
-              const response = await api.post("/cilt", order);
+              let response;
+
+              if (draftId) {
+                response = await api.post(`/draft/submit/${draftId}`);
+              } else {
+                response = await api.post("/cilt", order);
+              }
 
               if (response.status === 201) {
-                isDraftModeRef.current = false;
-                if (draftIds?.[packageType]) {
-                  await api.delete(`/draft/${draftIds[packageType]}`);
-                  setDraftIds(prev => {
-                    const next = { ...prev };
-                    delete next[packageType];
-                    return next;
-                  });
+
+                if (autosaveTimer.current) {
+                  clearTimeout(autosaveTimer.current);
+                  autosaveTimer.current = null;
                 }
+
+                setIsSubmitting(false);
+                isHydratingDraftRef.current = false;
+
+                const wasDraftSubmit = !!draftId;
+                const submittedContextKey = getDraftContextCacheKey(
+                  packageType,
+                  processOrder,
+                  shift
+                );
+                const submittedShiftKey = getDraftShiftCacheKey(
+                  packageType,
+                  shift,
+                  plant,
+                  line,
+                  machine
+                );
+                if (submittedContextKey) {
+                  delete draftIdByContextRef.current[submittedContextKey];
+                  delete draftContextMetaRef.current[submittedContextKey];
+                }
+                setDraftId(null);
+
                 Alert.alert("Success", "Data submitted successfully!");
+
                 await clearOfflineData();
 
                 // Clear storage spesifik untuk package dan product ini setelah submit berhasil
@@ -981,17 +1463,21 @@ const CILTinspection = ({ route, navigation }) => {
                   setShouldClearInspectionData(false);
                 }, 100);
 
-                if (packageType !== "PERFORMA RED AND GREEN") {
-                  setPackageDataCache(prev => {
-                    const newCache = { ...prev };
+                setPackageDataCache(prev => {
+                  const newCache = { ...prev };
+                  if (packageType !== "PERFORMA RED AND GREEN") {
                     delete newCache[packageType];
-                    return newCache;
-                  });
-                }
+                  }
+                  if (submittedContextKey) delete newCache[submittedContextKey];
+                  if (submittedShiftKey) delete newCache[submittedShiftKey];
+                  return newCache;
+                });
 
                 setPackageDescriptionCache(prev => {
                   const newCache = { ...prev };
                   delete newCache[packageType];
+                  if (submittedContextKey) delete newCache[submittedContextKey];
+                  if (submittedShiftKey) delete newCache[submittedShiftKey];
                   return newCache;
                 });
 
@@ -1000,23 +1486,20 @@ const CILTinspection = ({ route, navigation }) => {
                   setSegregationDescriptionData([]);
                 }
 
+                const targetRoute =
+                  wasDraftSubmit && isFromDraftList ? "ListCILT" : "Home";
                 setTimeout(() => {
-                  navigation.goBack();
-                }, 500);
+                  navigation.dispatch(
+                    CommonActions.reset({
+                      index: 0,
+                      routes: [{ name: targetRoute }],
+                    })
+                  );
+                }, 200);
               }
             } catch (error) {
+              setIsSubmitting(false);
               console.error("Submit failed, saving offline data:", error);
-              // Mark draft as pending-submit
-              if (draftIds?.[packageType]) {
-                await api.post(`/draft/submit/${draftIds[packageType]}`);
-
-                // bersihkan local state draft
-                setDraftIds(prev => {
-                  const next = { ...prev };
-                  delete next[packageType];
-                  return next;
-                });
-              }
               await saveOfflineData(order);
               Alert.alert(
                 "Offline",
@@ -1053,8 +1536,6 @@ const CILTinspection = ({ route, navigation }) => {
   // RESET ALL selections & caches
   const resetForm = async () => {
     try {
-      isDraftModeRef.current = false;
-      setActiveDraftId(null);
       // Bersihkan storage yang menyimpan pilihan terakhir
       savedSelectionsRef.current = { plant: "", line: "", machine: "" };
       await AsyncStorage.multiRemove(["plant", "line", "machine", "product"]);
@@ -1090,6 +1571,14 @@ const CILTinspection = ({ route, navigation }) => {
       // Clear all caches
       setPackageDataCache({});
       setPackageDescriptionCache({});
+      packageDataCacheRef.current = {};
+      packageDescriptionCacheRef.current = {};
+      draftContextMetaRef.current = {};
+      draftIdByContextRef.current = {};
+      lastAppliedContextRef.current = "";
+      lastClockShiftRef.current = getShiftByHour(
+        moment(new Date()).tz("Asia/Jakarta").format("HH")
+      );
       console.log("All caches cleared");
 
       Alert.alert("Reset", "Semua pilihan dan data cache telah dikosongkan.");
@@ -1186,6 +1675,11 @@ const CILTinspection = ({ route, navigation }) => {
                       if (packageType === "PERFORMA RED AND GREEN" && globalThis.gnrBeforeSubmit) {
                         globalThis.gnrBeforeSubmit();
                       }
+                      setProcessOrder("");
+                      lastAppliedContextRef.current = "";
+                      setDraftId(null);
+                      setInspectionData([]);
+                      setSegregationDescriptionData([]);
                       setShift(itemValue);
                     }}
                   >
@@ -1379,20 +1873,20 @@ const CILTinspection = ({ route, navigation }) => {
               {machine === "FILLER" &&
                 packageType === "PEMAKAIAN SCREW CAP" && (
                   <ScrewCapInspectionTable
-                    key={`screw-cap-${processOrder}-${product}`}
+                    key={`screw-cap-${processOrder}-${product}-${draftId || "new"}`}
                     username={username}
                     onDataChange={handleInspectionChange}
-                    initialData={packageDataCache["PEMAKAIAN SCREW CAP"] || []}
+                    initialData={currentInspectionInitialData}
                     processOrder={processOrder}
                     product={product}
                   />
                 )}
               {machine === "FILLER" && packageType === "PEMAKAIAN PAPER" && (
                 <PaperUsageInspectionTable
-                  key={`paper-${processOrder}-${product}`}
+                  key={`paper-${processOrder}-${product}-${draftId || "new"}`}
                   username={username}
                   onDataChange={handleInspectionChange}
-                  initialData={packageDataCache["PEMAKAIAN PAPER"] || []}
+                  initialData={currentInspectionInitialData}
                   processOrder={processOrder}
                   product={product}
                 />
@@ -1400,19 +1894,22 @@ const CILTinspection = ({ route, navigation }) => {
               {machine === "FILLER" &&
                 packageType === "PENGECEKAN H2O2 ( SPRAY )" && (
                   <H2o2CheckInspectionTable
-                    key="h2o2-check"
+                    key={`h2o2-check-${currentContextKey || processOrder}-${product || "no-product"}-${draftId || "new"}`}
                     username={username}
                     onDataChange={handleInspectionChange}
-                    initialData={packageDataCache["PENGECEKAN H2O2 ( SPRAY )"] || []}
+                    initialData={currentInspectionInitialData}
+                    processOrder={processOrder}
+                    product={product}
                   />
                 )}
               {machine === "FILLER" && packageType === "PERFORMA RED AND GREEN" ? (
                 plant && line && shift ? (
                   <GnrPerformanceInspectionTable
-                    key={`gnr-performance-${line}-${machine}-${packageType}`}
+                    key={`gnr-performance-${currentContextKey || processOrder}-${draftId || "new"}`}
                     username={username}
                     onDataChange={handleInspectionChange}
-                    initialData={packageDataCache["PERFORMA RED AND GREEN"] || []}
+                    initialData={currentInspectionInitialData}
+                    selectedDate={date}
                     plant={plant}
                     line={line}
                     machine={machine}
@@ -1428,24 +1925,27 @@ const CILTinspection = ({ route, navigation }) => {
               ) : null}
               {machine === "FILLER" && packageType === "CHECKLIST CILT" && (
                 <ChecklistCILTInspectionTable
-                  key={`checklist-cilt-${line}-${machine}`}
+                  key={`checklist-cilt-${currentContextKey || processOrder}-${product || "no-product"}-${draftId || "new"}`}
                   username={username}
                   onDataChange={handleInspectionChange}
-                  initialData={packageDataCache["CHECKLIST CILT"] || []}
+                  initialData={currentInspectionInitialData}
                   plant={plant}
                   line={line}
                   machine={machine}
                   type={packageType}
+                  processOrder={processOrder}
+                  shift={shift}
+                  product={product}
                 />
               )}
               {machine === "FILLER" && packageType === "SEGREGASI" && (
                 <SegregasiInspectionTable
-                  key={`segregasi-${processOrder}`}
+                  key={`segregasi-${processOrder}-${draftId || "new"}`}
                   username={username}
                   onDataChange={handleInspectionChange}
                   onDescriptionChange={handleSegregationDescriptionChange}
-                  initialData={packageDataCache["SEGREGASI"] || []}
-                  initialDescription={packageDescriptionCache["SEGREGASI"] || []}
+                  initialData={currentInspectionInitialData}
+                  initialDescription={currentDescriptionInitialData}
                   product={baseProduct}
                   productOptions={productOptions}
                   lineName={line}
@@ -1465,7 +1965,7 @@ const CILTinspection = ({ route, navigation }) => {
                   machine={machine}
                   packageName={packageType}
                   onDataChange={handleInspectionChange}
-                  initialData={packageDataCache["A3 / FLEX ( PAGE 1 )"] || []}
+                  initialData={currentInspectionInitialData}
                 />
               )}
               {machine === "FILLER" && packageType === "PENGECEKAN PRESSURE" && (
@@ -1476,7 +1976,7 @@ const CILTinspection = ({ route, navigation }) => {
                   machine={machine}
                   packageName={packageType}
                   onDataChange={handleInspectionChange}
-                  initialData={packageDataCache["PENGECEKAN PRESSURE"] || []}
+                  initialData={currentInspectionInitialData}
                 />
               )}
               {machine === "FILLER" && packageType === "START & FINISH" && (
@@ -1487,7 +1987,7 @@ const CILTinspection = ({ route, navigation }) => {
                   machine={machine}
                   packageName={packageType}
                   onDataChange={handleInspectionChange}
-                  initialData={packageDataCache["START & FINISH"] || []}
+                  initialData={currentInspectionInitialData}
                 />
               )}
               {machine === "PACKER" && packageType === "LAPORAN ARTEMA & SMS CARDBOARD" && (
@@ -1495,7 +1995,7 @@ const CILTinspection = ({ route, navigation }) => {
                   key={`artema-cardboard-${processOrder}`}
                   username={username}
                   onDataChange={handleInspectionChange}
-                  initialData={packageDataCache["LAPORAN ARTEMA & SMS CARDBOARD"] || []}
+                  initialData={currentInspectionInitialData}
                   shouldClearData={shouldClearInspectionData}
                 />
               )}
@@ -1504,7 +2004,7 @@ const CILTinspection = ({ route, navigation }) => {
                   key={`frans-case-packer-${processOrder}`}
                   username={username}
                   onDataChange={handleInspectionChange}
-                  initialData={packageDataCache["LAPORAN FRANS WP 25 CASE"] || []}
+                  initialData={currentInspectionInitialData}
                   shouldClearData={shouldClearInspectionData}
                 />
               )}
@@ -1516,7 +2016,7 @@ const CILTinspection = ({ route, navigation }) => {
                   machine={machine}
                   packageName={packageType}
                   onDataChange={handleInspectionChange}
-                  initialData={packageDataCache["INFORMASI PRODUK"] || []}
+                  initialData={currentInspectionInitialData}
                 />
               )}
               {machine === "FILLER" && packageType === "LAPORAN PRODUKSI MESIN" && (
@@ -1527,7 +2027,7 @@ const CILTinspection = ({ route, navigation }) => {
                   machine={machine}
                   packageName={packageType}
                   onDataChange={handleInspectionChange}
-                  initialData={packageDataCache["LAPORAN PRODUKSI MESIN"] || []}
+                  initialData={currentInspectionInitialData}
                 />
               )}
               {machine === "ROBOT" && packageType === "ROBOT PALLETIZER FILLER" && (
@@ -1535,7 +2035,7 @@ const CILTinspection = ({ route, navigation }) => {
                   key={`robot-palletizer-${processOrder}`}
                   username={username}
                   onDataChange={handleInspectionChange}
-                  initialData={packageDataCache["ROBOT PALLETIZER FILLER"] || []}
+                  initialData={currentInspectionInitialData}
                   shift={shift}
                   line={line}
                   machine={machine}
@@ -1555,27 +2055,6 @@ const CILTinspection = ({ route, navigation }) => {
             Saya menyatakan telah memasukkan data dengan benar.
           </Text>
         </View>
-
-        {["CHANGE OVER", "CLEANING", "START UP", "GI/GR"].includes(
-          packageType
-        ) ? (
-          <>
-            <View style={styles.buttonContainer}>
-              <TouchableOpacity
-                style={[
-                  styles.submitButton,
-                  (!agreed || !product) && styles.submitButtonDisabled,
-                ]}
-                onPress={() => handleSubmit(1)}
-                disabled={!agreed || !product}
-              >
-                <Text style={styles.submitButtonText}>SAVE AS DRAFT</Text>
-              </TouchableOpacity>
-            </View>
-          </>
-        ) : (
-          <></>
-        )}
 
         <View>
           <TouchableOpacity
