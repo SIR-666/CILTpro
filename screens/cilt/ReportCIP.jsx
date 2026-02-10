@@ -124,7 +124,10 @@ const ReportCIP = ({ navigation }) => {
   };
 
   const handleDetailPress = (item) => {
-    navigation.navigate("DetailReportCIP", { cipReportId: item.id });
+    navigation.navigate("DetailReportCIP", {
+      cipReportId: item.id,
+      sourceScreen: "ReportCIP",
+    });
   };
 
   const handleCreateCIP = () => {

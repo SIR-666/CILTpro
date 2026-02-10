@@ -3897,7 +3897,10 @@ const ListCILT = ({ navigation }) => {
 
     if (config.useIdParam) {
       // Special case for CIP
-      navigation.navigate(config.screen, { cipReportId: Number(item.id) });
+      navigation.navigate(config.screen, {
+        cipReportId: Number(item.id),
+        sourceScreen: "ListCILT",
+      });
     } else {
       navigation.navigate(config.screen, { item });
     }

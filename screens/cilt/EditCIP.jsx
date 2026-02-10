@@ -24,7 +24,7 @@ import ReportCIPInspectionTable from "../../components/package/filler/ReportCIPI
 const getEditStorageKey = (reportId) => `cip_edit_form_${reportId}`;
 
 const EditCIP = ({ navigation, route }) => {
-  const { cipData: existingCipData, onGoBack } = route.params;
+  const { cipData: existingCipData, onGoBack, sourceScreen } = route.params;
   const [loading, setLoading] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [userProfile, setUserProfile] = useState(null);
@@ -521,7 +521,8 @@ const EditCIP = ({ navigation, route }) => {
                 navigation.replace("DetailReportCIP", {
                   cipReportId: formData.id,
                   refresh: true,
-                  timestamp: new Date().getTime()
+                  timestamp: new Date().getTime(),
+                  sourceScreen,
                 });
               }
             }

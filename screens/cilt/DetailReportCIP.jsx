@@ -19,6 +19,7 @@ import { api } from "../../utils/axiosInstance";
 const DetailReportCIP = ({ navigation, route }) => {
   const raw = route.params?.cipReportId ?? route.params?.id;
   const cipReportId = Number(raw);
+  const sourceScreen = route.params?.sourceScreen;
 
   if (!Number.isFinite(cipReportId)) {
     Alert.alert("Error", "Invalid CIP id");
@@ -29,6 +30,20 @@ const DetailReportCIP = ({ navigation, route }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusList, setStatusList] = useState([]);
+
+  const navigateBackToOrigin = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+
+    if (sourceScreen === "ListCILT") {
+      navigation.navigate("ListCILT");
+      return;
+    }
+
+    navigation.navigate("ReportCIP");
+  }, [navigation, sourceScreen]);
 
   // Fetch data function dengan force refresh
   const fetchCIPDetail = useCallback(async (showLoading = true) => {
@@ -113,12 +128,11 @@ const DetailReportCIP = ({ navigation, route }) => {
     }
   }, [route.params, fetchCIPDetail]);
 
-  // Handle hardware back button
+  // Handle hardware back button berdasarkan origin screen
   useFocusEffect(
     useCallback(() => {
       const onBackPress = () => {
-        // Langsung ke ReportCIP, reset navigation stack
-        navigation.navigate("ReportCIP");
+        navigateBackToOrigin();
         return true; // Prevent default behavior
       };
 
@@ -127,7 +141,7 @@ const DetailReportCIP = ({ navigation, route }) => {
       return () => {
         BackHandler.removeEventListener("hardwareBackPress", onBackPress);
       };
-    }, [navigation])
+    }, [navigateBackToOrigin])
   );
 
   const handleEdit = () => {
@@ -147,7 +161,8 @@ const DetailReportCIP = ({ navigation, route }) => {
         steps: cipData.steps,
         copRecords: cipData.copRecords,
         specialRecords: cipData.specialRecords,
-      }
+      },
+      sourceScreen,
     });
   };
 
@@ -221,8 +236,7 @@ const DetailReportCIP = ({ navigation, route }) => {
                 {
                   text: "OK",
                   onPress: () => {
-                    // Kembali ke list ReportCIP
-                    navigation.navigate("ReportCIP");
+                    navigateBackToOrigin();
                   }
                 }
               ]);
@@ -236,9 +250,9 @@ const DetailReportCIP = ({ navigation, route }) => {
     );
   };
 
-  // Handle back button di header untuk selalu kembali ke ReportCIP
+  // Handle back button di header berdasarkan origin screen
   const handleBackPress = () => {
-    navigation.navigate("ReportCIP");
+    navigateBackToOrigin();
   };
 
   const getStatusColor = (status) => {
