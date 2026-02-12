@@ -9,21 +9,63 @@ import {
   View,
 } from "react-native";
 
-const DowntimeCategoryModal = ({ visible, onClose, onSelect, data }) => {
+const DowntimeCategoryModal = ({
+  visible,
+  onClose,
+  onSelect,
+  data,
+  hiddenCategories = [],
+}) => {
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [selectedDowntime, setSelectedDowntime] = useState("");
   const [search, setSearch] = useState("");
 
-  const filteredCategories = data.filter((cat) =>
-    cat.category.toLowerCase().includes(search.toLowerCase())
+  const searchLower = search.toLowerCase();
+
+  const hiddenCategorySet = new Set(
+    (hiddenCategories || [])
+      .map((item) => String(item || "").trim().toLowerCase())
+      .filter(Boolean)
   );
-  const filteredDowntimes = selectedCategory
-    ? (selectedCategory.downtime || []).filter((item) =>
-        String(item).toLowerCase().includes(search.toLowerCase())
-      )
+
+  const filteredCategories = (data || []).filter((cat) => {
+    const categoryLabel = String(cat?.category || "").trim();
+    if (!categoryLabel) return false;
+    if (hiddenCategorySet.has(categoryLabel.toLowerCase())) return false;
+    return categoryLabel.toLowerCase().includes(searchLower);
+  });
+
+  const downtimeRows = selectedCategory
+    ? (selectedCategory.downtime || [])
+        .map((item) => {
+          if (typeof item === "string") {
+            return { downtime: item, details: "" };
+          }
+          return {
+            downtime: String(item?.downtime || "").trim(),
+            details: String(item?.details || "").trim(),
+          };
+        })
+        .filter((item) => item.downtime)
+    : [];
+
+  const filteredDowntimes = Array.from(
+    new Set(downtimeRows.map((item) => item.downtime))
+  ).filter((item) => item.toLowerCase().includes(searchLower));
+
+  const filteredDetails = selectedDowntime
+    ? Array.from(
+        new Set(
+          downtimeRows
+            .filter((item) => item.downtime === selectedDowntime && item.details)
+            .map((item) => item.details)
+        )
+      ).filter((item) => item.toLowerCase().includes(searchLower))
     : [];
 
   const handleClose = () => {
     setSelectedCategory(null);
+    setSelectedDowntime("");
     setSearch("");
     onClose();
   };
@@ -34,9 +76,11 @@ const DowntimeCategoryModal = ({ visible, onClose, onSelect, data }) => {
         <View style={styles.modal}>
           <View style={styles.header}>
             <Text style={styles.headerText}>
-              {selectedCategory
+              {!selectedCategory
+                ? "Select Downtime Category"
+                : !selectedDowntime
                 ? "Select Downtime"
-                : "Select Downtime Category"}
+                : "Select Details"}
             </Text>
             <TouchableOpacity onPress={handleClose}>
               <Text style={styles.close}>X</Text>
@@ -45,7 +89,7 @@ const DowntimeCategoryModal = ({ visible, onClose, onSelect, data }) => {
 
           <TextInput
             style={styles.searchInput}
-            placeholder="Search"
+            placeholder={selectedDowntime ? "Search details" : "Search"}
             value={search}
             onChangeText={setSearch}
           />
@@ -59,6 +103,7 @@ const DowntimeCategoryModal = ({ visible, onClose, onSelect, data }) => {
                   style={styles.item}
                   onPress={() => {
                     setSelectedCategory(item);
+                    setSelectedDowntime("");
                     setSearch("");
                   }}
                 >
@@ -68,7 +113,7 @@ const DowntimeCategoryModal = ({ visible, onClose, onSelect, data }) => {
             />
           )}
 
-          {selectedCategory && (
+          {selectedCategory && !selectedDowntime && (
             <FlatList
               data={filteredDowntimes}
               keyExtractor={(item, idx) => `${item}-${idx}`}
@@ -76,10 +121,34 @@ const DowntimeCategoryModal = ({ visible, onClose, onSelect, data }) => {
                 <TouchableOpacity
                   style={styles.item}
                   onPress={() => {
-                    onSelect(selectedCategory.category, item);
-                    setSelectedCategory(null);
-                    setSearch("");
-                    onClose();
+                    const hasDetails = downtimeRows.some(
+                      (row) => row.downtime === item && row.details
+                    );
+                    if (hasDetails) {
+                      setSelectedDowntime(item);
+                      setSearch("");
+                      return;
+                    }
+                    onSelect(selectedCategory.category, item, null);
+                    handleClose();
+                  }}
+                >
+                  <Text>{item}</Text>
+                </TouchableOpacity>
+              )}
+            />
+          )}
+
+          {selectedCategory && selectedDowntime && (
+            <FlatList
+              data={filteredDetails}
+              keyExtractor={(item, idx) => `${item}-${idx}`}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.item}
+                  onPress={() => {
+                    onSelect(selectedCategory.category, selectedDowntime, item);
+                    handleClose();
                   }}
                 >
                   <Text>{item}</Text>
@@ -89,10 +158,14 @@ const DowntimeCategoryModal = ({ visible, onClose, onSelect, data }) => {
           )}
 
           <View style={styles.footer}>
-            {selectedCategory && (
+            {(selectedCategory || selectedDowntime) && (
               <TouchableOpacity
                 onPress={() => {
-                  setSelectedCategory(null);
+                  if (selectedDowntime) {
+                    setSelectedDowntime("");
+                  } else {
+                    setSelectedCategory(null);
+                  }
                   setSearch("");
                 }}
               >

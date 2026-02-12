@@ -35,6 +35,7 @@ const DetailShiftlyDowntime = ({ route, navigation }) => {
       row.downtime_category ?? row.Downtime_Category ?? headerItem.downtime_category,
     mesin: row.mesin ?? row.Mesin,
     jenis: row.jenis ?? row.Jenis,
+    details: row.details ?? row.Details,
     keterangan: row.keterangan ?? row.Keterangan,
     minutes: row.minutes ?? row.Minutes,
     start_time: row.start_time ?? row.Date ?? row.date,
