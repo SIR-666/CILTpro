@@ -1087,7 +1087,6 @@ const htmlShiftly = async (item) => {
  * ================= */
 const checklistLayerCss = `
   <style>
-    @page { size: A4 landscape; margin: 12mm; }
     table { width: 100%; border-collapse: collapse; }
     th, td { border: 1px solid #000; font-size: 10px; text-align: center; padding: 0; }
     th { background: #3bcd6b; color: #fff; }
@@ -1658,6 +1657,22 @@ const htmlCIP = async (cipSummary) => {
   `;
 };
 
+const sanitizeEmbeddedPdfHtml = (htmlFragment) => {
+  let html = String(htmlFragment || "");
+
+  html = html.replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, (_full, css) => {
+    const cleanedCss = String(css || "")
+      .replace(/@page\s+[a-zA-Z0-9_-]+\s*\{[\s\S]*?\}/gi, "")
+      .replace(/@page\s*\{[\s\S]*?\}/gi, "");
+    return `<style>${cleanedCss}</style>`;
+  });
+
+  // Keep only fragment content (avoid nested html/head/body wrappers from imported templates)
+  html = html.replace(/<\/?(html|head|body)[^>]*>/gi, "");
+
+  return html;
+};
+
 // Router template - Updated to handle async PERFORMA
 const htmlByPackage = async (item) => {
   const packageType = item.packageType;
@@ -1666,21 +1681,22 @@ const htmlByPackage = async (item) => {
   // Prioritas 1: Gunakan imported generator jika ada
   if (config?.htmlGenerator) {
     const html = config.htmlGenerator;
-    return typeof html === 'function' ? html(item) : html;
+    const generated = typeof html === "function" ? await html(item) : html;
+    return sanitizeEmbeddedPdfHtml(generated);
   }
 
   // Prioritas 2: Hanya untuk package yang memang perlu fungsi inline khusus
   switch (packageType) {
     case "SEGREGASI":
-      return htmlSegregasi(item);      // fungsi inline di ListCILT
+      return sanitizeEmbeddedPdfHtml(htmlSegregasi(item)); // fungsi inline di ListCILT
     case "PERFORMA RED AND GREEN":
-      return await htmlShiftly(item);       // fungsi inline di ListCILT (async)
+      return sanitizeEmbeddedPdfHtml(await htmlShiftly(item)); // fungsi inline di ListCILT (async)
     case "CHECKLIST CILT":
-      return htmlChecklist(item);      // fungsi inline di ListCILT
+      return sanitizeEmbeddedPdfHtml(htmlChecklist(item)); // fungsi inline di ListCILT
     case "CILTGIGR":
-      return htmlCILTGIGR(item);
+      return sanitizeEmbeddedPdfHtml(htmlCILTGIGR(item));
     case "REPORT CIP":
-      return await htmlCIP(item);     // fungsi inline di ListCILT
+      return sanitizeEmbeddedPdfHtml(await htmlCIP(item)); // fungsi inline di ListCILT
     default:
       // Untuk package yang tidak dikenali, gunakan default
       return `<div class="package-error">No template found for package: ${esc(packageType)}</div>`;
@@ -1717,6 +1733,71 @@ const getPackageOrientation = (packageType) => {
   return PACKAGE_ORIENTATIONS[packageType] || "portrait"; // default portrait
 };
 
+const toUpperTrim = (value) => String(value || "").trim().toUpperCase();
+const getPackageOrderRank = (item) => {
+  const line = toUpperTrim(item?.line);
+  const packageType = toUpperTrim(item?.packageType);
+
+  const fillerLinesAD = ["LINE A", "LINE B", "LINE C", "LINE D"];
+  const fillerLinesEH = ["LINE E", "LINE F", "LINE G", "LINE H"];
+
+  const fillerOrderAD = [
+    "SEGREGASI",
+    "PEMAKAIAN SCREW CAP",
+    "PEMAKAIAN PAPER",
+    "PENGECEKAN H2O2 ( SPRAY )",
+    "PERFORMA RED AND GREEN",
+    "CHECKLIST CILT",
+  ];
+
+  const fillerOrderEHRest = [
+    "A3 / FLEX ( PAGE 1 )",
+    "A3 FLEX PAGE 1",
+    "A3 FLEX",
+    "PENGECEKAN PRESSURE",
+    "START FINISH PRODUKSI",
+    "START & FINISH PRODUKSI",
+    "START & FINISH",
+    "COMBI XG SLIM 24",
+    "COMBI XG CHECK",
+    "COMBI XG PRODUCT",
+    "CILTGIGR",
+    "INFORMASI PRODUK",
+    "LAPORAN PRODUKSI MESIN",
+  ];
+
+  if (fillerLinesAD.includes(line)) {
+    const idx = fillerOrderAD.indexOf(packageType);
+    if (idx !== -1) return [0, idx];
+  }
+
+  if (fillerLinesEH.includes(line)) {
+    const idx = fillerOrderEHRest.indexOf(packageType);
+    if (idx !== -1) return [1, idx];
+  }
+
+  // Packer order by line
+  if (["LINE A", "LINE B", "LINE D"].includes(line) && packageType === "LAPORAN ARTEMA & SMS CARDBOARD") {
+    return [2, 0];
+  }
+  if (line === "LINE C" && packageType === "LAPORAN FRANS WP 25 CASE") {
+    return [2, 1];
+  }
+
+  // Robot
+  if (packageType === "ROBOT PALLETIZER FILLER") {
+    return [3, 0];
+  }
+
+  // Keep CIP at the end in grouped rendering
+  if (packageType === "REPORT CIP") {
+    return [6, 0];
+  }
+
+  // Fallback: other packages
+  return [4, 999];
+};
+
 /* Global CSS untuk PDF - base (tetap) */
 const globalPdfCss = `
   <style>
@@ -1736,6 +1817,11 @@ const globalPdfCss = `
     
     .pkg-section[data-orientation="portrait"] {
       page-break-before: always;
+    }
+    .pkg-section,
+    .report-section {
+      page-break-inside: auto;
+      break-inside: auto;
     }
     
     /* Ensure sections respect their orientation */
@@ -1798,6 +1884,9 @@ const globalPdfCss = `
     table { width: 100%; border-collapse: collapse; margin-top: 10px; }
     th, td { border: 1px solid black; padding: 6px; text-align: center; font-size: 11px; }
     th { background-color: #f2f2f2; font-weight: bold; }
+    thead { display: table-header-group; }
+    tfoot { display: table-footer-group; }
+    tr, img { page-break-inside: avoid; break-inside: avoid; }
     .performa-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
     .performa-table th, .performa-table td { border: 1px solid black; padding: 4px; font-size: 10px; }
     .performa-table th { background-color: #3bcd6b; color: white; font-weight: bold; text-align: center; }
@@ -1813,7 +1902,17 @@ const globalPdfCss = `
     .section-description { text-align: center; margin-bottom: 10px; font-style: italic; color: #666; font-size: 11px; line-height: 14px; }
     img { display: block; margin: auto; }
     .cover { margin-bottom: 20px; text-align: center; page-break-after: avoid; }
-    .footer { margin-top: 30px; text-align: center; font-size: 10px; color: #666; }
+    .footer {
+      margin-top: 10px;
+      text-align: center;
+      font-size: 10px;
+      color: #666;
+      page-break-before: avoid;
+      break-before: avoid;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+    .footer:empty { display: none; }
     .date-group-header { 
       background-color: #e3f2fd; 
       padding: 8px; 
@@ -1829,6 +1928,21 @@ const globalPdfCss = `
     .date-group-header:first-child { page-break-before: avoid; }
     .single-package-section { margin-bottom: 5px; }
     .multiple-package-section { margin-bottom: 20px; }
+    .single-package-section .pkg-section:first-child,
+    .multiple-package-section .pkg-section:first-child {
+      page-break-before: auto !important;
+      break-before: auto !important;
+    }
+    .single-package-section .pkg-section:first-child .report-section,
+    .multiple-package-section .pkg-section:first-child .report-section {
+      page-break-before: auto !important;
+      break-before: auto !important;
+    }
+    .checklist-table-container,
+    .desc-grid,
+    .seg-grid {
+      overflow: visible !important;
+    }
     .slot-cell { padding:0; }
     .slot-wrap { display:flex; width:100%; height:100%; border-left:1px solid #ddd; border-right:1px solid #ddd; }
     .slot-half {
@@ -1851,7 +1965,8 @@ const globalPdfCss = `
 const segregasiPdfStyles = `
   <style>
   .segregasi-section { 
-    page-break-inside: avoid; 
+    page-break-inside: auto; 
+    break-inside: auto;
     margin-bottom: 25px;
   }
   .description-container {
@@ -1913,7 +2028,8 @@ const checklistPdfStyles = `
   <style>
   /* Force landscape untuk CHECKLIST section */
   .checklist-section { 
-    page-break-inside: avoid; 
+    page-break-inside: auto; 
+    break-inside: auto;
     margin-bottom: 25px; 
   }
   
@@ -1937,7 +2053,7 @@ const checklistPdfStyles = `
   .info-label { font-weight:600; color:#444; width:90px; }
   .info-value { font-weight:700; color:#111; padding-left:10px; }
 
-  .checklist-table-container { margin-top:10px; border:1px solid #D9E3DB; border-radius:6px; overflow:hidden; }
+  .checklist-table-container { margin-top:10px; border:1px solid #D9E3DB; border-radius:6px; overflow:visible; }
   .checklist-table { width:100%; border-collapse:collapse; margin:0; }
   .checklist-table-header { background:#CDEFD8; }
   .checklist-header-cell { color:#1f2937; font-weight:800; text-align:center; padding:12px 8px; font-size:12px; border-right:1px solid #9ED4B5; }
@@ -1964,7 +2080,8 @@ const cipPdfStyles = `
   /* CIP Report specific styles */
   .cip-section-main { 
     page-break-before: always;
-    page-break-inside: avoid; 
+    page-break-inside: auto; 
+    break-inside: auto;
     margin-bottom: 30px;
   }
   
@@ -2268,7 +2385,8 @@ const performaPdfStyles = `
   /* PERFORMA Report specific styles matching DetailLaporanShiftly */
   .performa-section { 
     page-break-before: always;
-    page-break-inside: avoid; 
+    page-break-inside: auto; 
+    break-inside: auto;
     margin-bottom: 30px;
   }
 
@@ -2415,12 +2533,6 @@ const performaPdfStyles = `
     background-color: #f8f9fa !important;
   }
   
-  /* Page orientation for PERFORMA */
-  @page {
-    size: A4 landscape;
-    margin: 10mm;
-  }
-  
   /* Print-specific adjustments */
   @media print {
     .performa-section {
@@ -2443,7 +2555,8 @@ const artemaFransPdfStyles = `
   /* ARTEMA SECTION STYLES - PORTRAIT OPTIMIZED */
   .artema-section {
     page-break-before: always;
-    page-break-inside: avoid;
+    page-break-inside: auto;
+    break-inside: auto;
     margin-bottom: 25px;
   }
   
@@ -2584,7 +2697,8 @@ const artemaFransPdfStyles = `
   /* FRANS SECTION STYLES */
   .frans-section {
     page-break-before: always;
-    page-break-inside: avoid;
+    page-break-inside: auto;
+    break-inside: auto;
     margin-bottom: 25px;
   }
   
@@ -3372,71 +3486,34 @@ const ListCILT = ({ navigation }) => {
 
   // Generate HTML with date grouping
   const generateCombinedHTML = async (shift, groupedData) => {
-    const timestamp = moment().format("DD/MM/YYYY HH:mm:ss");
-    const filterInfo = [];
-    if (selectedDate) filterInfo.push(`Tanggal: ${moment(selectedDate).format("DD/MM/YYYY")}`);
-    if (selectedPlant) filterInfo.push(`Plant: ${selectedPlant}`);
-    if (selectedLine) filterInfo.push(`Line: ${selectedLine}`);
-    if (selectedPackage) filterInfo.push(`Package: ${selectedPackage}`);
-    if (searchQuery) filterInfo.push(`Search: ${searchQuery}`);
-
-    const mainHeader = renderPDFHeader("SEGREGASI");
+    const hasAnyCip = groupedData.some(
+      (group) => (group?.cipData?.length ?? 0) > 0
+    );
 
     // Process each date group
     const dateGroupSections = [];
 
     for (const group of groupedData) {
-      const dateFormatted = moment(group.date).format("DD MMMM YYYY");
-
-      // Add date header
-      const dateHeader = `<div class="report-date">${dateFormatted}</div>`;
-
       const regularSections = [];
-      const performaSections = [];
 
-      // Sort data according to package priority for this date
-      const packageOrder = [
-        // ESL (FILLER + PACKER + ROBOT)
-        "SEGREGASI",
-        "PEMAKAIAN PAPER",
-        "PEMAKAIAN SCREW CAP",
-        "PENGECEKAN H2O2 ( SPRAY )",
-        "PERFORMA RED AND GREEN",
-        "CHECKLIST CILT",
-        "LAPORAN ARTEMA & SMS CARDBOARD",
-        "LAPORAN FRANS WP 25 CASE",
-        "ROBOT PALLETIZER FILLER",
-        "CILTGIGR",
+      const sortedData = [...group.ciltData].sort((a, b) => {
+        const [groupA, orderA] = getPackageOrderRank(a);
+        const [groupB, orderB] = getPackageOrderRank(b);
 
-        // UHT (FILLER)
-        "A3 / FLEX ( PAGE 1 )",
-        "PENGECEKAN PRESSURE",
-        "START FINISH PRODUKSI",
-        "START & FINISH",
+        if (groupA !== groupB) return groupA - groupB;
+        if (orderA !== orderB) return orderA - orderB;
 
-        // LINE H
-        "INFORMASI PRODUK",
-        "LAPORAN PRODUKSI MESIN",
-      ];
+        const lineCmp = toUpperTrim(a?.line).localeCompare(toUpperTrim(b?.line));
+        if (lineCmp !== 0) return lineCmp;
 
-      const sortedData = group.ciltData.sort((a, b) => {
-        const aOrder = packageOrder.indexOf(a.packageType);
-        const bOrder = packageOrder.indexOf(b.packageType);
-        const aIndex = aOrder === -1 ? 999 : aOrder;
-        const bIndex = bOrder === -1 ? 999 : bOrder;
-        return aIndex - bIndex;
+        return toUpperTrim(a?.packageType).localeCompare(toUpperTrim(b?.packageType));
       });
 
       // Process each item for this date
       for (const item of sortedData) {
         const orientation = getPackageOrientation(item.packageType);
-        if (item.packageType === "PERFORMA RED AND GREEN") {
-          const performaHtml = await htmlByPackage(item);
-          performaSections.push(`<div class="pkg-section" data-orientation="${orientation}">${performaHtml}</div>`);
-        } else {
-          const itemHtml = await htmlByPackage(item);
-          regularSections.push(`<div class="pkg-section" data-orientation="${orientation}">${itemHtml}</div>`);
-        }
+        const itemHtml = await htmlByPackage(item);
+        regularSections.push(`<div class="pkg-section" data-orientation="${orientation}">${itemHtml}</div>`);
       }
 
       // Process CIP data for this date
@@ -3446,32 +3523,27 @@ const ListCILT = ({ navigation }) => {
       }));
 
       // Combine all sections for this date
-      const allSectionsForDate = [...regularSections, ...performaSections, ...cipSections];
+      const allSectionsForDate = [...regularSections, ...cipSections];
       const dateSections = allSectionsForDate.join("");
 
       if (dateSections.trim()) {
         const totalPackages = allSectionsForDate.length;
         const spacingClass = totalPackages === 1 ? "single-package-section" : "multiple-package-section";
         const wrappedSections = `<div class="${spacingClass}">${dateSections}</div>`;
-        dateGroupSections.push(dateHeader + wrappedSections);
+        dateGroupSections.push(wrappedSections);
       }
     }
-
-    const totalItems = groupedData.reduce((total, group) => total + group.ciltData.length + group.cipData.length, 0);
 
     return `
       <html>
         <head><meta charset="utf-8" />${updatedGlobalPdfCssWithAll}</head>
         <body>
-          ${mainHeader}
-          <div class="cover">
-            <h2>Laporan CILT - ${esc(shift)}</h2>
-            <div>Generated: ${timestamp} | Total Detail: ${totalItems}</div>
-            ${filterInfo.length ? `<div>Filter: ${filterInfo.join(" | ")}</div>` : ""}
-            <div><strong>Data dikelompokkan berdasarkan tanggal</strong></div>
-          </div>
           ${dateGroupSections.join("")}
-          <div class="footer">CILT/CIP Report - generated automatically</div>
+          ${
+            hasAnyCip
+              ? '<div class="footer">CILT/CIP Report - generated automatically</div>'
+              : ""
+          }
         </body>
       </html>
     `;
