@@ -470,6 +470,7 @@ const A3FlexInspectionTable = ({
   const [tab, setTab] = useState("1jam");
   const [pressureData, setPressureData] = useState([]);
   const [thirtyMinData, setThirtyMinData] = useState([]);
+  const [readyToEmit, setReadyToEmit] = useState(false);
   const tableCacheRef = useRef({});
 
   const handleTableStateChange = useCallback((mode, tableState) => {
@@ -503,9 +504,12 @@ const A3FlexInspectionTable = ({
         setThirtyMinData(initial.pressureCheck30Min);
       }
     }
+    setReadyToEmit(true);
   }, [initialData]);
 
   useEffect(() => {
+    if (!readyToEmit) return;
+
     const timeoutId = setTimeout(() => {
       const combinedData = [
         {
@@ -524,7 +528,7 @@ const A3FlexInspectionTable = ({
     }, 100);
 
     return () => clearTimeout(timeoutId);
-  }, [pressureData, thirtyMinData, packageName, line, tab]);
+  }, [readyToEmit, pressureData, thirtyMinData, packageName, line, tab, onDataChange]);
 
   if (!isPressure) {
     return (

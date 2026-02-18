@@ -375,17 +375,45 @@ const CILTinspection = ({ route, navigation }) => {
 
   // callbacks ke children (stabil, anti-loop)
   const handleInspectionChange = useCallback((data) => {
-    setInspectionData(data);
-    // Simpan ke cache berdasarkan package type
+    const normalizedData = Array.isArray(data) ? data : [];
+
     if (packageType) {
       const contextKey = getDraftContextCacheKey(packageType, processOrder, shift);
       const shiftKey = getDraftShiftCacheKey(packageType, shift, plant, line, machine);
-      setPackageDataCache(prev => ({
+      const incomingMeaningfulRows = getMeaningfulDraftRows(normalizedData);
+
+      const existingCachedRows =
+        (contextKey && Array.isArray(packageDataCacheRef.current?.[contextKey])
+          ? packageDataCacheRef.current?.[contextKey]
+          : null) ||
+        (shiftKey && Array.isArray(packageDataCacheRef.current?.[shiftKey])
+          ? packageDataCacheRef.current?.[shiftKey]
+          : null) ||
+        (Array.isArray(packageDataCacheRef.current?.[packageType])
+          ? packageDataCacheRef.current?.[packageType]
+          : []);
+
+      const existingMeaningfulRows = getMeaningfulDraftRows(existingCachedRows);
+      const shouldIgnoreTransientEmptyUpdate =
+        !isHydratingDraftRef.current &&
+        incomingMeaningfulRows.length === 0 &&
+        existingMeaningfulRows.length > 0;
+
+      if (shouldIgnoreTransientEmptyUpdate) {
+        console.log(
+          `Ignore transient empty payload for ${packageType}; keeping existing cached draft data`
+        );
+        return;
+      }
+
+      setInspectionData(normalizedData);
+      setPackageDataCache((prev) => ({
         ...prev,
-        [packageType]: data,
-        ...(contextKey ? { [contextKey]: data } : {}),
-        ...(shiftKey ? { [shiftKey]: data } : {}),
+        [packageType]: normalizedData,
+        ...(contextKey ? { [contextKey]: normalizedData } : {}),
+        ...(shiftKey ? { [shiftKey]: normalizedData } : {}),
       }));
+
       if (contextKey) {
         draftContextMetaRef.current[contextKey] = {
           packageType,
@@ -398,8 +426,16 @@ const CILTinspection = ({ route, navigation }) => {
           batch,
         };
       }
-      console.log(`Cached inspection data for: ${packageType}`, data.length, "items");
+
+      console.log(
+        `Cached inspection data for: ${packageType}`,
+        normalizedData.length,
+        "items"
+      );
+      return;
     }
+
+    setInspectionData(normalizedData);
   }, [packageType, processOrder, shift, plant, line, machine, product, batch]);
 
   const handleSegregationDescriptionChange = useCallback((data) => {
@@ -835,11 +871,11 @@ const CILTinspection = ({ route, navigation }) => {
 
     // Load inspection data dari cache context jika ada
     if (cachedInspectionByContext && cachedInspectionByContext.length > 0) {
-      console.log(` Loading inspection data from context cache for: ${packageType}`);
+      console.log(`Loading inspection data from context cache for: ${packageType}`);
       setInspectionData(cachedInspectionByContext);
     }
     else if (cachedInspectionByShift && cachedInspectionByShift.length > 0) {
-      console.log(` Loading inspection data from shift cache for: ${packageType}`);
+      console.log(`Loading inspection data from shift cache for: ${packageType}`);
       setInspectionData(cachedInspectionByShift);
     }
     else {
@@ -850,10 +886,10 @@ const CILTinspection = ({ route, navigation }) => {
 
     // Load description data dari cache untuk Segregasi
     if (packageType === "SEGREGASI" && cachedDescriptionByContext) {
-      console.log(` Loading description data from context cache for: ${packageType}`);
+      console.log(`Loading description data from context cache for: ${packageType}`);
       setSegregationDescriptionData(cachedDescriptionByContext);
     } else if (packageType === "SEGREGASI" && cachedDescriptionByShift) {
-      console.log(` Loading description data from shift cache for: ${packageType}`);
+      console.log(`Loading description data from shift cache for: ${packageType}`);
       setSegregationDescriptionData(cachedDescriptionByShift);
     } else if (packageType === "SEGREGASI") {
       console.log(`No description cache found for: ${packageType}, resetting`);
@@ -2002,7 +2038,7 @@ const CILTinspection = ({ route, navigation }) => {
               {machine === "FILLER" &&
                 packageType === "PEMAKAIAN SCREW CAP" && (
                   <ScrewCapInspectionTable
-                    key={`screw-cap-${processOrder}-${product}-${draftId || "new"}`}
+                    key={`screw-cap-${currentContextKey || processOrder}-${product || "no-product"}`}
                     username={username}
                     onDataChange={handleInspectionChange}
                     initialData={currentInspectionInitialData}
@@ -2012,7 +2048,7 @@ const CILTinspection = ({ route, navigation }) => {
                 )}
               {machine === "FILLER" && packageType === "PEMAKAIAN PAPER" && (
                 <PaperUsageInspectionTable
-                  key={`paper-${processOrder}-${product}-${draftId || "new"}`}
+                  key={`paper-${currentContextKey || processOrder}-${product || "no-product"}`}
                   username={username}
                   onDataChange={handleInspectionChange}
                   initialData={currentInspectionInitialData}
@@ -2023,7 +2059,7 @@ const CILTinspection = ({ route, navigation }) => {
               {machine === "FILLER" &&
                 packageType === "PENGECEKAN H2O2 ( SPRAY )" && (
                   <H2o2CheckInspectionTable
-                    key={`h2o2-check-${currentContextKey || processOrder}-${product || "no-product"}-${draftId || "new"}`}
+                    key={`h2o2-check-${currentContextKey || processOrder}-${product || "no-product"}`}
                     username={username}
                     onDataChange={handleInspectionChange}
                     initialData={currentInspectionInitialData}

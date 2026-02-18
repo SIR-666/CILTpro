@@ -33,6 +33,7 @@ const CombiXGSlim24ProductInspectionTable = memo(({
     });
 
     const [paperRows, setPaperRows] = useState([emptyRow, emptyRow, emptyRow]);
+    const [readyToEmit, setReadyToEmit] = useState(false);
 
     // ✅ FIX: Load initial data jika ada
     useEffect(() => {
@@ -45,10 +46,13 @@ const CombiXGSlim24ProductInspectionTable = memo(({
                 setPaperRows(initial.paperRows);
             }
         }
+        setReadyToEmit(true);
     }, [initialData]);
 
     // ✅ FIX: Kirim data ke parent setiap kali berubah
     useEffect(() => {
+        if (!readyToEmit) return;
+
         const combinedData = [
             {
                 productInfo: productInfo,
@@ -63,7 +67,7 @@ const CombiXGSlim24ProductInspectionTable = memo(({
         ];
         
         onDataChange?.(combinedData);
-    }, [productInfo, paperRows, packageName, line, plant, machine, onDataChange]);
+    }, [readyToEmit, productInfo, paperRows, packageName, line, plant, machine, onDataChange]);
 
     // Handler untuk update product info
     const handleProductInfoChange = useCallback((field, value) => {

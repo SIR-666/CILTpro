@@ -16,6 +16,7 @@ export default function CombiXGSlim24CheckInspectionTable({
     const [data, setData] = useState([]);
     const [grouped, setGrouped] = useState({});
     const [values, setValues] = useState({});
+    const [readyToEmit, setReadyToEmit] = useState(false);
 
     useEffect(() => {
         loadMaster();
@@ -32,27 +33,35 @@ export default function CombiXGSlim24CheckInspectionTable({
                 setPage(initial.page);
             }
         }
+        setReadyToEmit(true);
     }, [initialData]);
 
     // ✅ FIX: Kirim data ke parent setiap kali values berubah
     useEffect(() => {
-        if (Object.keys(values).length > 0 || data.length > 0) {
-            const combinedData = [
-                {
-                    values: values,
-                    data: data,
-                    grouped: grouped,
-                    page: page,
-                    packageType: packageName,
-                    line: line,
-                    plant: plant,
-                    machine: machine,
-                }
-            ];
-            
-            onDataChange?.(combinedData);
+        if (!readyToEmit) return;
+
+        const hasAnyInput = Object.values(values).some(
+            (v) => String(v ?? "").trim() !== ""
+        );
+        if (!hasAnyInput && (!Array.isArray(initialData) || initialData.length === 0)) {
+            return;
         }
-    }, [values, data, grouped, page, packageName, line, plant, machine, onDataChange]);
+
+        const combinedData = [
+            {
+                values: values,
+                data: data,
+                grouped: grouped,
+                page: page,
+                packageType: packageName,
+                line: line,
+                plant: plant,
+                machine: machine,
+            }
+        ];
+
+        onDataChange?.(combinedData);
+    }, [readyToEmit, values, data, grouped, page, packageName, line, plant, machine, initialData, onDataChange]);
 
     const switchPage = (p) => {
         if (p !== page) {

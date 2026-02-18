@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   StyleSheet,
   Text,
@@ -9,6 +9,20 @@ import {
 import DateTimePicker from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
+const createScrewCapEmptyRows = () =>
+  Array(10)
+    .fill()
+    .map((_, index) => ({
+      id: index + 1,
+      jam: "",
+      ofNo: "",
+      boxNo: "",
+      qtyLabel: "",
+      user: "",
+      time: "",
+      saved: false,
+    }));
+
 const ScrewCapInspectionTable = ({
   username,
   onDataChange,
@@ -17,39 +31,69 @@ const ScrewCapInspectionTable = ({
   product,
 }) => {
   const [tableData, setTableData] = useState(
-    Array(10)
-      .fill()
-      .map((_, index) => ({
-        id: index + 1,
-        jam: "",
-        ofNo: "",
-        boxNo: "",
-        qtyLabel: "",
-        user: "",
-        time: "",
-        saved: false,
-      }))
+    () => createScrewCapEmptyRows()
   );
 
   const [showTimePickerIndex, setShowTimePickerIndex] = useState(null);
+  const onDataChangeRef = useRef(onDataChange);
+  const suppressEmitRef = useRef(false);
+  const hydratedKeyRef = useRef("");
+
+  useEffect(() => {
+    onDataChangeRef.current = onDataChange;
+  }, [onDataChange]);
+
+  const hasMeaningfulRows = useCallback((rows) => {
+    if (!Array.isArray(rows)) return false;
+    return rows.some((row) =>
+      ["jam", "ofNo", "boxNo", "qtyLabel"].some(
+        (field) => String(row?.[field] || "").trim() !== ""
+      )
+    );
+  }, []);
+
+  const hydrateTableData = useCallback((rows) => {
+    suppressEmitRef.current = true;
+    setTableData(rows);
+    setTimeout(() => {
+      suppressEmitRef.current = false;
+    }, 0);
+  }, []);
 
   // Storage key spesifik untuk screw cap usage dengan processOrder, product, dan username
   const getStorageKey = () =>
     `screwcap_usage_${processOrder || "default"}_${product || "no_product"}__${(username || "user").replace(/\s+/g, "_")}`;
 
-  // Load data from AsyncStorage
+  // Load data from AsyncStorage / parent cache
   useEffect(() => {
     if (!processOrder || !product) return;
+    const currentKey = getStorageKey();
+    if (hydratedKeyRef.current === currentKey) return;
+    hydratedKeyRef.current = currentKey;
     (async () => {
-      const stored = await AsyncStorage.getItem(getStorageKey());
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        setTableData(parsed);
-      } else if (initialData.length) {
-        setTableData(initialData);
+      try {
+        if (hasMeaningfulRows(initialData)) {
+          hydrateTableData(initialData);
+          onDataChangeRef.current?.(initialData);
+          await AsyncStorage.setItem(currentKey, JSON.stringify(initialData));
+          return;
+        }
+
+        const stored = await AsyncStorage.getItem(currentKey);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          hydrateTableData(parsed);
+          onDataChangeRef.current?.(parsed);
+        } else {
+          const emptyRows = createScrewCapEmptyRows();
+          hydrateTableData(emptyRows);
+          onDataChangeRef.current?.(emptyRows);
+        }
+      } catch (e) {
+        console.error("Error loading screw cap data:", e);
       }
     })();
-  }, [processOrder, product, username]);
+  }, [processOrder, product, username, initialData, hasMeaningfulRows, hydrateTableData]);
 
   // Save data to AsyncStorage
   const saveDataToStorage = useCallback(async (data) => {
@@ -131,7 +175,9 @@ const ScrewCapInspectionTable = ({
     }
 
     setTableData(updated);
-    onDataChange(updated);
+    if (!suppressEmitRef.current) {
+      onDataChangeRef.current?.(updated);
+    }
   };
 
   /* HAPUS ROW */
@@ -149,7 +195,9 @@ const ScrewCapInspectionTable = ({
     updated = updated.map((r, i) => ({ ...r, id: i + 1 }));
 
     setTableData(updated);
-    onDataChange(updated);
+    if (!suppressEmitRef.current) {
+      onDataChangeRef.current?.(updated);
+    }
     saveDataToStorage(updated);
   };
 

@@ -51,6 +51,16 @@ const H2o2CheckInspectionTable = ({
   const applyingExternalRef = useRef(false);
   // Ref untuk track storage key terakhir (untuk flush saat ganti)
   const prevStorageKeyRef = useRef("");
+  const hasHydratedInitialRef = useRef(false);
+
+  const hasMeaningfulRows = (rows) => {
+    if (!Array.isArray(rows)) return false;
+    return rows.some((row) =>
+      ["jam", "konsentrasi", "volume", "kode"].some(
+        (field) => String(row?.[field] || "").trim() !== ""
+      )
+    );
+  };
 
   /* STORAGE KEYS */
   const getStorageKey = (po = processOrder, pd = product) =>
@@ -75,6 +85,19 @@ const H2o2CheckInspectionTable = ({
         onDataChange(parsedData);
         console.log(`Loaded H2O2 data for key: ${storageKey}`);
       } else {
+        if (hasMeaningfulRows(initialData)) {
+          setTableData(initialData);
+
+          const lastNonEmpty = [...initialData]
+            .reverse()
+            .find((r) => r.kode && String(r.kode).trim() !== "");
+          setLastKode(lastNonEmpty?.kode || "");
+
+          onDataChange(initialData);
+          console.log(`No storage found for ${storageKey}, using parent initialData`);
+          return;
+        }
+
         // Jika tidak ada data tersimpan, set ke default empty
         const emptyData = Array(20)
           .fill()
@@ -149,25 +172,20 @@ const H2o2CheckInspectionTable = ({
 
   /* HANDLE INITIAL DATA DARI PARENT (jika ada) */
   useEffect(() => {
-    if (initialData && initialData.length > 0) {
-      const hasData = initialData.some(r => 
-        String(r.jam || r.konsentrasi || r.volume || r.kode || "").trim() !== ""
-      );
-      
-      if (hasData) {
-        setTableData(initialData);
-        
-        // Extract last kode
-        const lastNonEmpty = [...initialData]
-          .reverse()
-          .find((r) => r.kode && String(r.kode).trim() !== "");
-        setLastKode(lastNonEmpty?.kode || "");
-        
-        onDataChange(initialData);
-        console.log("Using initialData from parent");
-      }
-    }
-  }, []); // Mount only
+    if (hasHydratedInitialRef.current) return;
+    if (!hasMeaningfulRows(initialData)) return;
+
+    setTableData(initialData);
+
+    const lastNonEmpty = [...initialData]
+      .reverse()
+      .find((r) => r.kode && String(r.kode).trim() !== "");
+    setLastKode(lastNonEmpty?.kode || "");
+
+    onDataChange(initialData);
+    hasHydratedInitialRef.current = true;
+    console.log("Using initialData from parent");
+  }, [initialData]);
 
   /* ke baris di bawah yang SUDAH isi Jam */
   const propagateKodeDownIfJamFilled = (data, fromIndex, value) => {

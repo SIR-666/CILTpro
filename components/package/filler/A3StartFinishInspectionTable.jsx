@@ -135,6 +135,7 @@ const A3StartFinishInspectionTable = ({
   const [tab, setTab] = useState("start");
   const [startRows, setStartRows] = useState([]);
   const [finishRows, setFinishRows] = useState([]);
+  const [readyToEmit, setReadyToEmit] = useState(false);
 
   const startColumns = [
     { key: "weight", label: "Weight" },
@@ -163,28 +164,6 @@ const A3StartFinishInspectionTable = ({
     setFinishRows(rows);
   }, []);
 
-  // Gabungkan dan kirim data ke parent setiap kali berubah
-  useEffect(() => {
-    const combinedData = [
-      {
-        startProduksi: startRows.filter(row => 
-          Object.values(row).some(v => v && v.toString().trim() !== "")
-        ),
-        finishProduksi: finishRows.filter(row => 
-          Object.values(row).some(v => v && v.toString().trim() !== "")
-        ),
-        packageType: packageName,
-        line: line,
-        plant: plant,
-        machine: machine,
-        activeTab: tab
-      }
-    ];
-    
-    // Panggil callback ke parent
-    onDataChange?.(combinedData);
-  }, [startRows, finishRows, packageName, line, plant, machine, tab, onDataChange]);
-
   // Load initial data jika ada
   useEffect(() => {
     if (initialData && initialData.length > 0) {
@@ -196,7 +175,31 @@ const A3StartFinishInspectionTable = ({
         setFinishRows(initial.finishProduksi);
       }
     }
+    setReadyToEmit(true);
   }, [initialData]);
+
+  // Gabungkan dan kirim data ke parent setiap kali berubah
+  useEffect(() => {
+    if (!readyToEmit) return;
+
+    const combinedData = [
+      {
+        startProduksi: startRows.filter(row =>
+          Object.values(row).some(v => v && v.toString().trim() !== "")
+        ),
+        finishProduksi: finishRows.filter(row =>
+          Object.values(row).some(v => v && v.toString().trim() !== "")
+        ),
+        packageType: packageName,
+        line: line,
+        plant: plant,
+        machine: machine,
+        activeTab: tab
+      }
+    ];
+
+    onDataChange?.(combinedData);
+  }, [readyToEmit, startRows, finishRows, packageName, line, plant, machine, tab, onDataChange]);
 
   return (
     <View style={{ flex: 1 }}>
