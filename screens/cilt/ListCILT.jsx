@@ -3618,115 +3618,50 @@ const ListCILT = ({ navigation }) => {
     selectedYear,
   ]);
 
-  const getApprovalStatusBadge = (item) => {
-    const isCIP = item.packageType === "REPORT CIP";
-
-    if (isCIP) {
-      // Untuk CIP: cek approval_coor dan approval_spv
-      const coorApproved = item.approval_coor === 1;
-      const spvApproved = item.approval_spv === 1;
-      const coorRejected = item.approval_coor === 2;
-      const spvRejected = item.approval_spv === 2;
-      const status = item.status || item.approval_status;
-
-      console.log(`CIP Badge Status for ID ${item.id}:`, {
-        status,
-        coorApproved,
-        spvApproved,
-        coorRejected,
-        spvRejected,
-        approval_coor: item.approval_coor,
-        approval_spv: item.approval_spv
-      });
-
-      // Cek rejection dulu
-      if (coorRejected || spvRejected) {
-        return (
-          <View style={styles.statusBadgeContainer}>
-            <View style={[styles.statusBadge, { backgroundColor: '#fee2e2', borderColor: '#ef4444' }]}>
-              <Icon name="cancel" size={14} color="#ef4444" />
-              <Text style={[styles.badgeText, { color: '#7f1d1d' }]}>Rejected</Text>
-            </View>
-          </View>
-        );
-      }
-
-      // Fully approved
-      if (coorApproved && spvApproved) {
-        return (
-          <View style={styles.statusBadgeContainer}>
-            <View style={[styles.statusBadge, { backgroundColor: '#d1fae5', borderColor: '#10b981' }]}>
-              <Icon name="check-circle" size={14} color="#10b981" />
-              <Text style={[styles.badgeText, { color: '#065f46' }]}>Approved</Text>
-            </View>
-          </View>
-        );
-      }
-
-      // Partial approval - Coor approved, waiting SPV
-      if (coorApproved && !spvApproved) {
-        return (
-          <View style={styles.statusBadgeContainer}>
-            <View style={[styles.statusBadge, { backgroundColor: '#fffbeb', borderColor: '#f59e0b' }]}>
-              <Icon name="hourglass-empty" size={14} color="#f59e0b" />
-              <Text style={[styles.badgeText, { color: '#92400e' }]}>Coor ✓ • Waiting SPV</Text>
-            </View>
-          </View>
-        );
-      }
-
-      // Partial approval - SPV approved, waiting Coor (unusual case)
-      if (spvApproved && !coorApproved) {
-        return (
-          <View style={styles.statusBadgeContainer}>
-            <View style={[styles.statusBadge, { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' }]}>
-              <Icon name="info" size={14} color="#0ea5e9" />
-              <Text style={[styles.badgeText, { color: '#075985' }]}>SPV ✓ • Waiting Coor</Text>
-            </View>
-          </View>
-        );
-      }
-
-      // Draft/In Progress
-      if (status === "In Progress") {
-        return (
-          <View style={styles.statusBadgeContainer}>
-            <View style={[styles.statusBadge, { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' }]}>
-              <Icon name="edit" size={14} color="#0ea5e9" />
-              <Text style={[styles.badgeText, { color: '#075985' }]}>Draft</Text>
-            </View>
-          </View>
-        );
-      }
-
-      // Complete but not reviewed
-      if (status === "Complete") {
-        return (
-          <View style={styles.statusBadgeContainer}>
-            <View style={[styles.statusBadge, { backgroundColor: '#fffbeb', borderColor: '#f59e0b' }]}>
-              <Icon name="pending" size={14} color="#f59e0b" />
-              <Text style={[styles.badgeText, { color: '#92400e' }]}>Awaiting..</Text>
-            </View>
-          </View>
-        );
-      }
-
-      // Default - belum ada status approval
-      return (
-        <View style={styles.statusBadgeContainer}>
-          <View style={[styles.statusBadge, { backgroundColor: '#f3f4f6', borderColor: '#9ca3af' }]}>
-            <Icon name="remove-circle-outline" size={14} color="#6b7280" />
-            <Text style={[styles.badgeText, { color: '#374151' }]}>Not Reviewed</Text>
-          </View>
-        </View>
-      );
+  const isApprovedValue = (value) => {
+    if (value === null || value === undefined) return false;
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === "approved" || normalized === "1") return true;
     }
+    return Number(value) === 1;
+  };
 
-    // CILT Items logic (hanya dieksekusi jika BUKAN CIP)
-    const coorApproved = item.approval_coor === 1;
-    const spvApproved = item.approval_spv === 1;
-    const rejected =
-      item.status === -1 || item.approval === -1 || item.approval_coor === -1 || item.approval_spv === -1;
+  const isRejectedValue = (value) => {
+    if (value === null || value === undefined) return false;
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (normalized.includes("reject")) return true;
+    }
+    const numeric = Number(value);
+    return numeric === -1 || numeric === 2;
+  };
+
+  const getApprovalSnapshot = (item) => {
+    const statusRaw = item?.status ?? item?.approval_status ?? "";
+    const normalizedStatus = String(statusRaw).trim().toLowerCase();
+
+    const coorApproved = isApprovedValue(item?.approval_coor);
+    const spvApproved = isApprovedValue(item?.approval_spv);
+    const rejected = [
+      item?.status,
+      item?.approval_status,
+      item?.approval,
+      item?.approval_coor,
+      item?.approval_spv,
+    ].some(isRejectedValue);
+
+    return {
+      isCIP: item?.packageType === "REPORT CIP",
+      coorApproved,
+      spvApproved,
+      rejected,
+      isComplete: normalizedStatus === "complete",
+    };
+  };
+
+  const getApprovalStatusBadge = (item) => {
+    const { coorApproved, spvApproved, rejected } = getApprovalSnapshot(item);
 
     if (coorApproved && spvApproved) {
       return (
@@ -3755,7 +3690,7 @@ const ListCILT = ({ navigation }) => {
         <View style={styles.statusBadgeContainer}>
           <View style={[styles.statusBadge, { backgroundColor: '#fffbeb', borderColor: '#f59e0b' }]}>
             <Icon name="hourglass-empty" size={14} color="#f59e0b" />
-            <Text style={[styles.badgeText, { color: '#92400e' }]}>Coor ✓ • Waiting SPV</Text>
+            <Text style={[styles.badgeText, { color: '#92400e' }]}>Coor  ✓   Waiting SPV</Text>
           </View>
         </View>
       );
@@ -3766,7 +3701,7 @@ const ListCILT = ({ navigation }) => {
         <View style={styles.statusBadgeContainer}>
           <View style={[styles.statusBadge, { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' }]}>
             <Icon name="info" size={14} color="#0ea5e9" />
-            <Text style={[styles.badgeText, { color: '#075985' }]}>SPV ✓ • Waiting Coor</Text>
+            <Text style={[styles.badgeText, { color: '#075985' }]}>SPV  ✓    Waiting Coor</Text>
           </View>
         </View>
       );
@@ -3780,6 +3715,41 @@ const ListCILT = ({ navigation }) => {
         </View>
       </View>
     );
+  };
+
+  const canCurrentUserApprove = (item) => {
+    const { isCIP, coorApproved, spvApproved, rejected, isComplete } =
+      getApprovalSnapshot(item);
+
+    if (rejected || (coorApproved && spvApproved)) {
+      return false;
+    }
+
+    if (isCIP) {
+      if (!isComplete) return false;
+      if (userRole === 11 && !coorApproved) return true;
+      if (userRole === 9 && coorApproved && !spvApproved) return true;
+      return false;
+    }
+
+    if (
+      userRole === 11 &&
+      Number(item?.approval_coor) === 0 &&
+      Number(item?.status) === 0
+    ) {
+      return true;
+    }
+
+    if (
+      userRole === 9 &&
+      Number(item?.approval_coor) === 1 &&
+      Number(item?.approval_spv) === 0 &&
+      Number(item?.status) === 0
+    ) {
+      return true;
+    }
+
+    return false;
   };
 
   const approvedFilteredCount = filteredData.filter(isApprovedForDownload).length;
@@ -3875,92 +3845,20 @@ const ListCILT = ({ navigation }) => {
   };
 
   const renderApproveButton = (item) => {
-    const isCIP = item.packageType === "REPORT CIP";
-
-    // console.log(`Render Approve Button for ID ${item.id}:`, {
-    //   packageType: item.packageType,
-    //   isCIP,
-    //   userRole,
-    //   status: item.status,
-    //   approval_coor: item.approval_coor,
-    //   approval_spv: item.approval_spv
-    // });
-
-    if (isCIP) {
-      const status = item.status || item.approval_status;
-      const coorApproved = item.approval_coor === 1;
-      const spvApproved = item.approval_spv === 1;
-      const coorRejected = item.approval_coor === 2;
-      const spvRejected = item.approval_spv === 2;
-
-      // Jangan tampilkan button jika sudah rejected
-      if (coorRejected || spvRejected) {
-        console.log(`  → Hidden: Already rejected`);
-        return null;
-      }
-
-      // Jangan tampilkan button jika sudah fully approved
-      if (coorApproved && spvApproved) {
-        console.log(`  → Hidden: Fully approved`);
-        return null;
-      }
-
-      // Status harus "Complete" untuk bisa di-approve
-      if (status !== "Complete") {
-        console.log(`  → Hidden: Status not Complete (${status})`);
-        return null;
-      }
-
-      // SPV (role 9) - bisa approve jika Coor sudah approve
-      if (userRole === 9 && coorApproved && !spvApproved) {
-        console.log(`  → SHOW: SPV can approve`);
-        return (
-          <TouchableOpacity
-            style={[styles.approveBtn, { marginTop: 4 }]}
-            onPress={() => handleApprove(item)}
-          >
-            <Icon name="check-circle" size={16} color="#fff" />
-            <Text style={[styles.approveBtnText, { marginLeft: 4 }]}>Approve (SPV)</Text>
-          </TouchableOpacity>
-        );
-      }
-
-      // Coordinator (role 11) - bisa approve jika belum di-approve sama sekali
-      if (userRole === 11 && !coorApproved) {
-        console.log(`  → SHOW: Coor can approve`);
-        return (
-          <TouchableOpacity
-            style={[styles.approveBtn, { marginTop: 4 }]}
-            onPress={() => handleApprove(item)}
-          >
-            <Icon name="check-circle" size={16} color="#fff" />
-            <Text style={[styles.approveBtnText, { marginLeft: 4 }]}>Approve (Coor)</Text>
-          </TouchableOpacity>
-        );
-      }
-
-      console.log(`  → Hidden: No approval permission`);
+    if (!canCurrentUserApprove(item)) {
       return null;
     }
 
-    // CILT approval logic
-    if (userRole === 11 && item.approval_coor === 0 && item.status === 0) {
-      return (
-        <TouchableOpacity style={[styles.approveBtn, { marginTop: 4 }]} onPress={() => handleApprove(item)}>
-          <Icon name="check-circle" size={16} color="#fff" />
-          <Text style={[styles.approveBtnText, { marginLeft: 4 }]}>Approve (Coor)</Text>
-        </TouchableOpacity>
-      );
-    }
-    if (userRole === 9 && item.approval_coor === 1 && item.approval_spv === 0 && item.status === 0) {
-      return (
-        <TouchableOpacity style={[styles.approveBtn, { marginTop: 4 }]} onPress={() => handleApprove(item)}>
-          <Icon name="check-circle" size={16} color="#fff" />
-          <Text style={[styles.approveBtnText, { marginLeft: 4 }]}>Approve (SPV)</Text>
-        </TouchableOpacity>
-      );
-    }
-    return null;
+    const approvalLabel = userRole === 11 ? "Coor" : userRole === 9 ? "SPV" : "Approve";
+
+    return (
+      <TouchableOpacity style={[styles.approveBtn, { marginTop: 4 }]} onPress={() => handleApprove(item)}>
+        <Icon name="check-circle" size={16} color="#fff" />
+        <Text style={[styles.approveBtnText, { marginLeft: 4 }]}>
+          {`Approve (${approvalLabel})`}
+        </Text>
+      </TouchableOpacity>
+    );
   };
 
   const handleDetailPress = (item) => {
@@ -4049,23 +3947,8 @@ const ListCILT = ({ navigation }) => {
       seenPerformaItems.add(key);
     }
 
-    // Check if approval button should be shown
-    const shouldShowApproveButton = (() => {
-      if (isCIP) {
-        const status = item.status || item.approval_status;
-        if (status === "Complete" && (userRole === 11 || userRole === 9)) {
-          return true;
-        }
-      } else {
-        if (userRole === 11 && item.approval_coor === 0 && item.status === 0) {
-          return true;
-        }
-        if (userRole === 9 && item.approval_coor === 1 && item.approval_spv === 0 && item.status === 0) {
-          return true;
-        }
-      }
-      return false;
-    })();
+    // Keep row spacing consistent with actual approval action visibility.
+    const shouldShowApproveButton = canCurrentUserApprove(item);
 
     return (
       <TouchableOpacity key={item.id} onPress={() => handleDetailPress(item)}>

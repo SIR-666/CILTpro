@@ -24,7 +24,7 @@ import DowntimeCategoryModal from "../../components/Modal/DowntimeCategoryModal"
 import ChangeOverDetailsGrid from "../../components/Reusable/ChangeOverDetailsGrid";
 import ReusableDatetime3 from "../../components/Reusable/ReusableDatetime3";
 import { COLORS } from "../../constants/theme";
-import { api } from "../../utils/axiosInstance";
+import { api, greatApi } from "../../utils/axiosInstance";
 
 // Get shift by hour
 const getShiftByHour = (hour) => {
@@ -109,6 +109,41 @@ const DYNAMIC_CATEGORY_THEMES = [
   { gradient: ["#fbcfe8", "#ec4899"], border: "#be185d", text: "#831843" },
   { gradient: ["#fde68a", "#eab308"], border: "#a16207", text: "#713f12" },
 ];
+const DOWNTIME_ACTION_ROLE_KEYWORDS = ["PRF", "SPV"];
+
+const normalizeRoleToken = (value) =>
+  String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_-]+/g, "");
+
+const isAllowedDowntimeActionRole = (value) => {
+  const normalized = normalizeRoleToken(value);
+  if (!normalized) return false;
+
+  return DOWNTIME_ACTION_ROLE_KEYWORDS.some((keyword) =>
+    normalized.includes(keyword)
+  );
+};
+
+const extractRoleCandidates = (profile) => {
+  if (!profile || typeof profile !== "object") return [];
+
+  return [
+    profile.role,
+    profile.role_name,
+    profile.roleName,
+    profile.role_code,
+    profile.roleCode,
+    profile.jabatan,
+    profile.position,
+    profile.user_role,
+    profile.userRole,
+    profile.profile,
+    profile?.role?.name,
+    profile?.role?.code,
+  ].filter(Boolean);
+};
 
 const getShiftWindow = (shiftLabel, baseDate) => {
   if (!shiftLabel || !baseDate) return null;
@@ -510,6 +545,7 @@ const AddDowntimePage = () => {
   const [changeOverLoading, setChangeOverLoading] = useState(false);
   const [productionRuns, setProductionRuns] = useState([]);
   const [productionRunsLoading, setProductionRunsLoading] = useState(false);
+  const [canManageDowntime, setCanManageDowntime] = useState(false);
 
   const isChangeOver = selectedCategory === CHANGE_OVER_CATEGORY;
   const useChangeOverDetails = isChangeOver && changeOverRows.length > 0;
@@ -743,6 +779,30 @@ const AddDowntimePage = () => {
       label: timelineStart.clone().add(minuteOffset, "minutes").format("HH:mm"),
     };
   });
+  const tableColumnWidths = useMemo(
+    () =>
+      canManageDowntime
+        ? {
+            no: "4%",
+            category: "12%",
+            machine: "15%",
+            type: "14%",
+            start: "10%",
+            duration: "10%",
+            notes: "15%",
+            action: "20%",
+          }
+        : {
+            no: "5%",
+            category: "15%",
+            machine: "17%",
+            type: "17%",
+            start: "13%",
+            duration: "13%",
+            notes: "20%",
+          },
+    [canManageDowntime]
+  );
   const poVisualizationRows = useMemo(() => {
     if (!timelineStart || !timelineEnd) {
       return {
@@ -837,6 +897,59 @@ const AddDowntimePage = () => {
 
     return { rows, legendItems };
   }, [productionRuns, downtimeData, timelineStart, timelineEnd, timelineMinutes]);
+
+  useEffect(() => {
+    const resolveDowntimeActionAccess = async () => {
+      try {
+        const [storedRoleIdRaw, storedProfileRaw] = await Promise.all([
+          AsyncStorage.getItem("userData"),
+          AsyncStorage.getItem("userProfile"),
+        ]);
+
+        const roleId = storedRoleIdRaw == null ? NaN : Number(storedRoleIdRaw);
+        const roleCandidates = [];
+
+        if (storedRoleIdRaw) {
+          roleCandidates.push(storedRoleIdRaw);
+        }
+
+        if (storedProfileRaw) {
+          try {
+            const parsedProfile = JSON.parse(storedProfileRaw);
+            roleCandidates.push(...extractRoleCandidates(parsedProfile));
+          } catch (parseError) {
+            console.error("Failed to parse user profile from storage:", parseError);
+          }
+        }
+
+        try {
+          const profileResponse = await api.get("/user/profile");
+          roleCandidates.push(...extractRoleCandidates(profileResponse?.data));
+        } catch (_profileError) {
+          // Keep fallback role sources when profile endpoint is unavailable.
+        }
+
+        try {
+          const meResponse = await greatApi.get("/users/me");
+          roleCandidates.push(...extractRoleCandidates(meResponse?.data));
+        } catch (_meError) {
+          // Keep fallback role sources when Strapi profile endpoint is unavailable.
+        }
+
+        const hasRoleAccess =
+          roleCandidates.some((candidate) =>
+            isAllowedDowntimeActionRole(candidate)
+          ) || roleId === 9;
+
+        setCanManageDowntime(hasRoleAccess);
+      } catch (error) {
+        console.error("Failed to resolve downtime action access:", error);
+        setCanManageDowntime(false);
+      }
+    };
+
+    resolveDowntimeActionAccess();
+  }, []);
 
   useEffect(() => {
     const loadDate = async () => {
@@ -1443,32 +1556,34 @@ const AddDowntimePage = () => {
               <View style={styles.table}>
                 {/* Table Head */}
                 <View style={styles.tableHead}>
-                  <View style={[styles.cell, { width: "4%" }]}>
+                  <View style={[styles.cell, { width: tableColumnWidths.no }]}>
                     <Text style={styles.cellTextHeader}>No</Text>
                   </View>
-                  <View style={[styles.cell, { width: "12%" }]}>
+                  <View style={[styles.cell, { width: tableColumnWidths.category }]}>
                     <Text style={styles.cellTextHeader}>Downtime Category</Text>
                   </View>
-                  <View style={[styles.cell, { width: "15%" }]}>
+                  <View style={[styles.cell, { width: tableColumnWidths.machine }]}>
                     <Text style={styles.cellTextHeader}>Machine</Text>
                   </View>
-                  <View style={[styles.cell, { width: "14%" }]}>
+                  <View style={[styles.cell, { width: tableColumnWidths.type }]}>
                     <Text style={styles.cellTextHeader}>Type</Text>
                   </View>
-                  <View style={[styles.cell, { width: "10%" }]}>
+                  <View style={[styles.cell, { width: tableColumnWidths.start }]}>
                     <Text style={styles.cellTextHeader}>Start Time</Text>
                   </View>
-                  <View style={[styles.cell, { width: "10%" }]}>
+                  <View style={[styles.cell, { width: tableColumnWidths.duration }]}>
                     <Text style={styles.cellTextHeader}>
                       Duration (minutes)
                     </Text>
                   </View>
-                  <View style={[styles.cell, { width: "15%" }]}>
+                  <View style={[styles.cell, { width: tableColumnWidths.notes }]}>
                     <Text style={styles.cellTextHeader}>Notes</Text>
                   </View>
-                  <View style={[styles.cell, { width: "20%" }]}>
-                    <Text style={styles.cellTextHeader}>Action</Text>
-                  </View>
+                  {canManageDowntime ? (
+                    <View style={[styles.cell, { width: tableColumnWidths.action }]}>
+                      <Text style={styles.cellTextHeader}>Action</Text>
+                    </View>
+                  ) : null}
                 </View>
 
                 {/* Table Body */}
@@ -1484,66 +1599,68 @@ const AddDowntimePage = () => {
                   ) : (
                     downtimeData.map((item, index) => (
                       <View key={index} style={{ flexDirection: "row" }}>
-                        <View style={[styles.cell, { width: "4%" }]}>
+                        <View style={[styles.cell, { width: tableColumnWidths.no }]}>
                           <Text style={styles.cellText}>{index + 1}</Text>
                         </View>
-                        <View style={[styles.cell, { width: "12%" }]}>
+                        <View style={[styles.cell, { width: tableColumnWidths.category }]}>
                           <Text style={styles.cellText}>
                             {item.Downtime_Category}
                           </Text>
                         </View>
-                        <View style={[styles.cell, { width: "15%" }]}>
+                        <View style={[styles.cell, { width: tableColumnWidths.machine }]}>
                           <Text style={styles.cellText}>
                             {item.Mesin ?? "-"}
                           </Text>
                         </View>
-                        <View style={[styles.cell, { width: "14%" }]}>
+                        <View style={[styles.cell, { width: tableColumnWidths.type }]}>
                           <Text style={styles.cellText}>{item.Jenis}</Text>
                         </View>
-                        <View style={[styles.cell, { width: "10%" }]}>
+                        <View style={[styles.cell, { width: tableColumnWidths.start }]}>
                           <Text style={styles.cellText}>
                             {moment(item.Date, "YYYY-MM-DD HH:mm:ss.SSS").format(
                               "HH:mm:ss"
                             )}
                           </Text>
                         </View>
-                        <View style={[styles.cell, { width: "10%" }]}>
+                        <View style={[styles.cell, { width: tableColumnWidths.duration }]}>
                           <Text style={styles.cellText}>{item.Minutes}</Text>
                         </View>
-                        <View style={[styles.cell, { width: "15%" }]}>
+                        <View style={[styles.cell, { width: tableColumnWidths.notes }]}>
                           <Text style={styles.cellText}>{item.Keterangan}</Text>
                         </View>
-                        <View
-                          style={[
-                            styles.cell,
-                            {
-                              width: "20%",
-                              flexDirection: "row",
-                              justifyContent: "center", // Horizontal center
-                              alignItems: "center", // Vertical center
-                              gap: 4,
-                            },
-                          ]}
-                        >
-                          {item.Completed === 0 ? (
-                            <>
-                              <TouchableOpacity
-                                style={styles.updateButton}
-                                onPress={() => handleEdit(item)}
-                              >
-                                <Text style={styles.buttonText}>Update</Text>
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                style={styles.deleteButton}
-                                onPress={() => handleDelete(item.id)}
-                              >
-                                <Text style={styles.buttonText}>Delete</Text>
-                              </TouchableOpacity>
-                            </>
-                          ) : (
-                            <Text>Accepted</Text>
-                          )}
-                        </View>
+                        {canManageDowntime ? (
+                          <View
+                            style={[
+                              styles.cell,
+                              {
+                                width: tableColumnWidths.action,
+                                flexDirection: "row",
+                                justifyContent: "center",
+                                alignItems: "center",
+                                gap: 4,
+                              },
+                            ]}
+                          >
+                            {item.Completed === 0 ? (
+                              <>
+                                <TouchableOpacity
+                                  style={styles.updateButton}
+                                  onPress={() => handleEdit(item)}
+                                >
+                                  <Text style={styles.buttonText}>Update</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={styles.deleteButton}
+                                  onPress={() => handleDelete(item.id)}
+                                >
+                                  <Text style={styles.buttonText}>Delete</Text>
+                                </TouchableOpacity>
+                              </>
+                            ) : (
+                              <Text>Accepted</Text>
+                            )}
+                          </View>
+                        ) : null}
                       </View>
                     ))
                   )}

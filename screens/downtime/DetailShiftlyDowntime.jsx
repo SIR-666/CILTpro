@@ -1,5 +1,6 @@
 import moment from "moment";
-import { useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Dimensions,
@@ -13,18 +14,79 @@ import {
   View,
 } from "react-native";
 import { COLORS } from "../../constants/theme";
-import { api } from "../../utils/axiosInstance";
+import { api, greatApi } from "../../utils/axiosInstance";
+
+const DOWNTIME_ACTION_ROLE_KEYWORDS = ["PRF", "SPV", "SUPERVISOR"];
+
+const normalizeRoleToken = (value) =>
+  String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_-]+/g, "");
+
+const isAllowedDowntimeActionRole = (value) => {
+  const normalized = normalizeRoleToken(value);
+  if (!normalized) return false;
+
+  return DOWNTIME_ACTION_ROLE_KEYWORDS.some((keyword) =>
+    normalized.includes(keyword)
+  );
+};
+
+const extractRoleCandidates = (profile) => {
+  if (!profile || typeof profile !== "object") return [];
+
+  return [
+    profile.role,
+    profile.role_name,
+    profile.roleName,
+    profile.role_code,
+    profile.roleCode,
+    profile.jabatan,
+    profile.position,
+    profile.user_role,
+    profile.userRole,
+    profile.profile,
+    profile?.role?.name,
+    profile?.role?.code,
+  ].filter(Boolean);
+};
 
 const DetailShiftlyDowntime = ({ route, navigation }) => {
   const { item: headerItem } = route.params;
   const [selectedImage, setSelectedImage] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [canManageDowntime, setCanManageDowntime] = useState(false);
 
   const { width } = Dimensions.get("window");
   const modalImageSize = width * 0.8; // 80% of screen width
 
   // Set inspection data
   const inspectionData = headerItem.data;
+  const tableColumnWidths = useMemo(
+    () =>
+      canManageDowntime
+        ? {
+            no: "4%",
+            category: "12%",
+            machine: "15%",
+            type: "14%",
+            start: "10%",
+            duration: "10%",
+            notes: "15%",
+            action: "20%",
+          }
+        : {
+            no: "5%",
+            category: "15%",
+            machine: "17%",
+            type: "17%",
+            start: "13%",
+            duration: "13%",
+            notes: "20%",
+          },
+    [canManageDowntime]
+  );
 
   const normalizeDetailItem = (row) => ({
     id: row.id ?? row.event_id,
@@ -72,6 +134,59 @@ const DetailShiftlyDowntime = ({ route, navigation }) => {
       ]
     );
   };
+
+  useEffect(() => {
+    const resolveDowntimeActionAccess = async () => {
+      try {
+        const [storedRoleIdRaw, storedProfileRaw] = await Promise.all([
+          AsyncStorage.getItem("userData"),
+          AsyncStorage.getItem("userProfile"),
+        ]);
+
+        const roleId = storedRoleIdRaw == null ? NaN : Number(storedRoleIdRaw);
+        const roleCandidates = [];
+
+        if (storedRoleIdRaw) {
+          roleCandidates.push(storedRoleIdRaw);
+        }
+
+        if (storedProfileRaw) {
+          try {
+            const parsedProfile = JSON.parse(storedProfileRaw);
+            roleCandidates.push(...extractRoleCandidates(parsedProfile));
+          } catch (parseError) {
+            console.error("Failed to parse user profile from storage:", parseError);
+          }
+        }
+
+        try {
+          const profileResponse = await api.get("/user/profile");
+          roleCandidates.push(...extractRoleCandidates(profileResponse?.data));
+        } catch (_profileError) {
+          // Keep fallback role sources when profile endpoint is unavailable.
+        }
+
+        try {
+          const meResponse = await greatApi.get("/users/me");
+          roleCandidates.push(...extractRoleCandidates(meResponse?.data));
+        } catch (_meError) {
+          // Keep fallback role sources when Strapi profile endpoint is unavailable.
+        }
+
+        const hasRoleAccess =
+          roleCandidates.some((candidate) =>
+            isAllowedDowntimeActionRole(candidate)
+          ) || roleId === 9;
+
+        setCanManageDowntime(hasRoleAccess);
+      } catch (error) {
+        console.error("Failed to resolve downtime action access:", error);
+        setCanManageDowntime(false);
+      }
+    };
+
+    resolveDowntimeActionAccess();
+  }, []);
 
   //   const printToFile = async () => {
   //     // Format Data Tambahan dengan layout dua kolom
@@ -304,54 +419,56 @@ const DetailShiftlyDowntime = ({ route, navigation }) => {
           <View style={styles.table}>
             {/* Table Head */}
             <View style={styles.tableHead}>
-              <View style={[styles.cell, { width: "4%" }]}>
+              <View style={[styles.cell, { width: tableColumnWidths.no }]}>
                 <Text style={styles.cellTextHeader}>No</Text>
               </View>
-              <View style={[styles.cell, { width: "12%" }]}>
+              <View style={[styles.cell, { width: tableColumnWidths.category }]}>
                 <Text style={styles.cellTextHeader}>Downtime Category</Text>
               </View>
-              <View style={[styles.cell, { width: "15%" }]}>
+              <View style={[styles.cell, { width: tableColumnWidths.machine }]}>
                 <Text style={styles.cellTextHeader}>Machine</Text>
               </View>
-              <View style={[styles.cell, { width: "14%" }]}>
+              <View style={[styles.cell, { width: tableColumnWidths.type }]}>
                 <Text style={styles.cellTextHeader}>Type</Text>
               </View>
-              <View style={[styles.cell, { width: "10%" }]}>
+              <View style={[styles.cell, { width: tableColumnWidths.start }]}>
                 <Text style={styles.cellTextHeader}>Start Time</Text>
               </View>
-              <View style={[styles.cell, { width: "10%" }]}>
+              <View style={[styles.cell, { width: tableColumnWidths.duration }]}>
                 <Text style={styles.cellTextHeader}>Duration (minutes)</Text>
               </View>
-              <View style={[styles.cell, { width: "15%" }]}>
+              <View style={[styles.cell, { width: tableColumnWidths.notes }]}>
                 <Text style={styles.cellTextHeader}>Notes</Text>
               </View>
               {/* <View style={[styles.cell, { width: "10%" }]}>
                 <Text style={styles.cellTextHeader}>Status</Text>
               </View> */}
-              <View style={[styles.cell, { width: "20%" }]}>
-                <Text style={styles.cellTextHeader}>Action</Text>
-              </View>
+              {canManageDowntime ? (
+                <View style={[styles.cell, { width: tableColumnWidths.action }]}>
+                  <Text style={styles.cellTextHeader}>Action</Text>
+                </View>
+              ) : null}
             </View>
 
             {/* Table Body */}
             <View style={{ borderWidth: 1, borderColor: "#000" }}>
               {inspectionData.map((item, index) => (
                 <View key={index} style={{ flexDirection: "row" }}>
-                  <View style={[styles.cell, { width: "4%" }]}>
+                  <View style={[styles.cell, { width: tableColumnWidths.no }]}>
                     <Text style={styles.cellText}>{index + 1}</Text>
                   </View>
-                  <View style={[styles.cell, { width: "12%" }]}>
+                  <View style={[styles.cell, { width: tableColumnWidths.category }]}>
                     <Text style={styles.cellText}>
                       {item.downtime_category}
                     </Text>
                   </View>
-                  <View style={[styles.cell, { width: "15%" }]}>
+                  <View style={[styles.cell, { width: tableColumnWidths.machine }]}>
                     <Text style={styles.cellText}>{item.mesin ?? "-"}</Text>
                   </View>
-                  <View style={[styles.cell, { width: "14%" }]}>
+                  <View style={[styles.cell, { width: tableColumnWidths.type }]}>
                     <Text style={styles.cellText}>{item.jenis}</Text>
                   </View>
-                  <View style={[styles.cell, { width: "10%" }]}>
+                  <View style={[styles.cell, { width: tableColumnWidths.start }]}>
                     <Text style={styles.cellText}>
                       {moment(
                         item.start_time,
@@ -359,10 +476,10 @@ const DetailShiftlyDowntime = ({ route, navigation }) => {
                       ).format("HH:mm:ss")}
                     </Text>
                   </View>
-                  <View style={[styles.cell, { width: "10%" }]}>
+                  <View style={[styles.cell, { width: tableColumnWidths.duration }]}>
                     <Text style={styles.cellText}>{item.minutes}</Text>
                   </View>
-                  <View style={[styles.cell, { width: "15%" }]}>
+                  <View style={[styles.cell, { width: tableColumnWidths.notes }]}>
                     <Text style={styles.cellText}>{item.keterangan}</Text>
                   </View>
                   {/* <View style={[styles.cell, { width: "10%" }]}>
@@ -370,41 +487,43 @@ const DetailShiftlyDowntime = ({ route, navigation }) => {
                       {item.completed === 1 ? "Done" : "Pending"}
                     </Text>
                   </View> */}
-                  <View
-                    style={[
-                      styles.cell,
-                      {
-                        width: "20%",
-                        flexDirection: "row",
-                        justifyContent: "center", // Horizontal center
-                        alignItems: "center", // Vertical center
-                        gap: 4,
-                      },
-                    ]}
-                  >
-                    {item.completed === 0 ? (
-                      <>
-                        <TouchableOpacity
-                          style={styles.updateButton}
-                          onPress={() =>
-                            navigation.navigate("EditDowntime", {
-                              item: normalizeDetailItem(item),
-                            })
-                          }
-                        >
-                          <Text style={styles.buttonText}>Update</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.deleteButton}
-                          onPress={() => handleDelete(item.id)}
-                        >
-                          <Text style={styles.buttonText}>Delete</Text>
-                        </TouchableOpacity>
-                      </>
-                    ) : (
-                      <Text>No action</Text>
-                    )}
-                  </View>
+                  {canManageDowntime ? (
+                    <View
+                      style={[
+                        styles.cell,
+                        {
+                          width: tableColumnWidths.action,
+                          flexDirection: "row",
+                          justifyContent: "center",
+                          alignItems: "center",
+                          gap: 4,
+                        },
+                      ]}
+                    >
+                      {item.completed === 0 ? (
+                        <>
+                          <TouchableOpacity
+                            style={styles.updateButton}
+                            onPress={() =>
+                              navigation.navigate("EditDowntime", {
+                                item: normalizeDetailItem(item),
+                              })
+                            }
+                          >
+                            <Text style={styles.buttonText}>Update</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.deleteButton}
+                            onPress={() => handleDelete(item.id)}
+                          >
+                            <Text style={styles.buttonText}>Delete</Text>
+                          </TouchableOpacity>
+                        </>
+                      ) : (
+                        <Text>No action</Text>
+                      )}
+                    </View>
+                  ) : null}
                 </View>
               ))}
             </View>
