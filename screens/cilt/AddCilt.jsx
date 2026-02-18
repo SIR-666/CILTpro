@@ -36,6 +36,10 @@ import RobotPalletizerFillerInspectionTable from "../../components/package/robot
 import ReusableDatetime2 from "../../components/Reusable/ReusableDatetime2";
 import { COLORS } from "../../constants/theme";
 import { api, uploadImageApi } from "../../utils/axiosInstance";
+import {
+  getSubmissionFailureMessage,
+  isNetworkSubmissionError,
+} from "../../utils/submitErrorUtils";
 
 // Image upload function with improved error handling
 const uploadImageToServer = async (uri) => {
@@ -67,7 +71,7 @@ const uploadImageToServer = async (uri) => {
     return serverImageUrl;
   } catch (error) {
     console.error("Image upload failed:", error);
-    throw new Error("Image upload failed");
+    throw error;
   }
 };
 
@@ -91,6 +95,26 @@ const getDraftContextCacheKey = (type, po, shiftName) => {
 const getDraftShiftCacheKey = (type, shiftName, plant, line, machine) => {
   if (!type || !shiftName) return "";
   return `${type}__${shiftName}__${plant || ""}__${line || ""}__${machine || ""}`;
+};
+
+const buildProcessOrderValue = ({
+  plant,
+  line,
+  date,
+  shift,
+  machine,
+  packageType,
+}) => {
+  if (!plant || !line || !machine || !packageType || !shift) return "";
+  const formattedPlant = plant.replace(/\s+/g, "-");
+  const formattedLine = line.replace(/\s+/g, "-");
+  const formattedDate = moment(date || new Date())
+    .tz("Asia/Jakarta")
+    .format("YYYY-MM-DD");
+  const formattedShift = shift.replace(/\s+/g, "-");
+  const formattedMachine = machine.replace(/\s+/g, "-");
+  const formattedPackage = packageType.replace(/\s+/g, "-");
+  return `${formattedPlant}_${formattedLine}_${formattedDate}_${formattedShift}_${formattedMachine}_${formattedPackage}`;
 };
 
 const DRAFT_IGNORED_KEYS = new Set([
@@ -271,7 +295,6 @@ const CILTinspection = ({ route, navigation }) => {
     getShiftByHour(moment(new Date()).tz("Asia/Jakarta").format("HH"))
   );
   const lastAppliedContextRef = useRef("");
-  const isFromDraftList = route?.params?.fromDraftList === true;
 
   const mergedMachineOptions = useMemo(() => {
     const base = Array.isArray(machineOptions) ? machineOptions : [];
@@ -629,7 +652,15 @@ const CILTinspection = ({ route, navigation }) => {
     lastCheckRef.current = checkKey;
 
     try {
-      const response = await api.get(`/cilt/getCILTByProcessOrder?processOrder=${po}`);
+      const queryParams = [
+        `processOrder=${encodeURIComponent(po)}`,
+        `packageType=${encodeURIComponent(pt || "")}`,
+        `plant=${encodeURIComponent(plant || "")}`,
+        `line=${encodeURIComponent(line || "")}`,
+        `machine=${encodeURIComponent(machine || "")}`,
+        `shift=${encodeURIComponent(shift || "")}`,
+      ].join("&");
+      const response = await api.get(`/cilt/getCILTByProcessOrder?${queryParams}`);
 
       if (lastCheckRef.current !== checkKey) return;
 
@@ -739,16 +770,15 @@ const CILTinspection = ({ route, navigation }) => {
   }, [plant]);
 
   useEffect(() => {
-    if (!plant || !line || !machine || !packageType || !shift) return;
-
-    const formattedPlant = plant.replace(/\s+/g, "-");
-    const formattedLine = line.replace(/\s+/g, "-");
-    const formattedDate = moment(date).tz("Asia/Jakarta").format("YYYY-MM-DD");
-    const formattedShift = shift.replace(/\s+/g, "-");
-    const formattedMachine = machine.replace(/\s+/g, "-");
-    const formattedPackage = packageType.replace(/\s+/g, "-");
-
-    const updated = `${formattedPlant}_${formattedLine}_${formattedDate}_${formattedShift}_${formattedMachine}_${formattedPackage}`;
+    const updated = buildProcessOrderValue({
+      plant,
+      line,
+      date,
+      shift,
+      machine,
+      packageType,
+    });
+    if (!updated) return;
     setProcessOrder(updated);
   }, [plant, line, date, shift, machine, packageType]);
 
@@ -772,6 +802,10 @@ const CILTinspection = ({ route, navigation }) => {
       console.log("Skip package reset - hydrating draft");
       return;
     }
+
+    // Segregasi has its own internal hydrate/persist flow.
+    // Re-applying cache from parent on every cache mutation causes feedback loops.
+    if (packageType === "SEGREGASI") return;
 
     console.log(`Package changed to: ${packageType}`);
 
@@ -840,6 +874,7 @@ const CILTinspection = ({ route, navigation }) => {
   useEffect(() => {
     if (!packageType || !processOrder || !shift) return;
     if (isHydratingDraftRef.current) return;
+    if (packageType === "SEGREGASI") return;
 
     const contextKey = getDraftContextCacheKey(packageType, processOrder, shift);
     const shiftKey = getDraftShiftCacheKey(packageType, shift, plant, line, machine);
@@ -1282,19 +1317,91 @@ const CILTinspection = ({ route, navigation }) => {
 
       (async () => {
         try {
+          const activeInspectionRows = getMeaningfulDraftRows(inspectionData);
+          const activeDescriptionRows = getMeaningfulDraftRows(
+            segregationDescriptionData
+          );
           const saveResult = await saveAllPendingDraftContexts(previousShift);
 
           const now = new Date();
-          setProcessOrder("");
+          const shiftedProcessOrder = buildProcessOrderValue({
+            plant,
+            line,
+            date: now,
+            shift: liveShift,
+            machine,
+            packageType,
+          });
+          const shiftedContextKey = getDraftContextCacheKey(
+            packageType,
+            shiftedProcessOrder,
+            liveShift
+          );
+          const shiftedShiftKey = getDraftShiftCacheKey(
+            packageType,
+            liveShift,
+            plant,
+            line,
+            machine
+          );
+
           lastAppliedContextRef.current = "";
           setDraftId(null);
-          setInspectionData([]);
-          setSegregationDescriptionData([]);
           setDate(now);
           setShift(liveShift);
+          setProcessOrder(shiftedProcessOrder || "");
+
+          if (activeInspectionRows.length > 0 && packageType) {
+            setInspectionData(activeInspectionRows);
+            setPackageDataCache((prev) => ({
+              ...prev,
+              [packageType]: activeInspectionRows,
+              ...(shiftedContextKey
+                ? { [shiftedContextKey]: activeInspectionRows }
+                : {}),
+              ...(shiftedShiftKey ? { [shiftedShiftKey]: activeInspectionRows } : {}),
+            }));
+          } else {
+            setInspectionData([]);
+          }
+
+          if (packageType === "SEGREGASI") {
+            if (activeDescriptionRows.length > 0) {
+              setSegregationDescriptionData(activeDescriptionRows);
+              setPackageDescriptionCache((prev) => ({
+                ...prev,
+                [packageType]: activeDescriptionRows,
+                ...(shiftedContextKey
+                  ? { [shiftedContextKey]: activeDescriptionRows }
+                  : {}),
+                ...(shiftedShiftKey
+                  ? { [shiftedShiftKey]: activeDescriptionRows }
+                  : {}),
+              }));
+            } else {
+              setSegregationDescriptionData([]);
+            }
+          } else {
+            setSegregationDescriptionData([]);
+          }
+
+          if (shiftedContextKey) {
+            draftContextMetaRef.current[shiftedContextKey] = {
+              packageType,
+              processOrder: shiftedProcessOrder,
+              shift: liveShift,
+              plant,
+              line,
+              machine,
+              product,
+              batch,
+            };
+          }
 
           if ((saveResult?.savedCount || 0) > 0) {
-            navigation.navigate("ListCILTDraft");
+            console.log(
+              `Shift rollover: ${saveResult.savedCount} draft context(s) saved from ${previousShift} and data auto-applied to ${liveShift}`
+            );
           }
         } catch (e) {
           console.log("Auto shift rollover handling failed", e?.message || e);
@@ -1305,7 +1412,19 @@ const CILTinspection = ({ route, navigation }) => {
     }, 30000);
 
     return () => clearInterval(interval);
-  }, [shift, isSubmitting, saveAllPendingDraftContexts, navigation]);
+  }, [
+    shift,
+    isSubmitting,
+    saveAllPendingDraftContexts,
+    inspectionData,
+    segregationDescriptionData,
+    plant,
+    line,
+    machine,
+    packageType,
+    product,
+    batch,
+  ]);
 
   // Updated handleSubmit function
   const handleSubmit = async (status) => {
@@ -1347,6 +1466,23 @@ const CILTinspection = ({ route, navigation }) => {
                   }
                 } catch (e) {
                   console.error("Error gnrBeforeSubmit:", e);
+                }
+              }
+              if (
+                packageType === "SEGREGASI" &&
+                typeof globalThis.segregasiBeforeSubmit === "function"
+              ) {
+                try {
+                  const snapshot = await Promise.resolve(
+                    globalThis.segregasiBeforeSubmit()
+                  );
+                  if (Array.isArray(snapshot) && snapshot.length > 0) {
+                    inspectionDataForSubmit = snapshot;
+                    // Keep parent cache/state in sync with latest Segregasi table snapshot
+                    setInspectionData(snapshot);
+                  }
+                } catch (e) {
+                  console.error("Error segregasiBeforeSubmit:", e);
                 }
               }
               let updatedInspectionData;
@@ -1409,16 +1545,10 @@ const CILTinspection = ({ route, navigation }) => {
 
               console.log("Submitting order:", order);
 
-              // Send to server
-              let response;
+              // Send to server using latest form state for all packages
+              const response = await api.post("/cilt", order);
 
-              if (draftId) {
-                response = await api.post(`/draft/submit/${draftId}`);
-              } else {
-                response = await api.post("/cilt", order);
-              }
-
-              if (response.status === 201) {
+              if (response.status === 201 || response.status === 200) {
 
                 if (autosaveTimer.current) {
                   clearTimeout(autosaveTimer.current);
@@ -1428,7 +1558,6 @@ const CILTinspection = ({ route, navigation }) => {
                 setIsSubmitting(false);
                 isHydratingDraftRef.current = false;
 
-                const wasDraftSubmit = !!draftId;
                 const submittedContextKey = getDraftContextCacheKey(
                   packageType,
                   processOrder,
@@ -1445,49 +1574,26 @@ const CILTinspection = ({ route, navigation }) => {
                   delete draftIdByContextRef.current[submittedContextKey];
                   delete draftContextMetaRef.current[submittedContextKey];
                 }
+                if (draftId) {
+                  try {
+                    await api.delete(`/draft/${draftId}`);
+                  } catch (deleteDraftError) {
+                    console.warn("Failed to delete draft after submit:", {
+                      draftId,
+                      status: deleteDraftError?.response?.status,
+                      message:
+                        deleteDraftError?.response?.data?.message ||
+                        deleteDraftError?.message,
+                    });
+                  }
+                }
                 setDraftId(null);
 
                 Alert.alert("Success", "Data submitted successfully!");
 
                 await clearOfflineData();
 
-                // Clear storage spesifik untuk package dan product ini setelah submit berhasil
-                await clearPackageStorageAfterSubmit();
-
-                // Trigger clear untuk inspection components
-                clearTriggerRef.current += 1;
-                setShouldClearInspectionData(true);
-
-                // Reset trigger setelah delay singkat
-                setTimeout(() => {
-                  setShouldClearInspectionData(false);
-                }, 100);
-
-                setPackageDataCache(prev => {
-                  const newCache = { ...prev };
-                  if (packageType !== "PERFORMA RED AND GREEN") {
-                    delete newCache[packageType];
-                  }
-                  if (submittedContextKey) delete newCache[submittedContextKey];
-                  if (submittedShiftKey) delete newCache[submittedShiftKey];
-                  return newCache;
-                });
-
-                setPackageDescriptionCache(prev => {
-                  const newCache = { ...prev };
-                  delete newCache[packageType];
-                  if (submittedContextKey) delete newCache[submittedContextKey];
-                  if (submittedShiftKey) delete newCache[submittedShiftKey];
-                  return newCache;
-                });
-
-                if (packageType !== "PERFORMA RED AND GREEN") {
-                  setInspectionData([]);
-                  setSegregationDescriptionData([]);
-                }
-
-                const targetRoute =
-                  wasDraftSubmit && isFromDraftList ? "ListCILT" : "Home";
+                const targetRoute = "HomeCILT";
                 setTimeout(() => {
                   navigation.dispatch(
                     CommonActions.reset({
@@ -1499,12 +1605,35 @@ const CILTinspection = ({ route, navigation }) => {
               }
             } catch (error) {
               setIsSubmitting(false);
-              console.error("Submit failed, saving offline data:", error);
-              await saveOfflineData(order);
-              Alert.alert(
-                "Offline",
-                "No network connection. Data has been saved locally and will be submitted when you are back online."
-              );
+              const isNetworkError = isNetworkSubmissionError(error);
+              const failureMessage = getSubmissionFailureMessage(error);
+              const hasOrderData =
+                order && typeof order === "object" && Object.keys(order).length > 0;
+
+              console.error("Submit failed:", {
+                message: error?.message,
+                code: error?.code,
+                status: error?.response?.status,
+                data: error?.response?.data,
+              });
+
+              if (isNetworkError) {
+                if (hasOrderData) {
+                  await saveOfflineData(order);
+                  Alert.alert(
+                    "Offline",
+                    "No network connection. Data has been saved locally. Please submit again after reconnecting."
+                  );
+                } else {
+                  Alert.alert(
+                    "Offline",
+                    "No network connection. Please reconnect and submit again."
+                  );
+                }
+                return;
+              }
+
+              Alert.alert("Submission failed", failureMessage);
             }
           },
         },
@@ -1940,7 +2069,7 @@ const CILTinspection = ({ route, navigation }) => {
               )}
               {machine === "FILLER" && packageType === "SEGREGASI" && (
                 <SegregasiInspectionTable
-                  key={`segregasi-${processOrder}-${draftId || "new"}`}
+                  key={`segregasi-${currentContextKey || processOrder || "no-po"}-${baseProduct || "no-product"}`}
                   username={username}
                   onDataChange={handleInspectionChange}
                   onDescriptionChange={handleSegregationDescriptionChange}

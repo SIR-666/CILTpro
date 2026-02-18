@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -21,6 +22,10 @@ import { ReusableOfflineUploadImage } from "../../components";
 import ReusableDatetime2 from "../../components/Reusable/ReusableDatetime2";
 import { COLORS } from "../../constants/theme";
 import { api, sqlApi, uploadImageApi } from "../../utils/axiosInstance";
+import {
+  getSubmissionFailureMessage,
+  isNetworkSubmissionError,
+} from "../../utils/submitErrorUtils";
 
 // Define uploadImageToServer function here
 const uploadImageToServer = async (uri) => {
@@ -28,32 +33,34 @@ const uploadImageToServer = async (uri) => {
 
   formData.append("images", {
     uri: Platform.OS === "android" ? uri : uri.replace("file://", ""),
-    type: "image/jpeg", // Adjust based on your image type
-    name: uri.split("/").pop(), // This ensures the file has a name
+    type: "image/jpeg",
+    name: uri.split("/").pop(),
   });
 
   try {
-    const response = await uploadImageApi.post("/upload", formData);
+    const response = await uploadImageApi.post("/upload", formData, {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    });
 
-    if (!response.ok) {
-      // If the response is not OK, log the full response and throw an error
+    if (response.status !== 200 && response.status !== 201) {
       console.error(
         "Failed to upload image",
         response.status,
         response.statusText
       );
-      const responseText = await response.text(); // Get the raw response text for debugging
-      console.error("Response text:", responseText);
       throw new Error(`Failed to upload image: ${response.statusText}`);
     }
 
-    const responseJson = await response.json();
-    let serverImageUrl = responseJson.uploadedFiles[0];
-
-    return serverImageUrl; // Return the server URL after upload
+    const serverImageUrl = response.data?.uploadedFiles?.[0];
+    if (!serverImageUrl) {
+      throw new Error("Failed to upload image: missing uploaded file URL");
+    }
+    return serverImageUrl;
   } catch (error) {
     console.error("Image upload failed:", error);
-    throw new Error("Image upload failed");
+    throw error;
   }
 };
 
@@ -305,12 +312,35 @@ const EditCILTinspection = ({ route, navigation }) => {
         }, 500);
       }
     } catch (error) {
-      console.error("Submit failed, saving offline data:", error);
-      await saveOfflineData(order); // Simpan data secara offline jika submit gagal
-      Alert.alert(
-        "Offline",
-        "No network connection. Data has been saved locally and will be submitted when you are back online."
-      );
+      const isNetworkError = isNetworkSubmissionError(error);
+      const failureMessage = getSubmissionFailureMessage(error);
+      const hasOrderData =
+        order && typeof order === "object" && Object.keys(order).length > 0;
+
+      console.error("Submit failed:", {
+        message: error?.message,
+        code: error?.code,
+        status: error?.response?.status,
+        data: error?.response?.data,
+      });
+
+      if (isNetworkError) {
+        if (hasOrderData) {
+          await saveOfflineData(order);
+          Alert.alert(
+            "Offline",
+            "No network connection. Data has been saved locally. Please submit again after reconnecting."
+          );
+        } else {
+          Alert.alert(
+            "Offline",
+            "No network connection. Please reconnect and submit again."
+          );
+        }
+        return;
+      }
+
+      Alert.alert("Submission failed", failureMessage);
     }
   };
 
