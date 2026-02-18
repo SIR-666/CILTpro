@@ -532,7 +532,34 @@ const getLatestPerformaData = async (item) => {
   }
 };
 
-const extractUniqueInspectionData = (records) => {
+const getPerformaMasterActivities = async (item) => {
+  try {
+    const response = await api.get(
+      `/gnr-master?plant=${encodeURIComponent(item.plant)}&line=${encodeURIComponent(
+        item.line
+      )}&machine=${encodeURIComponent(item.machine)}&type=${encodeURIComponent(
+        item.packageType || "PERFORMA RED AND GREEN"
+      )}`
+    );
+
+    const rows = Array.isArray(response.data) ? response.data : [];
+    return rows
+      .filter((row) => row?.visibility !== false)
+      .map((row) => ({
+        activity: row?.activity,
+        good: row?.good ?? "-",
+        need: row?.need ?? "-",
+        reject: row?.reject ?? "-",
+        periode: row?.frekuensi || "Tiap Jam",
+        standard: row?.standard || row?.content || "",
+      }));
+  } catch (error) {
+    console.error("Error fetching PERFORMA master activities:", error);
+    return [];
+  }
+};
+
+const extractUniqueInspectionData = (records, masterActivities = []) => {
   const uniqueActivities = {};
   // Kumpulkan semua actual times per jam
   const allActualTimes = {};
@@ -543,6 +570,74 @@ const extractUniqueInspectionData = (records) => {
   safe.sort((a, b) => parseWIBNaive(a?.submitTime).diff(parseWIBNaive(b?.submitTime)));
 
   const isNonEmpty = (v) => v !== undefined && v !== null && String(v).trim() !== "" && v !== "-";
+
+  const normalizeActivityKey = (activity) =>
+    String(activity || "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+
+  const toPeriode = (periode, hasTimeSlot = false) => {
+    const normalized = String(periode || "").toLowerCase();
+    if (hasTimeSlot || normalized.includes("30")) return "30 menit";
+    return "Tiap Jam";
+  };
+
+  const buildKey = (activity, periode) => {
+    const periodKey = String(periode || "").toLowerCase().includes("30")
+      ? "30min"
+      : "hourly";
+    return `${periodKey}|${normalizeActivityKey(activity)}`;
+  };
+
+  const ensureActivityRow = (raw) => {
+    const activityLabel = String(raw?.activity || "").trim();
+    if (!activityLabel) return null;
+
+    const resolvedPeriode = toPeriode(
+      raw?.periode ?? raw?.frekuensi,
+      !!(raw?.timeSlot || raw?.time_slot)
+    );
+    const key = buildKey(activityLabel, resolvedPeriode);
+
+    if (!uniqueActivities[key]) {
+      uniqueActivities[key] = {
+        activity: activityLabel,
+        standard: raw?.standard || "",
+        good: raw?.good ?? "-",
+        need: raw?.need ?? "-",
+        reject: raw?.reject ?? "-",
+        periode: resolvedPeriode,
+        results: {},
+        results30: {},
+        picture: {},
+      };
+    } else {
+      if (!uniqueActivities[key].standard && raw?.standard) {
+        uniqueActivities[key].standard = raw.standard;
+      }
+      if ((uniqueActivities[key].good === "-" || uniqueActivities[key].good === "") && raw?.good) {
+        uniqueActivities[key].good = raw.good;
+      }
+      if ((uniqueActivities[key].need === "-" || uniqueActivities[key].need === "") && raw?.need) {
+        uniqueActivities[key].need = raw.need;
+      }
+      if ((uniqueActivities[key].reject === "-" || uniqueActivities[key].reject === "") && raw?.reject) {
+        uniqueActivities[key].reject = raw.reject;
+      }
+    }
+
+    return {
+      key,
+      activityLabel,
+      isThirtyMinRow: resolvedPeriode === "30 menit",
+    };
+  };
+
+  // Seed dari master supaya aktivitas yang belum diisi tetap tampil di PDF
+  (Array.isArray(masterActivities) ? masterActivities : []).forEach((activity) => {
+    ensureActivityRow(activity);
+  });
 
   for (const record of safe) {
     try {
@@ -559,52 +654,44 @@ const extractUniqueInspectionData = (records) => {
         }
 
         for (const inspection of arr) {
-          const key = `${inspection.id}|${inspection.activity}`;
-          if (!uniqueActivities[key]) {
-            uniqueActivities[key] = {
-              activity: inspection.activity,
-              standard: inspection.standard,
-              good: inspection.good ?? "-",
-              need: inspection.need ?? "-",
-              reject: inspection.reject ?? "-",
-              results: {},
-              results30: {},
-              picture: {},
-            };
-          }
+          const rowInfo = ensureActivityRow(inspection);
+          if (!rowInfo) continue;
+          const { key, isThirtyMinRow } = rowInfo;
 
           // Ambil jam dari hourSlot atau timeSlot
           const hKey = selectedHourFromInspection(inspection) ?? selectedHourFromRecord(record);
 
-          // Tabel per JAM
-          if (hKey !== undefined && isNonEmpty(inspection.results)) {
-            uniqueActivities[key].results[hKey] = inspection.results;
-            if (inspection.picture) uniqueActivities[key].picture[hKey] = inspection.picture;
+          // Tabel per 30 MENIT (split kiri/kanan)
+          if (isThirtyMinRow) {
+            const sKey = normSlot(inspection.timeSlot || inspection.time_slot);
+            if (sKey && isNonEmpty(inspection.results)) {
+              uniqueActivities[key].results30[sKey] = String(inspection.results);
+            }
 
-            // Kumpulkan actual time dari inspection.time
-            if (inspection.time) {
-              if (!allActualTimes[hKey]) {
-                allActualTimes[hKey] = new Set();
+            // Kumpulkan actual time untuk 30 menit sesuai jam slot
+            const slotHour = _parseHourLoose(sKey);
+            const hourForTime = slotHour !== undefined ? slotHour : hKey;
+            if (hourForTime !== undefined && inspection.time) {
+              if (!allActualTimes[hourForTime]) {
+                allActualTimes[hourForTime] = new Set();
               }
-              // Ambil hanya HH:mm dari time string
               const timeStr = String(inspection.time);
               const timeMatch = timeStr.match(/(\d{1,2}):(\d{2})/);
               if (timeMatch) {
                 const formattedTime = `${timeMatch[1].padStart(2, '0')}:${timeMatch[2]}`;
-                allActualTimes[hKey].add(formattedTime);
+                allActualTimes[hourForTime].add(formattedTime);
               }
             }
+            continue;
           }
 
-          // Tabel per 30 MENIT
-          if (inspection.periode && String(inspection.periode).toLowerCase().includes("30")) {
-            const sKey = normSlot(inspection.timeSlot);
-            if (sKey && isNonEmpty(inspection.results)) {
-              uniqueActivities[key].results30[sKey] = inspection.results;
-            }
+          // Tabel per JAM (single cell tengah)
+          if (hKey !== undefined && isNonEmpty(inspection.results)) {
+            uniqueActivities[key].results[hKey] = String(inspection.results);
+            if (inspection.picture) uniqueActivities[key].picture[hKey] = inspection.picture;
 
-            // Juga kumpulkan actual time untuk 30 menit
-            if (hKey !== undefined && inspection.time) {
+            // Kumpulkan actual time dari inspection.time
+            if (inspection.time) {
               if (!allActualTimes[hKey]) {
                 allActualTimes[hKey] = new Set();
               }
@@ -632,6 +719,56 @@ const extractUniqueInspectionData = (records) => {
   return {
     activities: Object.values(uniqueActivities),
     actualTimesPerHour: actualTimesPerHour
+  };
+};
+
+const buildPerformaPdfDebugSummary = (rows, shiftHours = []) => {
+  const safeRows = Array.isArray(rows) ? rows : [];
+  const hours = Array.isArray(shiftHours) ? shiftHours : [];
+
+  const hourlyRows = safeRows.filter(
+    (r) => !String(r?.periode || "").toLowerCase().includes("30")
+  );
+  const thirtyRows = safeRows.filter((r) =>
+    String(r?.periode || "").toLowerCase().includes("30")
+  );
+
+  const filledHourlyCells = hourlyRows.reduce((acc, row) => {
+    const filled = hours.filter((hour) => {
+      const h = String(hour).padStart(2, "0");
+      const v =
+        row?.results?.[hour] ??
+        row?.results?.[Number(hour)] ??
+        row?.results?.[`${h}:00`] ??
+        "";
+      return String(v ?? "").trim() !== "";
+    }).length;
+    return acc + filled;
+  }, 0);
+
+  const filled30Cells = thirtyRows.reduce((acc, row) => {
+    const filled = hours.reduce((sum, hour) => {
+      const h = String(hour).padStart(2, "0");
+      const nextH = String((hour + 1) % 24).padStart(2, "0");
+      const slot1 = normSlot(`${h}:00 - ${h}:30`);
+      const slot2 = normSlot(`${h}:30 - ${nextH}:00`);
+      const v1 = slot1 ? row?.results30?.[slot1] ?? "" : "";
+      const v2 = slot2 ? row?.results30?.[slot2] ?? "" : "";
+      let count = 0;
+      if (String(v1 ?? "").trim() !== "") count += 1;
+      if (String(v2 ?? "").trim() !== "") count += 1;
+      return sum + count;
+    }, 0);
+    return acc + filled;
+  }, 0);
+
+  return {
+    totalRows: safeRows.length,
+    hourlyRows: hourlyRows.length,
+    thirtyMinuteRows: thirtyRows.length,
+    filledHourlyCells,
+    filled30MinuteCells: filled30Cells,
+    shiftHourCount: hours.length,
   };
 };
 
@@ -939,10 +1076,27 @@ const htmlSegregasi = (item) => {
  * ========================
  */
 const htmlShiftly = async (item) => {
-  const latestData = await getLatestPerformaData(item);
+  const [latestData, masterActivities] = await Promise.all([
+    getLatestPerformaData(item),
+    getPerformaMasterActivities(item),
+  ]);
   // extractUniqueInspectionData sekarang return object
-  const { activities: uniqueData, actualTimesPerHour } = extractUniqueInspectionData(latestData);
+  const { activities: uniqueData, actualTimesPerHour } = extractUniqueInspectionData(
+    latestData,
+    masterActivities
+  );
   const shiftHours = getShiftHours(item.shift);
+  const pdfDebugSummary = buildPerformaPdfDebugSummary(uniqueData, shiftHours);
+
+  console.log("[GNR PDF][ListCILT] Summary", {
+    processOrder: item?.processOrder,
+    plant: item?.plant,
+    line: item?.line,
+    machine: item?.machine,
+    shift: item?.shift,
+    sourceRecords: Array.isArray(latestData) ? latestData.length : 0,
+    ...pdfDebugSummary,
+  });
 
   const performaHeader = renderPDFHeader("PERFORMA RED AND GREEN", item.line, "PERFORMA RED AND GREEN");
 
@@ -1011,32 +1165,42 @@ const htmlShiftly = async (item) => {
       <td class="col-red" style="text-align: center; width: 7%;">${esc(inspectionItem.reject ?? "-")}</td>
       ${shiftHours
           .map((hour) => {
+            const isThirtyMinRow = String(inspectionItem.periode || "")
+              .toLowerCase()
+              .includes("30");
+
             const h = String(hour).padStart(2, "0");
             const nextH = String((hour + 1) % 24).padStart(2, "0");
             const slot1 = normSlot(`${h}:00 - ${h}:30`);
             const slot2 = normSlot(`${h}:30 - ${nextH}:00`);
-            const v1 = slot1 ? inspectionItem.results30?.[slot1] ?? "" : "";
-            const v2 = slot2 ? inspectionItem.results30?.[slot2] ?? "" : "";
+            const cellWidth = `${(100 - (5 + 20 + 7 + 7 + 7)) / shiftHours.length}%`;
 
-            const fallback =
+            if (isThirtyMinRow) {
+              const v1 = slot1 ? inspectionItem.results30?.[slot1] ?? "" : "";
+              const v2 = slot2 ? inspectionItem.results30?.[slot2] ?? "" : "";
+              const c1 = getResultColor(v1, inspectionItem.good, inspectionItem.reject);
+              const c2 = getResultColor(v2, inspectionItem.good, inspectionItem.reject);
+
+              return `
+            <td class="col-shift slot-cell" style="width:${cellWidth};">
+              <div class="slot-wrap">
+                <div class="slot-half left" style="background:${c1}; color:${getTextColor(c1)};">${v1 || "-"}</div>
+                <div class="slot-half" style="background:${c2}; color:${getTextColor(c2)};">${v2 || "-"}</div>
+              </div>
+            </td>
+          `;
+            }
+
+            const hourlyValue =
               inspectionItem.results?.[hour] ??
               inspectionItem.results?.[Number(hour)] ??
               inspectionItem.results?.[`${h}:00`] ??
               "";
-
-            const leftVal = v1 !== "" ? v1 : fallback || "";
-            const rightVal = v2 !== "" ? v2 : "";
-
-            const c1 = getResultColor(leftVal, inspectionItem.good, inspectionItem.reject);
-            const c2 = getResultColor(rightVal, inspectionItem.good, inspectionItem.reject);
-            const cellWidth = `${(100 - (5 + 20 + 7 + 7 + 7)) / shiftHours.length}%`;
+            const cellColor = getResultColor(hourlyValue, inspectionItem.good, inspectionItem.reject);
 
             return `
-          <td class="col-shift slot-cell" style="width:${cellWidth};">
-            <div class="slot-wrap">
-              <div class="slot-half left" style="background:${c1}; color:${getTextColor(c1)};">${leftVal || "-"}</div>
-              <div class="slot-half" style="background:${c2}; color:${getTextColor(c2)};">${rightVal || "-"}</div>
-            </div>
+          <td class="col-shift" style="width:${cellWidth}; text-align:center; vertical-align:middle; font-weight:600; background:${cellColor}; color:${getTextColor(cellColor)};">
+            ${hourlyValue || "-"}
           </td>
         `;
           })
@@ -3450,6 +3614,15 @@ const ListCILT = ({ navigation }) => {
 
     // Combine latest PERFORMA with other data
     let data = [...otherData, ...latestPerforma];
+
+    console.log("[GNR PDF][ListCILT] Download set", {
+      selectedShift: shift,
+      rawCount: Array.isArray(rawData) ? rawData.length : 0,
+      performaRawCount: performaItems.length,
+      performaLatestCount: latestPerforma.length,
+      otherCount: otherData.length,
+      cipCount: Array.isArray(cipList) ? cipList.length : 0,
+    });
 
     // Satukan semua item CHECKLIST CILT menjadi SATU item per bulan
     data = mergeChecklistCILTMonthly(data);
