@@ -34,9 +34,9 @@ import { generatePDFHTML as htmlH2O2Imported } from "./DetailLaporanH2O2Check";
 import { generatePDFHTML as htmlScrewCapImported } from "./DetailLaporanScrewCap";
 import { generatePDFHTML as htmlPaperUsageImported } from "./DetailLaporanPaperUsage";
 
-/* =========================================
- * ========== PDF HELPERS & TEMPLATES ======
- * ========================================= */
+/* =====================================
+   ====== PDF HELPERS & TEMPLATES ======
+   ===================================== */
 
 const esc = (s = "") =>
   String(s)
@@ -772,9 +772,9 @@ const buildPerformaPdfDebugSummary = (rows, shiftHours = []) => {
   };
 };
 
-/* =======================
- * ==== CIP HELPER FUNCTIONS ===
- * ======================= */
+/* =====================
+    CIP HELPER FUNCTIONS
+   ===================== */
 
 // Helper function to generate flow rate rows based on line type
 const generateFlowRateRows = (cip) => {
@@ -913,9 +913,9 @@ const generateSpecialRecordDetails = (record, line) => {
   return details;
 };
 
-/* =======================
- * ==== TEMPLATES ========
- * ======================= */
+/* =================
+   ====TEMPLATES====
+   ================= */
 
 const isSegregasiRowFilled = (r) => {
   if (!r) return false;
@@ -932,9 +932,9 @@ const isSegregasiRowFilled = (r) => {
   );
 };
 
-/** ============
- * 1) SEGREGASI 
- * =============
+/* ============
+   1) SEGREGASI 
+   ============
  */
 const htmlSegregasi = (item) => {
   const inspectionData = parseInspection(item.inspectionData);
@@ -1057,12 +1057,6 @@ const htmlSegregasi = (item) => {
       
       <!-- COMBINED DATA SECTION (Description + Segregasi digabung dalam satu entry) -->
       <div class="segregasi-container">
-        <div class="seg-header-bar">
-          <div class="seg-header-cell seg-header-narrow">Type</div>
-          <div class="seg-header-cell">Prod Type</div>
-          <div class="seg-header-cell">TO</div>
-          <div class="seg-header-cell seg-header-wide">Equipment Status & Detail</div>
-        </div>
         <div class="seg-grid">
           ${combinedSection}
         </div>
@@ -1071,9 +1065,9 @@ const htmlSegregasi = (item) => {
   `;
 };
 
-/** =======================
- * 2) PERFORMA RED & GREEN 
- * ========================
+/* =======================
+   2) PERFORMA RED & GREEN 
+   =======================
  */
 const htmlShiftly = async (item) => {
   const [latestData, masterActivities] = await Promise.all([
@@ -1246,9 +1240,9 @@ const htmlShiftly = async (item) => {
   `;
 };
 
-/** ================
- * 3 CHECKLIST CILT
- * ================= */
+/* ================
+   3 CHECKLIST CILT
+   ================ */
 const checklistLayerCss = `
   <style>
     table { width: 100%; border-collapse: collapse; }
@@ -1555,9 +1549,9 @@ const htmlChecklist = (item) => {
   `;
 };
 
-/** ============
- * 7) CILT GIGR
- * =============
+/* ============
+   7) CILT GIGR
+   ============
  */
 const htmlCILTGIGR = (item) => {
   const rows = parseInspection(item.inspectionData)
@@ -1591,9 +1585,9 @@ const htmlCILTGIGR = (item) => {
   `;
 };
 
-/** ======
- * 8) CIP
- * =======
+/* ======
+   8) CIP
+   ======
  */
 const htmlCIP = async (cipSummary) => {
   // 1) Pastikan data detail tersedia
@@ -1982,7 +1976,17 @@ const globalPdfCss = `
     .pkg-section[data-orientation="portrait"] {
       page-break-before: always;
     }
-    .pkg-section,
+    .pkg-section {
+      page-break-before: always !important;
+      break-before: page !important;
+      page-break-inside: auto;
+      break-inside: auto;
+    }
+    .pkg-section.pkg-section-first {
+      page-break-before: auto !important;
+      break-before: auto !important;
+    }
+    .pkg-section .report-section,
     .report-section {
       page-break-inside: auto;
       break-inside: auto;
@@ -2043,7 +2047,8 @@ const globalPdfCss = `
     .report-section.paper-section,
     .report-section.h2o2-section,
     .report-section.ciltgigr-section {
-      page-break-before: always;
+      page-break-before: auto;
+      break-before: auto;
     }
     table { width: 100%; border-collapse: collapse; margin-top: 10px; }
     th, td { border: 1px solid black; padding: 6px; text-align: center; font-size: 11px; }
@@ -2061,7 +2066,7 @@ const globalPdfCss = `
     h1, h2, h3 { page-break-after: avoid; }
     .cip-steps-container .cip-step-row { page-break-inside: avoid; }
     .cip-cop-row, .cip-special-row { page-break-inside: avoid; }
-    .report-section.performa-section { page-break-before: always; margin-bottom: 30px; }
+    .report-section.performa-section { page-break-before: auto; break-before: auto; margin-bottom: 30px; }
     .section-title { background-color: #e8f4fd; padding: 8px; margin: 15px 0 10px 0; text-align: center; font-weight: bold; font-size: 16px; border-radius: 6px; border: 1px solid #1d4ed8; color: #333; }
     .section-description { text-align: center; margin-bottom: 10px; font-style: italic; color: #666; font-size: 11px; line-height: 14px; }
     img { display: block; margin: auto; }
@@ -2092,13 +2097,18 @@ const globalPdfCss = `
     .date-group-header:first-child { page-break-before: avoid; }
     .single-package-section { margin-bottom: 5px; }
     .multiple-package-section { margin-bottom: 20px; }
-    .single-package-section .pkg-section:first-child,
-    .multiple-package-section .pkg-section:first-child {
+    .single-package-section .pkg-section,
+    .multiple-package-section .pkg-section {
+      page-break-before: always !important;
+      break-before: page !important;
+    }
+    .single-package-section .pkg-section.pkg-section-first,
+    .multiple-package-section .pkg-section.pkg-section-first {
       page-break-before: auto !important;
       break-before: auto !important;
     }
-    .single-package-section .pkg-section:first-child .report-section,
-    .multiple-package-section .pkg-section:first-child .report-section {
+    .single-package-section .pkg-section .report-section,
+    .multiple-package-section .pkg-section .report-section {
       page-break-before: auto !important;
       break-before: auto !important;
     }
@@ -2972,8 +2982,8 @@ const artemaFransPdfStyles = `
 const updatedGlobalPdfCssWithAll = globalPdfCss + segregasiPdfStyles + checklistPdfStyles + cipPdfStyles + performaPdfStyles + artemaFransPdfStyles;
 
 /* =======================
- * Grouping CHECKLIST CILT 
- * ======================= */
+   Grouping CHECKLIST CILT 
+   ======================= */
 
 // Kelompokkan semua item CHECKLIST CILT => satu item per (plant,line,machine, bulan)
 const groupMonthlyChecklistCILT = (items) => {
@@ -3022,8 +3032,8 @@ const groupMonthlyChecklistCILT = (items) => {
 };
 
 /* =======================
- * Grouping CHECKLIST CILT 
- * ======================= */
+   Grouping CHECKLIST CILT 
+   ======================= */
 
 // Gabungkan semua item CHECKLIST CILT per (plant,line,machine,bulan)
 // & simpan tanggal asli tiap entri ke _anchorDate agar mapping kolom harinya benar.
@@ -3070,9 +3080,9 @@ const mergeChecklistCILTMonthly = (items) => {
   return nonCilt.concat(Array.from(groups.values()));
 };
 
-/* =======================
- * Helpers utk REPORT CIP 
- * ======================= */
+/* ======================
+   Helpers utk REPORT CIP 
+   ====================== */
 
 const toMoment = (val) => {
   // Terima format date-only, datetime, ISO, dsb.
@@ -3109,9 +3119,9 @@ const CIP_PRODUCT_LABELS = {
 };
 const labelCipProduct = (raw) => CIP_PRODUCT_LABELS[String(raw || "").toUpperCase()] || humanize(raw || "-");
 
-/* ===============
+/* ==============
  * KOMPONEN LAYAR
- * =============== */
+ * ============== */
 
 const ListCILT = ({ navigation }) => {
   const [selectedDate, setSelectedDate] = useState(null);
@@ -3666,6 +3676,13 @@ const ListCILT = ({ navigation }) => {
     // Process each date group
     const dateGroupSections = [];
 
+    let packageGlobalIndex = 0;
+    const wrapPackageSection = (innerHtml, orientation = "portrait") => {
+      const firstClass = packageGlobalIndex === 0 ? " pkg-section-first" : "";
+      packageGlobalIndex += 1;
+      return `<div class="pkg-section${firstClass}" data-orientation="${orientation}">${innerHtml}</div>`;
+    };
+
     for (const group of groupedData) {
       const regularSections = [];
 
@@ -3686,14 +3703,15 @@ const ListCILT = ({ navigation }) => {
       for (const item of sortedData) {
         const orientation = getPackageOrientation(item.packageType);
         const itemHtml = await htmlByPackage(item);
-        regularSections.push(`<div class="pkg-section" data-orientation="${orientation}">${itemHtml}</div>`);
+        regularSections.push(wrapPackageSection(itemHtml, orientation));
       }
 
       // Process CIP data for this date
-      const cipSections = await Promise.all(group.cipData.map(async (c) => {
+      const cipSections = [];
+      for (const c of group.cipData) {
         const cipHtml = await htmlCIP(c);
-        return `<div class="pkg-section" data-orientation="portrait">${cipHtml}</div>`;
-      }));
+        cipSections.push(wrapPackageSection(cipHtml, "portrait"));
+      }
 
       // Combine all sections for this date
       const allSectionsForDate = [...regularSections, ...cipSections];
