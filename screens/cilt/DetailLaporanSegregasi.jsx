@@ -117,17 +117,9 @@ const DetailLaporanSegregasi = ({ route }) => {
         </View>
 
         <Text style={styles.title}>SEGREGASI & DESCRIPTION</Text>
-        <Text style={styles.description}>Pencatatan segregasi produk, status peralatan, dan data produksi.</Text>
 
         {/* DESCRIPTION */}
         <View style={styles.descContainer}>
-          <View style={styles.descHeaderBar}>
-            <Text style={[styles.segHeaderCell, styles.segHeaderCellNarrow]}>Flavour</Text>
-            <Text style={styles.segHeaderCell}>Kode Prod</Text>
-            <Text style={styles.segHeaderCell}>Kode Exp</Text>
-            <Text style={[styles.segHeaderCell, styles.segHeaderCellWide]}>Detail</Text>
-          </View>
-
           {hasDescriptionContent(descriptionData) ? (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.segGrid}>
               {descriptionData.map((d, i) => (
@@ -223,13 +215,6 @@ const DetailLaporanSegregasi = ({ route }) => {
 
         {/* SEGREGASI */}
         <View style={styles.segregasiContainer}>
-          <View style={styles.segHeaderBar}>
-            <Text style={[styles.segHeaderCell, styles.segHeaderCellNarrow]}>Type</Text>
-            <Text style={styles.segHeaderCell}>Prod Type</Text>
-            <Text style={styles.segHeaderCell}>TO</Text>
-            <Text style={[styles.segHeaderCell, styles.segHeaderCellWide]}>Equipment Status</Text>
-          </View>
-
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.segGrid}>
             {inspectionData.map((entry, idx) => (
               <View key={idx} style={styles.segCol}>

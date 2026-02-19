@@ -936,16 +936,26 @@ const isSegregasiRowFilled = (r) => {
    1) SEGREGASI 
    ============
  */
-const htmlSegregasi = (item) => {
+const MAX_SEG_COLUMNS_PER_PAGE = 3;
+
+const htmlSegregasi = (item, options = {}) => {
   const inspectionData = parseInspection(item.inspectionData);
 
   // Filter hanya row yang memiliki data bermakna
   const filledData = inspectionData.filter(isSegregasiRowFilled);
+  const rowsForSection = Array.isArray(options.entries)
+    ? options.entries
+    : filledData;
+  const entryStartIndex = Number.isFinite(options.entryStartIndex)
+    ? options.entryStartIndex
+    : 0;
+  const gridColCount = Math.max(
+    1,
+    Math.min(rowsForSection.length, MAX_SEG_COLUMNS_PER_PAGE)
+  );
+  const gridClass = `seg-grid seg-grid-cols-${gridColCount}`;
 
-  // Generate combined section HTML - Description + Segregasi dalam satu entry
-  // karena pada SegregasiInspectionTable, data description dan segregasi ada dalam satu entry
-  const combinedSection = filledData.length > 0
-    ? filledData.map((entry, idx) => `
+  const renderEntryCard = (entry, idx) => `
         <div class="seg-column">
           <div class="seg-column-header">Entry ${idx + 1}</div>
           
@@ -1046,23 +1056,67 @@ const htmlSegregasi = (item) => {
             </div>
           ` : ''}
         </div>
-      `).join("")
-    : '<div class="no-description-data">No data entered</div>';
+	      `;
+
+  const combinedSection =
+    rowsForSection.length > 0
+      ? rowsForSection
+        .map((entry, idx) => renderEntryCard(entry, entryStartIndex + idx))
+        .join("")
+      : '<div class="no-description-data">No data entered</div>';
 
   return `
     <section class="report-section segregasi-section">
       <div class="report-date">${formatDDMonYY(item.date)}</div>
       ${renderPDFHeader("SEGREGASI", item.line, "SEGREGASI & DESCRIPTION")}
-      <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">SEGREGASI & DESCRIPTION</h2>
-      
-      <!-- COMBINED DATA SECTION (Description + Segregasi digabung dalam satu entry) -->
+      <!-- COMBINED DATA SECTION -->
       <div class="segregasi-container">
-        <div class="seg-grid">
+        <div class="${gridClass}">
           ${combinedSection}
         </div>
       </div>
     </section>
   `;
+};
+
+const buildSegregasiPageSections = (item) => {
+  const inspectionData = parseInspection(item.inspectionData);
+  const filledData = inspectionData.filter(isSegregasiRowFilled);
+
+  if (filledData.length === 0) {
+    return [
+      {
+        html: htmlSegregasi(item, { entries: [], entryStartIndex: 0 }),
+        orientation: "portrait",
+      },
+    ];
+  }
+
+  const sections = [];
+  for (
+    let startIndex = 0;
+    startIndex < filledData.length;
+    startIndex += MAX_SEG_COLUMNS_PER_PAGE
+  ) {
+    const pageRows = filledData.slice(
+      startIndex,
+      startIndex + MAX_SEG_COLUMNS_PER_PAGE
+    );
+    const orientation =
+      pageRows.length >= SEGREGASI_LANDSCAPE_MIN_ENTRIES
+        ? "landscape"
+        : "portrait";
+
+    sections.push({
+      html: htmlSegregasi(item, {
+        entries: pageRows,
+        entryStartIndex: startIndex,
+      }),
+      orientation,
+    });
+  }
+
+  return sections;
 };
 
 /* =======================
@@ -1082,7 +1136,7 @@ const htmlShiftly = async (item) => {
   const shiftHours = getShiftHours(item.shift);
   const pdfDebugSummary = buildPerformaPdfDebugSummary(uniqueData, shiftHours);
 
-  console.log("[GNR PDF][ListCILT] Summary", {
+  console.log("Summary", {
     processOrder: item?.processOrder,
     plant: item?.plant,
     line: item?.line,
@@ -1208,12 +1262,6 @@ const htmlShiftly = async (item) => {
     <section class="report-section performa-section">
       <div class="report-date">${formatDDMonYY(item.date)}</div>
       ${performaHeader}
-      <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">PERFORMA RED AND GREEN</h2>
-      <div class="legend">
-        <span><i class="dot" style="background: #CFF5D0"></i> G (Good)</span>
-        <span><i class="dot" style="background: #FFE9B0"></i> N (Need Attention)</span>
-        <span><i class="dot" style="background: #F8C9CC"></i> R (Reject)</span>
-      </div>
       ${itemInfo}
       <table class="performa-table">
         <thead>
@@ -1539,9 +1587,6 @@ const htmlChecklist = (item) => {
     <section class="report-section checklist-section">
       ${renderPDFHeader("CHECKLIST CILT", item.line, `CHECKLIST CILT ${esc(item.machine || "")} ${esc(item.line || "")}`)}
       <div class="report-date">${formatDDMonYY(item.date)}</div>
-      <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">
-        CHECKLIST CILT
-      </h2>
       ${layer1Html}
       ${layer2Html}
       ${!layer1Html && !layer2Html ? '<p style="text-align: center; padding: 20px;">Belum ada data untuk bulan ini.</p>' : ""}
@@ -1887,7 +1932,28 @@ const PACKAGE_ORIENTATIONS = {
   "START & FINISH PRODUKSI": "landscape",
 };
 
-const getPackageOrientation = (packageType) => {
+const SEGREGASI_LANDSCAPE_MIN_ENTRIES = 3;
+
+const getPackageOrientation = (itemOrPackageType) => {
+  const packageType =
+    typeof itemOrPackageType === "string"
+      ? itemOrPackageType
+      : itemOrPackageType?.packageType;
+
+  // Dynamic orientation for Segregasi:
+  // use landscape when entries are 3+.
+  if (
+    packageType === "SEGREGASI" &&
+    itemOrPackageType &&
+    typeof itemOrPackageType === "object"
+  ) {
+    const filledSegregasiRows = parseInspection(itemOrPackageType.inspectionData)
+      .filter(isSegregasiRowFilled).length;
+    return filledSegregasiRows >= SEGREGASI_LANDSCAPE_MIN_ENTRIES
+      ? "landscape"
+      : "portrait";
+  }
+
   return PACKAGE_ORIENTATIONS[packageType] || "portrait"; // default portrait
 };
 
@@ -2014,10 +2080,11 @@ const globalPdfCss = `
     }
     h1, h2 { color: #1d4ed8; margin: 15px 0 8px; text-align: center; }
     h3 { margin: 12px 0 6px; }
-    .header-container { border: 2px solid #d7d7d7; border-radius: 8px; background: #fff; margin-bottom: 12px; overflow: hidden; page-break-after: avoid; }
+    .header-container { border: 2px solid #d7d7d7; border-radius: 8px; background: #fff; margin-bottom: 12px; overflow: hidden; page-break-after: avoid; page-break-inside: avoid; break-inside: avoid; }
     .segregasi-section .header-container,
     .performa-section  .header-container,
     .checklist-section .header-container { margin-bottom: 10px; }
+    .segregasi-section .header-container { margin-bottom: 8px; page-break-after: auto; break-after: auto; }
     .header-main-table { width: 100%; border-collapse: collapse; }
     .logo-section { width: 130px; height: 60px; text-align: center; vertical-align: middle; padding: 8px; }
     .greenfields-logo { text-align: center; }
@@ -2166,34 +2233,135 @@ const segregasiPdfStyles = `
   .desc-grid { display: flex; gap: 10px; overflow-x: auto; padding-right: 6px; }
   .desc-column { width: 300px; background-color: #fff; border: 1px solid #E5E7EB; border-radius: 8px; padding: 10px; margin-right: 4px; box-shadow: 0 2px 3px rgba(0,0,0,0.05); }
   .desc-column-header { font-size: 12px; font-weight: 700; text-align: center; padding: 6px; margin-bottom: 8px; color: #374151; background-color: #F8FAFC; border-radius: 6px; border: 1px solid #EEF2F7; }
-  .desc-detail-table { width: 100%; border-collapse: collapse; }
+  .desc-detail-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
   .desc-detail-table td { padding: 6px 8px; border: 1px solid #E5E7EB; font-size: 11px; }
   .desc-label { font-weight: 700; color: #374151; background-color: #F8FAFC; width: 40%; }
   .desc-label-help { font-weight: 700; color: #374151; background-color: #F8FAFC; width: 40%; font-size: 10px; }
   .desc-value { color: #374151; font-weight: 500; }
   .no-description-data { text-align: center; padding: 10px; font-style: italic; color: #999; }
 
-  .segregasi-container { margin-top: 8px; padding: 12px; background-color: #fff; border: 1px solid #E2E8F0; border-radius: 8px; }
+  .seg-page {
+    page-break-inside: avoid;
+    break-inside: avoid;
+    margin-bottom: 8px;
+  }
+  .seg-page-break {
+    page-break-before: always;
+    break-before: page;
+  }
+  .segregasi-container {
+    margin-top: 6px;
+    padding: 10px;
+    background-color: #fff;
+    border: 1px solid #E2E8F0;
+    border-radius: 8px;
+    page-break-inside: auto;
+    break-inside: auto;
+  }
   .seg-header-bar { display: flex; align-items: center; background-color: #DDF5E4; border: 1px solid #B6E3C5; border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; gap: 8px; }
   .seg-header-cell { flex: 1; text-align: center; font-weight: 700; font-size: 12px; color: #2E6B3E; }
   .seg-header-narrow { flex: 0.9; }
   .seg-header-wide { flex: 1.4; }
-  .seg-grid { display: flex; gap: 10px; overflow-x: auto; padding-right: 6px; }
-  .seg-column { width: 300px; background-color: #FFFFFF; border: 1px solid #E5E7EB; border-radius: 8px; padding: 10px; margin-right: 4px; box-shadow: 0 2px 3px rgba(0,0,0,0.05); }
+  .seg-grid {
+    display: flex;
+    gap: 8px;
+    overflow: visible;
+    padding-right: 0;
+    align-items: flex-start;
+    justify-content: flex-start;
+  }
+  .seg-grid.seg-grid-cols-1,
+  .seg-grid.seg-grid-cols-2 {
+    justify-content: center;
+  }
+  .seg-grid.seg-grid-cols-1 .seg-column {
+    flex: 0 1 88%;
+    max-width: 88%;
+  }
+  .seg-grid.seg-grid-cols-2 .seg-column {
+    flex: 0 0 calc((100% - 8px) / 2);
+    max-width: calc((100% - 8px) / 2);
+  }
+  .seg-grid.seg-grid-cols-3 .seg-column {
+    flex: 0 0 calc((100% - 16px) / 3);
+    max-width: calc((100% - 16px) / 3);
+  }
+  .seg-column {
+    box-sizing: border-box;
+    flex: 0 0 calc((100% - 16px) / 3);
+    max-width: calc((100% - 16px) / 3);
+    min-width: 0;
+    background-color: #FFFFFF;
+    border: 1px solid #E5E7EB;
+    border-radius: 8px;
+    padding: 10px;
+    margin-right: 0;
+    box-shadow: 0 2px 3px rgba(0,0,0,0.05);
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
   .seg-column-header { font-size: 12px; font-weight: 700; text-align: center; padding: 6px; margin-bottom: 8px; color: #374151; background-color: #F8FAFC; border-radius: 6px; border: 1px solid #EEF2F7; }
-  .seg-detail-table { width: 100%; border-collapse: collapse; margin-bottom: 8px; }
+  .seg-detail-table { width: 100%; border-collapse: collapse; table-layout: fixed; margin-bottom: 8px; }
   .seg-detail-table td { padding: 6px 8px; border: 1px solid #E5E7EB; font-size: 11px; }
   .seg-label { font-weight: 700; color: #374151; background-color: #F8FAFC; width: 40%; }
   .seg-value { color: #374151; font-weight: 500; }
   .seg-value-disabled { color: #9CA3AF; background-color: #F8FAFC; }
   .equipment-status { margin-top: 4px; border-top: 1px solid #F1F5F9; padding-top: 8px; }
   .equipment-title { font-size: 11px; font-weight: 700; color: #374151; margin-bottom: 6px; }
-  .equipment-table { width: 100%; border-collapse: collapse; }
+  .equipment-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
   .equipment-table td { padding: 4px 6px; border: 1px solid #E5E7EB; font-size: 11px; }
   .eq-label { color: #374151; background-color: #F8FAFC; width: 70%; }
   .eq-checkbox { text-align: center; font-weight: 900; color: #22C55E; background-color: #FFFFFF; width: 30%; }
+  .desc-value, .seg-value, .eq-label {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
   .audit-trail { margin-top: 8px; background-color: #F3F4F6; border-radius: 6px; padding: 6px; border-left: 3px solid #9CA3AF; }
   .audit-trail div { font-size: 10px; color: #4B5563; margin-bottom: 2px; }
+
+  /* Compact mode untuk 3 kolom agar tidak terpotong pada page pertama */
+  .segregasi-section .seg-grid.seg-grid-cols-3 {
+    gap: 5px;
+  }
+  .segregasi-section .seg-grid.seg-grid-cols-3 .seg-column {
+    flex: 0 0 calc((100% - 10px) / 3);
+    max-width: calc((100% - 10px) / 3);
+    padding: 8px;
+    min-height: 15.6cm;
+    display: flex;
+    flex-direction: column;
+  }
+  .segregasi-section .seg-grid.seg-grid-cols-3 .seg-column-header {
+    font-size: 12px !important;
+    padding: 6px;
+    margin-bottom: 6px;
+  }
+  /* Guard against generic table rules from other package styles */
+  .segregasi-section .seg-grid.seg-grid-cols-3 .seg-detail-table td,
+  .segregasi-section .seg-grid.seg-grid-cols-3 .desc-detail-table td,
+  .segregasi-section .seg-grid.seg-grid-cols-3 .equipment-table td {
+    font-size: 11px !important;
+    font-weight: 500 !important;
+    padding: 4px 5px !important;
+    line-height: 1.2;
+  }
+  .segregasi-section .seg-grid.seg-grid-cols-3 .equipment-title {
+    font-size: 11.5px !important;
+    margin-bottom: 5px;
+  }
+  .segregasi-section .seg-grid.seg-grid-cols-3 .equipment-status {
+    margin-top: 4px;
+    padding-top: 5px;
+  }
+  .segregasi-section .seg-grid.seg-grid-cols-3 .audit-trail {
+    margin-top: 6px;
+    padding: 5px;
+    border-left-width: 2px;
+  }
+  .segregasi-section .seg-grid.seg-grid-cols-3 .audit-trail div {
+    font-size: 10.5px !important;
+    margin-bottom: 1px;
+  }
   </style>
 `;
 
@@ -3625,7 +3793,7 @@ const ListCILT = ({ navigation }) => {
     // Combine latest PERFORMA with other data
     let data = [...otherData, ...latestPerforma];
 
-    console.log("[GNR PDF][ListCILT] Download set", {
+    console.log("Download set", {
       selectedShift: shift,
       rawCount: Array.isArray(rawData) ? rawData.length : 0,
       performaRawCount: performaItems.length,
@@ -3701,7 +3869,15 @@ const ListCILT = ({ navigation }) => {
 
       // Process each item for this date
       for (const item of sortedData) {
-        const orientation = getPackageOrientation(item.packageType);
+        if (item.packageType === "SEGREGASI") {
+          const segSections = buildSegregasiPageSections(item);
+          segSections.forEach(({ html, orientation }) => {
+            regularSections.push(wrapPackageSection(html, orientation));
+          });
+          continue;
+        }
+
+        const orientation = getPackageOrientation(item);
         const itemHtml = await htmlByPackage(item);
         regularSections.push(wrapPackageSection(itemHtml, orientation));
       }
@@ -3730,11 +3906,10 @@ const ListCILT = ({ navigation }) => {
         <head><meta charset="utf-8" />${updatedGlobalPdfCssWithAll}</head>
         <body>
           ${dateGroupSections.join("")}
-          ${
-            hasAnyCip
-              ? '<div class="footer">CILT/CIP Report - generated automatically</div>'
-              : ""
-          }
+          ${hasAnyCip
+        ? '<div class="footer">CILT/CIP Report - generated automatically</div>'
+        : ""
+      }
         </body>
       </html>
     `;

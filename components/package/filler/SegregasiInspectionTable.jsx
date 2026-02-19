@@ -445,7 +445,8 @@ const SegregasiInspectionTable = ({
       } else if (field === "to") {
         row.to = value;
         if (row.type === "Change Variant") {
-          row.prodType = value || row.prodType;
+          // Keep prodType as the source product before change variant.
+          // The selected TO product is reflected in `to` and `flavour`.
           row.flavour = value || "";
           if (value && !row.kodeProd) {
             row.kodeProd = todayKodeProdWithSuffix(lineName);
@@ -614,7 +615,7 @@ const SegregasiInspectionTable = ({
               <Text style={styles.smallLabel}>Prod Type</Text>
               <View style={styles.autoShell}>
                 <Text style={styles.autoText}>{r.prodType || "No product selected"}</Text>
-                <Text style={styles.helpText}>Auto-filled from product / TO</Text>
+                <Text style={styles.helpText}>Auto-filled from active source product</Text>
               </View>
             </View>
 
