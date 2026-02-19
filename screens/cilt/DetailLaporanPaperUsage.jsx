@@ -83,7 +83,6 @@ export const generatePDFHTML = (item) => {
 
       <div style="display:grid;grid-template-columns:1fr auto 1fr;align-items:center;margin:8px 0;">
         <div></div>
-        <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 0;">PEMAKAIAN PAPER</h2>
         <div style="justify-self:end;display:flex;align-items:center;gap:8px;">
           <div style="width:14px;height:14px;border:2px solid #111;display:flex;align-items:center;justify-content:center;">
             ${cekAlergenKemasan ? "✔" : ""}
@@ -96,11 +95,11 @@ export const generatePDFHTML = (item) => {
           <tr>
             <th style="padding: 12px 8px; min-width: 40px;">No</th>
             <th style="padding: 12px 8px; min-width: 100px;">Jam</th>
-            <th style="padding: 12px 8px; min-width: 100px;">Box No.</th>
-            <th style="padding: 12px 8px; min-width: 120px;">PD. Paper</th>
+            <th style="padding: 12px 8px; min-width: 80px;">Box No.</th>
+            <th style="padding: 12px 8px; min-width: 90px;">PD. Paper</th>
             <th style="padding: 12px 8px; min-width: 100px;">Qty Label</th>
             <th style="padding: 12px 8px; min-width: 80px;">User</th>
-            <th style="padding: 12px 8px; min-width: 80px;">Time</th>
+            <th style="padding: 12px 8px; min-width: 50px;">Time</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>

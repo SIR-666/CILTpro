@@ -80,7 +80,6 @@ export const generatePDFHTML = (item) => {
         </table>
       </div>
 
-      <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">PEMAKAIAN SCREW CAP</h2>
       <table class="data-table">
         <thead>
           <tr>
@@ -89,8 +88,8 @@ export const generatePDFHTML = (item) => {
             <th style="padding: 12px 8px; min-width: 100px;">Of No.</th>
             <th style="padding: 12px 8px; min-width: 100px;">Box No.</th>
             <th style="padding: 12px 8px; min-width: 100px;">Qty Label</th>
-            <th style="padding: 12px 8px; min-width: 80px;">User</th>
-            <th style="padding: 12px 8px; min-width: 80px;">Time</th>
+            <th style="padding: 12px 8px; min-width: 60px;">User</th>
+            <th style="padding: 12px 8px; min-width: 50px;">Time</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>

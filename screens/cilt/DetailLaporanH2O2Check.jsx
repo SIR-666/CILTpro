@@ -17,6 +17,11 @@ import { COLORS } from "../../constants/theme";
 
 const esc = (s = "") => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 const headerMeta = { frm: "FIL - 010 - 02", rev: "-", berlaku: "11-Jun-25", hal: "1 dari 3" };
+const isLanjutanChecked = (value) =>
+  value === true ||
+  value === 1 ||
+  value === "1" ||
+  String(value || "").toLowerCase() === "true";
 
 // Helper: Check if row has meaningful data
 const isRowFilled = (r) => {
@@ -35,18 +40,29 @@ export const generatePDFHTML = (item) => {
   
   // Filter hanya row yang memiliki data
   const filledData = Array.isArray(inspectionData) ? inspectionData.filter(isRowFilled) : [];
+  const hasLanjutanLabel = Array.isArray(inspectionData)
+    ? inspectionData.some((r) => isLanjutanChecked(r?.lanjutan))
+    : false;
 
-  const rows = filledData.length > 0 ? filledData.map((r, i) => `
-    <tr>
-      <td style="padding: 12px 8px;">${i + 1}</td>
-      <td style="padding: 12px 8px;">${esc(r.jam)}</td>
-      <td style="padding: 12px 8px;">${esc(r.konsentrasi)}</td>
-      <td style="padding: 12px 8px;">${esc(r.volume)}</td>
-      <td style="padding: 12px 8px;">${esc(r.kode)}</td>
-      <td style="padding: 12px 8px;">${esc(r.user)}</td>
-      <td style="padding: 12px 8px;">${esc(r.time)}</td>
-    </tr>
-  `).join("") : `<tr><td colspan="7" style="text-align: center; padding: 20px; color: #666; font-style: italic;">Tidak ada data yang diinput</td></tr>`;
+  const renderDataCell = (value) => `
+    <td style="padding: 12px 8px; position: relative;">
+      <span style="position:relative; z-index:2;">${esc(value)}</span>
+    </td>
+  `;
+
+  const rows = filledData.length > 0 ? filledData.map((r, i) => {
+    return `
+      <tr>
+        <td style="padding: 12px 8px;">${i + 1}</td>
+        ${renderDataCell(r.jam)}
+        ${renderDataCell(r.konsentrasi)}
+        ${renderDataCell(r.volume)}
+        ${renderDataCell(r.kode)}
+        <td style="padding: 12px 8px;">${esc(r.user)}</td>
+        <td style="padding: 12px 8px;">${esc(r.time)}</td>
+      </tr>
+    `;
+  }).join("") : `<tr><td colspan="7" style="text-align: center; padding: 20px; color: #666; font-style: italic;">Tidak ada data yang diinput</td></tr>`;
 
   return `
     <section class="report-section h2o2-section">
@@ -80,21 +96,26 @@ export const generatePDFHTML = (item) => {
         </table>
       </div>
 
-      <h2 style="font-weight: bold; text-align: center; font-size: 18px; margin: 8px 0;">PENGECEKAN H2O2 (SPRAY)</h2>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th style="padding: 12px 8px; min-width: 40px;">No</th>
-            <th style="padding: 12px 8px; min-width: 100px;">Jam Pengecekan</th>
-            <th style="padding: 12px 8px; min-width: 180px;">Konsentrasi (&gt;35-50%) (MCCP 03)</th>
-            <th style="padding: 12px 8px; min-width: 100px;">Volume</th>
-            <th style="padding: 12px 8px; min-width: 120px;">Kode Operator</th>
-            <th style="padding: 12px 8px; min-width: 80px;">User</th>
-            <th style="padding: 12px 8px; min-width: 80px;">Time</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
+      <div style="position: relative; margin-top: 10px;">
+        ${hasLanjutanLabel
+          ? `<div style="position:absolute; left:50%; top:50%; transform:translate(-50%, -50%) rotate(-18deg); font-size:30px; font-style:italic; font-weight:700; color:rgba(173, 29, 44, 0.62); letter-spacing:1px; white-space:nowrap; border:3px solid rgba(173, 29, 44, 0.6); border-radius:6px; padding:4px 16px; z-index:3; pointer-events:none;">Lanjutan</div>`
+          : ""
+        }
+        <table class="data-table" style="position: relative; z-index: 2; margin-top: 0;">
+          <thead>
+            <tr>
+              <th style="padding: 12px 8px; min-width: 40px;">No</th>
+              <th style="padding: 12px 8px; min-width: 100px;">Jam Pengecekan</th>
+              <th style="padding: 12px 8px; min-width: 180px;">Konsentrasi (&gt;35-50%) (MCCP 03)</th>
+              <th style="padding: 12px 8px; min-width: 100px;">Volume</th>
+              <th style="padding: 12px 8px; min-width: 120px;">Kode Operator</th>
+              <th style="padding: 12px 8px; min-width: 80px;">User</th>
+              <th style="padding: 12px 8px; min-width: 80px;">Time</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
     </section>
   `;
 };

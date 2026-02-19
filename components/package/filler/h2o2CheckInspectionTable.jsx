@@ -22,6 +22,46 @@ function subscribeSharedJam(fn) {
 
 const COMPONENT_ID = "h2o2";
 
+const createEmptyRow = (index = 1) => ({
+  id: index,
+  jam: "",
+  konsentrasi: "",
+  volume: "",
+  kode: "",
+  lanjutan: false,
+  user: "",
+  time: "",
+  saved: false,
+});
+
+const isLanjutanChecked = (value) =>
+  value === true ||
+  value === 1 ||
+  value === "1" ||
+  String(value || "").toLowerCase() === "true";
+
+const normalizeRows = (rows = []) => {
+  if (!Array.isArray(rows)) return [];
+  const hasGlobalLanjutan = rows.some((row) => isLanjutanChecked(row?.lanjutan));
+  return rows.map((row, index) => ({
+    ...createEmptyRow(index + 1),
+    ...(row || {}),
+    id:
+      typeof row?.id === "number" && Number.isFinite(row.id)
+        ? row.id
+        : index + 1,
+    lanjutan: hasGlobalLanjutan && index === 0,
+  }));
+};
+
+const applyGlobalLanjutan = (rows = [], isChecked = false) => {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row, index) => ({
+    ...row,
+    lanjutan: Boolean(isChecked) && index === 0,
+  }));
+};
+
 const H2o2CheckInspectionTable = ({
   username,
   onDataChange,
@@ -32,17 +72,9 @@ const H2o2CheckInspectionTable = ({
   const [tableData, setTableData] = useState(
     Array(20)
       .fill()
-      .map((_, index) => ({
-        id: index + 1,
-        jam: "",
-        konsentrasi: "",
-        volume: "",
-        kode: "",
-        user: "",
-        time: "",
-        saved: false,
-      }))
+      .map((_, index) => createEmptyRow(index + 1))
   );
+  const [isLanjutan, setIsLanjutan] = useState(false);
 
   const [showTimePickerIndex, setShowTimePickerIndex] = useState(null);
   const [lastKode, setLastKode] = useState("");
@@ -58,7 +90,7 @@ const H2o2CheckInspectionTable = ({
     return rows.some((row) =>
       ["jam", "konsentrasi", "volume", "kode"].some(
         (field) => String(row?.[field] || "").trim() !== ""
-      )
+      ) || isLanjutanChecked(row?.lanjutan)
     );
   };
 
@@ -74,26 +106,30 @@ const H2o2CheckInspectionTable = ({
       
       if (storedData) {
         const parsedData = JSON.parse(storedData);
-        setTableData(parsedData);
+        const normalizedData = normalizeRows(parsedData);
+        setTableData(normalizedData);
+        setIsLanjutan(Boolean(normalizedData?.[0]?.lanjutan));
         
         // Extract last kode yang terisi
-        const lastNonEmpty = [...parsedData]
+        const lastNonEmpty = [...normalizedData]
           .reverse()
           .find((r) => r.kode && String(r.kode).trim() !== "");
         setLastKode(lastNonEmpty?.kode || "");
         
-        onDataChange(parsedData);
+        onDataChange(normalizedData);
         console.log(`Loaded H2O2 data for key: ${storageKey}`);
       } else {
         if (hasMeaningfulRows(initialData)) {
-          setTableData(initialData);
+          const normalizedInitialData = normalizeRows(initialData);
+          setTableData(normalizedInitialData);
+          setIsLanjutan(Boolean(normalizedInitialData?.[0]?.lanjutan));
 
-          const lastNonEmpty = [...initialData]
+          const lastNonEmpty = [...normalizedInitialData]
             .reverse()
             .find((r) => r.kode && String(r.kode).trim() !== "");
           setLastKode(lastNonEmpty?.kode || "");
 
-          onDataChange(initialData);
+          onDataChange(normalizedInitialData);
           console.log(`No storage found for ${storageKey}, using parent initialData`);
           return;
         }
@@ -101,17 +137,9 @@ const H2o2CheckInspectionTable = ({
         // Jika tidak ada data tersimpan, set ke default empty
         const emptyData = Array(20)
           .fill()
-          .map((_, index) => ({
-            id: index + 1,
-            jam: "",
-            konsentrasi: "",
-            volume: "",
-            kode: "",
-            user: "",
-            time: "",
-            saved: false,
-          }));
+          .map((_, index) => createEmptyRow(index + 1));
         setTableData(emptyData);
+        setIsLanjutan(false);
         setLastKode("");
         onDataChange(emptyData);
         console.log(`No stored data found for key: ${storageKey}, using empty data`);
@@ -175,14 +203,16 @@ const H2o2CheckInspectionTable = ({
     if (hasHydratedInitialRef.current) return;
     if (!hasMeaningfulRows(initialData)) return;
 
-    setTableData(initialData);
+    const normalizedInitialData = normalizeRows(initialData);
+    setTableData(normalizedInitialData);
+    setIsLanjutan(Boolean(normalizedInitialData?.[0]?.lanjutan));
 
-    const lastNonEmpty = [...initialData]
+    const lastNonEmpty = [...normalizedInitialData]
       .reverse()
       .find((r) => r.kode && String(r.kode).trim() !== "");
     setLastKode(lastNonEmpty?.kode || "");
 
-    onDataChange(initialData);
+    onDataChange(normalizedInitialData);
     hasHydratedInitialRef.current = true;
     console.log("Using initialData from parent");
   }, [initialData]);
@@ -318,20 +348,32 @@ const H2o2CheckInspectionTable = ({
       String(text).trim() !== "" &&
       updated.length < 100 // batas maksimal baris
     ) {
-      const newRow = {
-        id: updated.length + 1,
-        jam: "",
-        konsentrasi: "",
-        volume: "",
-        kode: "",
-        user: "",
-        time: "",
-        saved: false,
-      };
+      const newRow = createEmptyRow(updated.length + 1);
       updated.push(newRow);
       setTableData(updated);
       onDataChange(updated);
     }
+  };
+
+  const toggleLanjutan = () => {
+    const now = new Date();
+    const formattedTime = `${String(now.getHours()).padStart(2, "0")}:${String(
+      now.getMinutes()
+    ).padStart(2, "0")}`;
+
+    const nextLanjutan = !isLanjutan;
+    let updated = [...tableData];
+    if (updated.length === 0) {
+      updated = [createEmptyRow(1)];
+    }
+    updated = applyGlobalLanjutan(updated, nextLanjutan);
+    updated[0].user = username;
+    updated[0].time = formattedTime;
+
+    setIsLanjutan(nextLanjutan);
+    setTableData(updated);
+    onDataChange(updated);
+    saveDataToStorage(updated);
   };
 
   /* HAPUS ROW */
@@ -342,22 +384,12 @@ const H2o2CheckInspectionTable = ({
     updated.splice(index, 1);
     
     if (updated.length === 0) {
-      updated = [
-        { 
-          id: 1, 
-          jam: "", 
-          konsentrasi: "", 
-          volume: "", 
-          kode: "", 
-          user: "", 
-          time: "", 
-          saved: false 
-        },
-      ];
+      updated = [createEmptyRow(1)];
     }
     
     // Re-index
     updated = updated.map((r, i) => ({ ...r, id: i + 1 }));
+    updated = applyGlobalLanjutan(updated, isLanjutan);
     
     setTableData(updated);
     onDataChange(updated);
@@ -374,6 +406,27 @@ const H2o2CheckInspectionTable = ({
 
   return (
     <View style={styles.table}>
+      <View style={styles.tableTitleBar}>
+        <Text style={styles.tableTitleText}>PENGECEKAN H2O2 (SPRAY)</Text>
+        <TouchableOpacity
+          style={[
+            styles.lanjutanToggle,
+            isLanjutan ? styles.lanjutanToggleActive : null,
+          ]}
+          onPress={toggleLanjutan}
+          activeOpacity={0.8}
+        >
+          <Text
+            style={[
+              styles.lanjutanLabelText,
+              isLanjutan ? styles.lanjutanLabelTextActive : null,
+            ]}
+          >
+            Lanjutan
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={styles.headerRow}>
         <Text style={styles.headerCell}>Jam Pengecekan</Text>
         <Text style={styles.headerCell}>Konsentrasi (&gt;35-50%) (MCCP 03)</Text>
@@ -423,7 +476,7 @@ const H2o2CheckInspectionTable = ({
             style={styles.cell}
             value={item.volume}
             placeholder="Volume"
-            keyboardType="numeric"
+            keyboardType="default"
             onChangeText={(text) => handleInputChange(text, index, "volume")}
           />
 
@@ -466,6 +519,44 @@ const styles = StyleSheet.create({
     marginTop: 16, 
     borderWidth: 1, 
     borderColor: "#ccc" 
+  },
+  tableTitleBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: "#f7fbf8",
+    borderBottomWidth: 1,
+    borderColor: "#d7e5d9",
+  },
+  tableTitleText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#1f2937",
+    flex: 1,
+  },
+  lanjutanToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#b9c8bb",
+    borderRadius: 6,
+    backgroundColor: "#fff",
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  lanjutanToggleActive: {
+    borderColor: "#0b8a2a",
+    backgroundColor: "#0b8a2a",
+  },
+  lanjutanLabelText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#374151",
+  },
+  lanjutanLabelTextActive: {
+    color: "#ffffff",
   },
   headerRow: { 
     flexDirection: "row", 
