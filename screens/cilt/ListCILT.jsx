@@ -3287,6 +3287,74 @@ const CIP_PRODUCT_LABELS = {
 };
 const labelCipProduct = (raw) => CIP_PRODUCT_LABELS[String(raw || "").toUpperCase()] || humanize(raw || "-");
 
+const COORDINATOR_ROLE_ID = 11;
+const SUPERVISOR_ROLE_ID = 9;
+
+const normalizeRoleToken = (value) =>
+  String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[\s_-]+/g, "");
+
+const parseRoleId = (value) => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+};
+
+const buildApprovalRoleFlags = ({ roleId, roleNames = [] }) => {
+  const parsedRoleId = parseRoleId(roleId);
+  const normalizedNames = roleNames.map(normalizeRoleToken).filter(Boolean);
+  const hasKeyword = (keywords) =>
+    normalizedNames.some((token) => keywords.some((keyword) => token.includes(keyword)));
+
+  const isPRF = hasKeyword(["PRF"]);
+  const isManager = hasKeyword(["MGR", "MANAGER"]);
+  const isCoordinator = parsedRoleId === COORDINATOR_ROLE_ID || hasKeyword(["COOR", "COORD"]);
+  const isSupervisor = parsedRoleId === SUPERVISOR_ROLE_ID || hasKeyword(["SPV", "SUPERVISOR"]);
+
+  return {
+    parsedRoleId,
+    isPRF,
+    isManager,
+    isCoordinator,
+    isSupervisor,
+    canApproveCoordinator: isCoordinator || isPRF || isManager,
+    canApproveSupervisor: isSupervisor || isPRF || isManager,
+  };
+};
+
+const getRoleDisplayMeta = (flags) => {
+  if (flags?.isPRF) {
+    return { label: "PRF", shortLabel: "PRF", icon: "verified-user" };
+  }
+  if (flags?.isManager) {
+    return { label: "Manager", shortLabel: "Mgr", icon: "manage-accounts" };
+  }
+  if (flags?.isCoordinator) {
+    return { label: "Coordinator", shortLabel: "Coor", icon: "admin-panel-settings" };
+  }
+  if (flags?.isSupervisor) {
+    return { label: "Supervisor", shortLabel: "SPV", icon: "supervisor-account" };
+  }
+  return { label: "User", shortLabel: "Approve", icon: "person" };
+};
+
+const normalizeRoleBadgeLabel = (value, fallbackLabel) => {
+  const token = normalizeRoleToken(value);
+  if (!token) return fallbackLabel;
+  if (token.includes("PRF")) return "PRF";
+  if (token.includes("MGR") || token.includes("MANAGER")) return "Mgr";
+  if (token.includes("COOR") || token.includes("COORD")) return "Coor";
+  if (token.includes("SPV") || token.includes("SUPERVISOR")) return "SPV";
+  return fallbackLabel;
+};
+
+const getApproverRoleBadgeLabel = (approvalBy, fallbackLabel) => {
+  const markerMatch = String(approvalBy || "").match(/\[ROLE:([A-Z]+)\]/i);
+  if (!markerMatch?.[1]) return fallbackLabel;
+  return normalizeRoleBadgeLabel(markerMatch[1], fallbackLabel);
+};
+
 /* ==============
  * KOMPONEN LAYAR
  * ============== */
@@ -3314,6 +3382,21 @@ const ListCILT = ({ navigation }) => {
   const [userRole, setUserRole] = useState(null);
   const [username, setUsername] = useState("");
   const [profile, setProfile] = useState(null);
+
+  const currentRoleFlags = useMemo(
+    () =>
+      buildApprovalRoleFlags({
+        roleId: userRole,
+        roleNames: [
+          profile,
+          userProfile?.role?.name,
+          userProfile?.role_name,
+          userProfile?.roleName,
+          userProfile?.profile,
+        ],
+      }),
+    [userRole, profile, userProfile]
+  );
 
   // Bulan & Tahun (khusus Checklist CILT)
   const [selectedMonth, setSelectedMonth] = useState(""); // "01".."12" atau "" (semua)
@@ -4028,13 +4111,15 @@ const ListCILT = ({ navigation }) => {
 
   const getApprovalStatusBadge = (item) => {
     const { coorApproved, spvApproved, rejected } = getApprovalSnapshot(item);
+    const coorRoleBadge = getApproverRoleBadgeLabel(item?.approval_coor_by, "Coor");
+    const spvRoleBadge = getApproverRoleBadgeLabel(item?.approval_spv_by, "SPV");
 
     if (coorApproved && spvApproved) {
       return (
         <View style={styles.statusBadgeContainer}>
-          <View style={[styles.statusBadge, { backgroundColor: '#d1fae5', borderColor: '#10b981' }]}>
-            <Icon name="check-circle" size={14} color="#10b981" />
-            <Text style={[styles.badgeText, { color: '#065f46' }]}>Approved</Text>
+          <View style={[styles.statusBadge, { backgroundColor: '#d1fae5', borderColor: '#10b981', flexDirection: "column", alignItems: "flex-start" }]}>
+            <Text style={[styles.badgeText, { color: '#065f46', marginLeft: 0 }]}>{`${coorRoleBadge} ✓`}</Text>
+            <Text style={[styles.badgeText, { color: '#075985', marginLeft: 0 }]}>{`${spvRoleBadge} ✓`}</Text>
           </View>
         </View>
       );
@@ -4056,7 +4141,7 @@ const ListCILT = ({ navigation }) => {
         <View style={styles.statusBadgeContainer}>
           <View style={[styles.statusBadge, { backgroundColor: '#fffbeb', borderColor: '#f59e0b' }]}>
             <Icon name="hourglass-empty" size={14} color="#f59e0b" />
-            <Text style={[styles.badgeText, { color: '#92400e' }]}>Coor  ✓   Waiting SPV</Text>
+            <Text style={[styles.badgeText, { color: '#92400e' }]}>{`${coorRoleBadge} ✓   Waiting SPV`}</Text>
           </View>
         </View>
       );
@@ -4067,7 +4152,7 @@ const ListCILT = ({ navigation }) => {
         <View style={styles.statusBadgeContainer}>
           <View style={[styles.statusBadge, { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' }]}>
             <Icon name="info" size={14} color="#0ea5e9" />
-            <Text style={[styles.badgeText, { color: '#075985' }]}>SPV  ✓    Waiting Coor</Text>
+            <Text style={[styles.badgeText, { color: '#075985' }]}>{`${spvRoleBadge} ✓   Waiting Coor`}</Text>
           </View>
         </View>
       );
@@ -4083,39 +4168,66 @@ const ListCILT = ({ navigation }) => {
     );
   };
 
+  const getCiltApprovalLevelForAction = (
+    approvalSnapshot,
+    roleFlags = currentRoleFlags
+  ) => {
+    const isElevated = roleFlags.isPRF || roleFlags.isManager;
+    const isCoordinatorOnly =
+      roleFlags.isCoordinator &&
+      !roleFlags.isSupervisor &&
+      !isElevated;
+    const isSupervisorOnly =
+      roleFlags.isSupervisor &&
+      !roleFlags.isCoordinator &&
+      !isElevated;
+
+    if (isCoordinatorOnly && roleFlags.canApproveCoordinator) {
+      return "coor";
+    }
+
+    if (isSupervisorOnly && roleFlags.canApproveSupervisor) {
+      return approvalSnapshot.coorApproved ? "spv" : null;
+    }
+
+    if (isElevated) {
+      // Elevated users can approve as SPV first; backend auto-fills Coor when needed.
+      if (!approvalSnapshot.spvApproved) return "spv";
+      if (!approvalSnapshot.coorApproved) return "coor";
+      return "spv";
+    }
+
+    if (!approvalSnapshot.coorApproved && roleFlags.canApproveCoordinator) return "coor";
+    if (
+      approvalSnapshot.coorApproved &&
+      !approvalSnapshot.spvApproved &&
+      roleFlags.canApproveSupervisor
+    ) {
+      return "spv";
+    }
+
+    return null;
+  };
+
   const canCurrentUserApprove = (item) => {
     const { isCIP, coorApproved, spvApproved, rejected, isComplete } =
       getApprovalSnapshot(item);
 
-    if (rejected || (coorApproved && spvApproved)) {
+    if (rejected) {
       return false;
     }
 
     if (isCIP) {
       if (!isComplete) return false;
-      if (userRole === 11 && !coorApproved) return true;
-      if (userRole === 9 && coorApproved && !spvApproved) return true;
+      if (coorApproved && spvApproved) return false;
+      if (currentRoleFlags.canApproveCoordinator && !coorApproved) return true;
+      if (currentRoleFlags.canApproveSupervisor && coorApproved && !spvApproved) return true;
       return false;
     }
 
-    if (
-      userRole === 11 &&
-      Number(item?.approval_coor) === 0 &&
-      Number(item?.status) === 0
-    ) {
-      return true;
-    }
-
-    if (
-      userRole === 9 &&
-      Number(item?.approval_coor) === 1 &&
-      Number(item?.approval_spv) === 0 &&
-      Number(item?.status) === 0
-    ) {
-      return true;
-    }
-
-    return false;
+    return Boolean(
+      getCiltApprovalLevelForAction({ coorApproved, spvApproved }, currentRoleFlags)
+    );
   };
 
   const approvedFilteredCount = filteredData.filter(isApprovedForDownload).length;
@@ -4137,21 +4249,38 @@ const ListCILT = ({ navigation }) => {
 
     try {
       const roleRaw = await AsyncStorage.getItem("userData");
-      const role = roleRaw ? parseInt(roleRaw, 10) : null;
-      const username = await AsyncStorage.getItem("username");
-      const roleLabel = role === 11 ? "Coordinator" : role === 9 ? "Supervisor" : "Unknown";
+      const roleId = parseRoleId(roleRaw);
+      const roleIdForPayload = roleId ?? parseRoleId(userRole);
+      const storedUsername = await AsyncStorage.getItem("username");
+      const roleNameCandidates = [
+        profile,
+        userProfile?.role?.name,
+        userProfile?.role_name,
+        userProfile?.roleName,
+        userProfile?.profile,
+      ].filter(Boolean);
+      const roleName = roleNameCandidates[0] || "";
+      const roleFlags = buildApprovalRoleFlags({
+        roleId: roleIdForPayload,
+        roleNames: roleNameCandidates,
+      });
+      const roleMeta = getRoleDisplayMeta(roleFlags);
+      const approvalSnapshot = getApprovalSnapshot(item);
+      const resolvedUsername = storedUsername || username || "Unknown User";
 
       console.log(`Approve initiated:`, {
         itemId: item.id,
         packageType: item.packageType,
-        role,
-        roleLabel,
-        username
+        roleId: roleIdForPayload,
+        roleName,
+        roleMeta,
+        username: resolvedUsername,
+        approvalSnapshot,
       });
 
       Alert.alert(
         "Konfirmasi Approval",
-        `Approve item ini sebagai ${roleLabel}?`,
+        `Approve item ini sebagai ${roleMeta.label}?`,
         [
           { text: "Batal", style: "cancel" },
           {
@@ -4161,18 +4290,47 @@ const ListCILT = ({ navigation }) => {
                 let endpoint, payload;
 
                 if (isCIP) {
+                  let approvalLevel = null;
+                  if (!approvalSnapshot.coorApproved && roleFlags.canApproveCoordinator) {
+                    approvalLevel = "coor";
+                  } else if (
+                    approvalSnapshot.coorApproved &&
+                    !approvalSnapshot.spvApproved &&
+                    roleFlags.canApproveSupervisor
+                  ) {
+                    approvalLevel = "spv";
+                  } else {
+                    throw new Error("Anda tidak punya izin approve untuk item ini");
+                  }
+
                   endpoint = `/cip-report/${item.id}/approve`;
                   payload = {
-                    roleId: role,
-                    userName: username || "Unknown User",
+                    roleId: roleIdForPayload,
+                    role: roleIdForPayload,
+                    roleName,
+                    approvalLevel,
+                    userName: resolvedUsername,
                   };
                   console.log(`Approving CIP report:`, { endpoint, payload });
                 } else {
-                  endpoint =
-                    role === 11
-                      ? `/cilt/approve-coordinator/${item.id}`
-                      : `/cilt/approve-supervisor/${item.id}`;
-                  payload = { username: username, role: role };
+                  const approvalLevel = getCiltApprovalLevelForAction(
+                    approvalSnapshot,
+                    roleFlags
+                  );
+                  if (approvalLevel === "coor") {
+                    endpoint = `/cilt/approve-coordinator/${item.id}`;
+                  } else if (approvalLevel === "spv") {
+                    endpoint = `/cilt/approve-supervisor/${item.id}`;
+                  } else {
+                    throw new Error("Anda tidak punya izin approve untuk item ini");
+                  }
+
+                  payload = {
+                    username: resolvedUsername,
+                    role: roleIdForPayload,
+                    roleId: roleIdForPayload,
+                    roleName,
+                  };
                   console.log(`Approving CILT item:`, { endpoint, payload });
                 }
 
@@ -4215,7 +4373,7 @@ const ListCILT = ({ navigation }) => {
       return null;
     }
 
-    const approvalLabel = userRole === 11 ? "Coor" : userRole === 9 ? "SPV" : "Approve";
+    const approvalLabel = getRoleDisplayMeta(currentRoleFlags).shortLabel;
 
     return (
       <TouchableOpacity style={[styles.approveBtn, { marginTop: 4 }]} onPress={() => handleApprove(item)}>
@@ -4352,6 +4510,8 @@ const ListCILT = ({ navigation }) => {
       </TouchableOpacity>
     );
   };
+
+  const roleDisplayMeta = getRoleDisplayMeta(currentRoleFlags);
 
   if (isLoading) {
     return (
@@ -4500,12 +4660,12 @@ const ListCILT = ({ navigation }) => {
         <View style={styles.content}>
           <View style={styles.roleIndicator}>
             <Icon
-              name={userRole === 11 ? "admin-panel-settings" : userRole === 9 ? "supervisor-account" : "person"}
+              name={roleDisplayMeta.icon}
               size={16}
               color="#fff"
             />
             <Text style={styles.roleText}>
-              {userRole === 11 ? "Coordinator" : userRole === 9 ? "Supervisor" : "User"}
+              {roleDisplayMeta.label}
             </Text>
           </View>
           <TableHeader />
