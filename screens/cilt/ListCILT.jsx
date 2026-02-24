@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Alert,
   Button,
+  InteractionManager,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -33,18 +34,13 @@ import { generatePDFHTML as htmlRobotPalletizer } from "./DetailLaporanRobotPall
 import { generatePDFHTML as htmlH2O2Imported } from "./DetailLaporanH2O2Check";
 import { generatePDFHTML as htmlScrewCapImported } from "./DetailLaporanScrewCap";
 import { generatePDFHTML as htmlPaperUsageImported } from "./DetailLaporanPaperUsage";
+import { escapeHtml as esc } from "../../utils/htmlEscape";
+import { putCiltDetailItemInCache } from "../../utils/ciltDetailRouteCache";
+import { putCipDetailInCache } from "../../utils/ciltDetailRouteCache";
 
 /* =====================================
    ====== PDF HELPERS & TEMPLATES ======
    ===================================== */
-
-const esc = (s = "") =>
-  String(s)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 
 // Color palette
 const COLOR_G = "#CFF5D0";
@@ -206,11 +202,7 @@ const PACKAGE_CONFIG = {
   },
 
   // A3 Start/Finish
-  "START FINISH PRODUKSI": {
-    screen: "DetailLaporanA3StartFinish",
-    htmlGenerator: htmlA3StartFinish,
-  },
-  "START & FINISH PRODUKSI": {
+  "START & FINISH": {
     screen: "DetailLaporanA3StartFinish",
     htmlGenerator: htmlA3StartFinish,
   },
@@ -251,6 +243,16 @@ const PACKAGE_CONFIG = {
 const DEFAULT_PACKAGE_CONFIG = {
   screen: "DetailLaporanPaperUsage",
   htmlGenerator: htmlPaperUsageImported,
+};
+
+const resolvePackageConfig = (packageType) => {
+  const raw = String(packageType || "").trim();
+  const normalized = raw.toUpperCase().replace(/\s+/g, " ");
+  return (
+    PACKAGE_CONFIG[raw] ||
+    PACKAGE_CONFIG[normalized] ||
+    DEFAULT_PACKAGE_CONFIG
+  );
 };
 
 // Helper untuk memilih meta berdasar package + LINE
@@ -1879,7 +1881,7 @@ const sanitizeEmbeddedPdfHtml = (htmlFragment) => {
 // Router template - Updated to handle async PERFORMA
 const htmlByPackage = async (item) => {
   const packageType = item.packageType;
-  const config = PACKAGE_CONFIG[packageType];
+  const config = resolvePackageConfig(packageType);
 
   // Prioritas 1: Gunakan imported generator jika ada
   if (config?.htmlGenerator) {
@@ -1930,6 +1932,8 @@ const PACKAGE_ORIENTATIONS = {
   "A3 FLEX": "landscape",
   "START FINISH PRODUKSI": "landscape",
   "START & FINISH PRODUKSI": "landscape",
+  "START & FINISH": "landscape",
+  "START FINISH": "landscape",
 };
 
 const SEGREGASI_LANDSCAPE_MIN_ENTRIES = 3;
@@ -1939,6 +1943,10 @@ const getPackageOrientation = (itemOrPackageType) => {
     typeof itemOrPackageType === "string"
       ? itemOrPackageType
       : itemOrPackageType?.packageType;
+  const normalizedPackageType = String(packageType || "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ");
 
   // Dynamic orientation for Segregasi:
   // use landscape when entries are 3+.
@@ -1954,7 +1962,11 @@ const getPackageOrientation = (itemOrPackageType) => {
       : "portrait";
   }
 
-  return PACKAGE_ORIENTATIONS[packageType] || "portrait"; // default portrait
+  return (
+    PACKAGE_ORIENTATIONS[packageType] ||
+    PACKAGE_ORIENTATIONS[normalizedPackageType] ||
+    "portrait"
+  ); // default portrait
 };
 
 const toUpperTrim = (value) => String(value || "").trim().toUpperCase();
@@ -4387,16 +4399,53 @@ const ListCILT = ({ navigation }) => {
 
   const handleDetailPress = (item) => {
     const packageType = item.packageType;
-    const config = PACKAGE_CONFIG[packageType] || DEFAULT_PACKAGE_CONFIG;
+    const config = resolvePackageConfig(packageType);
+    const fallbackCacheKey = `${item?.processOrder || ""}__${item?.packageType || ""}__${item?.date || ""}`;
+    const detailCacheKey = String(item?.id ?? fallbackCacheKey).trim();
+
+    const lightweightItem = {
+      id: item?.id,
+      processOrder: item?.processOrder,
+      packageType: item?.packageType,
+      plant: item?.plant,
+      line: item?.line,
+      date: item?.date,
+      shift: item?.shift,
+      product: item?.product,
+      machine: item?.machine,
+      batch: item?.batch,
+      remarks: item?.remarks,
+      status: item?.status,
+      username: item?.username,
+      submitBy: item?.submitBy,
+      createdBy: item?.createdBy,
+      created_by: item?.created_by,
+      user: item?.user,
+      userName: item?.userName,
+    };
 
     if (config.useIdParam) {
       // Special case for CIP
+      putCipDetailInCache(item, item?.id);
       navigation.navigate(config.screen, {
         cipReportId: Number(item.id),
         sourceScreen: "ListCILT",
       });
+    } else if (config.screen === "DetailLaporanA3Flex") {
+      navigation.navigate(config.screen, {
+        item: lightweightItem,
+        detailCacheKey,
+      });
+      // For pressure detail, prioritize instant navigation and hydrate full payload after transition.
+      InteractionManager.runAfterInteractions(() => {
+        putCiltDetailItemInCache(item, detailCacheKey);
+      });
     } else {
-      navigation.navigate(config.screen, { item });
+      putCiltDetailItemInCache(item, detailCacheKey);
+      navigation.navigate(config.screen, {
+        item: lightweightItem,
+        detailCacheKey,
+      });
     }
   };
 

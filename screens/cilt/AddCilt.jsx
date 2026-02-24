@@ -117,6 +117,11 @@ const buildProcessOrderValue = ({
   return `${formattedPlant}_${formattedLine}_${formattedDate}_${formattedShift}_${formattedMachine}_${formattedPackage}`;
 };
 
+const isStartFinishPackageType = (value) => {
+  const normalized = String(value || "").toUpperCase().trim();
+  return normalized.includes("START") && normalized.includes("FINISH");
+};
+
 const DRAFT_IGNORED_KEYS = new Set([
   "id",
   "plant",
@@ -293,6 +298,8 @@ const CILTinspection = ({ route, navigation }) => {
   const packageDescriptionCacheRef = useRef({});
   const draftContextMetaRef = useRef({});
   const draftIdByContextRef = useRef({});
+  const skipLeavePersistRef = useRef(false);
+  const leavePersistInFlightRef = useRef(false);
   const lastClockShiftRef = useRef(
     getShiftByHour(moment(new Date()).tz("Asia/Jakarta").format("HH"))
   );
@@ -843,7 +850,13 @@ const CILTinspection = ({ route, navigation }) => {
 
     // Segregasi and Pressure have internal hydrate/persist flow.
     // Re-applying cache from parent on every cache mutation causes feedback loops.
-    if (packageType === "SEGREGASI" || packageType === "PENGECEKAN PRESSURE") return;
+    if (
+      packageType === "SEGREGASI" ||
+      packageType === "PENGECEKAN PRESSURE" ||
+      isStartFinishPackageType(packageType)
+    ) {
+      return;
+    }
 
     console.log(`Package changed to: ${packageType}`);
 
@@ -912,7 +925,13 @@ const CILTinspection = ({ route, navigation }) => {
   useEffect(() => {
     if (!packageType || !processOrder || !shift) return;
     if (isHydratingDraftRef.current) return;
-    if (packageType === "SEGREGASI" || packageType === "PENGECEKAN PRESSURE") return;
+    if (
+      packageType === "SEGREGASI" ||
+      packageType === "PENGECEKAN PRESSURE" ||
+      isStartFinishPackageType(packageType)
+    ) {
+      return;
+    }
 
     const contextKey = getDraftContextCacheKey(packageType, processOrder, shift);
     const shiftKey = getDraftShiftCacheKey(packageType, shift, plant, line, machine);
@@ -1240,6 +1259,104 @@ const CILTinspection = ({ route, navigation }) => {
     draftId,
   ]);
 
+  const captureLiveInspectionSnapshot = useCallback(async () => {
+    const isStartFinishPackage = isStartFinishPackageType(packageType);
+    try {
+      if (
+        packageType === "PENGECEKAN PRESSURE" &&
+        typeof globalThis.pressureBeforeSubmit === "function"
+      ) {
+        const snapshot = await Promise.resolve(globalThis.pressureBeforeSubmit());
+        if (Array.isArray(snapshot) && snapshot.length > 0) {
+          return snapshot;
+        }
+      }
+      if (
+        isStartFinishPackage &&
+        typeof globalThis.startFinishBeforeSubmit === "function"
+      ) {
+        const snapshot = await Promise.resolve(
+          globalThis.startFinishBeforeSubmit()
+        );
+        if (Array.isArray(snapshot) && snapshot.length > 0) {
+          return snapshot;
+        }
+      }
+      if (
+        packageType === "PERFORMA RED AND GREEN" &&
+        typeof globalThis.gnrBeforeSubmit === "function"
+      ) {
+        const snapshot = await Promise.resolve(globalThis.gnrBeforeSubmit());
+        if (Array.isArray(snapshot) && snapshot.length > 0) {
+          return snapshot;
+        }
+      }
+      if (
+        packageType === "SEGREGASI" &&
+        typeof globalThis.segregasiBeforeSubmit === "function"
+      ) {
+        const snapshot = await Promise.resolve(globalThis.segregasiBeforeSubmit());
+        if (Array.isArray(snapshot) && snapshot.length > 0) {
+          return snapshot;
+        }
+      }
+    } catch (e) {
+      console.error("Error captureLiveInspectionSnapshot:", e);
+    }
+    return Array.isArray(inspectionData) ? inspectionData : [];
+  }, [packageType, inspectionData]);
+
+  const persistCurrentDraftNow = useCallback(async (reason = "leave-screen") => {
+    if (leavePersistInFlightRef.current) return;
+    if (skipLeavePersistRef.current) return;
+    if (isSubmitting || isHydratingDraftRef.current) return;
+    if (!processOrder || !packageType || !shift) return;
+
+    const inspectionSnapshot = await captureLiveInspectionSnapshot();
+    const descriptionSnapshot =
+      packageType === "SEGREGASI" ? segregationDescriptionData : [];
+    const meaningfulInspectionRows = getMeaningfulDraftRows(inspectionSnapshot);
+    const meaningfulDescriptionRows = getMeaningfulDraftRows(descriptionSnapshot);
+
+    if (!meaningfulInspectionRows.length && !meaningfulDescriptionRows.length) {
+      return;
+    }
+
+    leavePersistInFlightRef.current = true;
+    try {
+      await autoSaveDraft({
+        force: true,
+        inspectionDataOverride: meaningfulInspectionRows,
+        descriptionDataOverride: meaningfulDescriptionRows,
+      });
+    } catch (e) {
+      console.error(`Failed to persist draft on ${reason}:`, e);
+    } finally {
+      leavePersistInFlightRef.current = false;
+    }
+  }, [
+    isSubmitting,
+    processOrder,
+    packageType,
+    shift,
+    captureLiveInspectionSnapshot,
+    segregationDescriptionData,
+    autoSaveDraft,
+  ]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("beforeRemove", () => {
+      persistCurrentDraftNow("beforeRemove");
+    });
+    return unsubscribe;
+  }, [navigation, persistCurrentDraftNow]);
+
+  useFocusEffect(
+    useCallback(() => {
+      skipLeavePersistRef.current = false;
+    }, [])
+  );
+
   const saveAllPendingDraftContexts = useCallback(async (targetShift) => {
     const shiftToSave = targetShift || shift;
     const contextsToSave = [];
@@ -1506,6 +1623,26 @@ const CILTinspection = ({ route, navigation }) => {
                   console.error("Error pressureBeforeSubmit:", e);
                 }
               }
+              const isStartFinishPackage = isStartFinishPackageType(packageType);
+              if (
+                isStartFinishPackage &&
+                typeof globalThis.startFinishBeforeSubmit === "function"
+              ) {
+                console.log(
+                  `Saving Start & Finish data sebelum submit untuk Line ${line}...`
+                );
+                try {
+                  const snapshot = await Promise.resolve(
+                    globalThis.startFinishBeforeSubmit()
+                  );
+                  if (Array.isArray(snapshot) && snapshot.length > 0) {
+                    inspectionDataForSubmit = snapshot;
+                    setInspectionData(snapshot);
+                  }
+                } catch (e) {
+                  console.error("Error startFinishBeforeSubmit:", e);
+                }
+              }
               if (
                 packageType === "PERFORMA RED AND GREEN" &&
                 typeof globalThis.gnrBeforeSubmit === "function"
@@ -1658,8 +1795,19 @@ const CILTinspection = ({ route, navigation }) => {
                     console.error("Error pressureAfterSubmitClear:", e);
                   }
                 }
+                if (
+                  isStartFinishPackageType(packageType) &&
+                  typeof globalThis.startFinishAfterSubmitClear === "function"
+                ) {
+                  try {
+                    await Promise.resolve(globalThis.startFinishAfterSubmitClear());
+                  } catch (e) {
+                    console.error("Error startFinishAfterSubmitClear:", e);
+                  }
+                }
 
                 await clearOfflineData();
+                skipLeavePersistRef.current = true;
 
                 const targetRoute = "HomeCILT";
                 setTimeout(() => {
@@ -1876,6 +2024,12 @@ const CILTinspection = ({ route, navigation }) => {
                         globalThis.pressureBeforeSubmit();
                       }
                       if (
+                        isStartFinishPackageType(packageType) &&
+                        globalThis.startFinishBeforeSubmit
+                      ) {
+                        globalThis.startFinishBeforeSubmit();
+                      }
+                      if (
                         packageType === "PERFORMA RED AND GREEN" &&
                         globalThis.gnrBeforeSubmit
                       ) {
@@ -1973,6 +2127,13 @@ const CILTinspection = ({ route, navigation }) => {
                         await new Promise((r) => setTimeout(r, 100));
                       }
                       if (
+                        isStartFinishPackageType(packageType) &&
+                        globalThis.startFinishBeforeSubmit
+                      ) {
+                        await Promise.resolve(globalThis.startFinishBeforeSubmit());
+                        await new Promise((r) => setTimeout(r, 100));
+                      }
+                      if (
                         packageType === "PERFORMA RED AND GREEN" &&
                         globalThis.gnrBeforeSubmit
                       ) {
@@ -2009,6 +2170,13 @@ const CILTinspection = ({ route, navigation }) => {
                         globalThis.pressureBeforeSubmit
                       ) {
                         await globalThis.pressureBeforeSubmit();
+                        await new Promise((r) => setTimeout(r, 100));
+                      }
+                      if (
+                        isStartFinishPackageType(packageType) &&
+                        globalThis.startFinishBeforeSubmit
+                      ) {
+                        await Promise.resolve(globalThis.startFinishBeforeSubmit());
                         await new Promise((r) => setTimeout(r, 100));
                       }
                       if (
@@ -2209,17 +2377,26 @@ const CILTinspection = ({ route, navigation }) => {
                     initialData={currentInspectionInitialData}
                   />
                 )}
-              {machine === "FILLER" && packageType === "START & FINISH" && (
-                <A3StartFinishInspectionTable
-                  key={`start-finish-${processOrder}`}
-                  plant={plant}
-                  line={line}
-                  machine={machine}
-                  packageName={packageType}
-                  onDataChange={handleInspectionChange}
-                  initialData={currentInspectionInitialData}
-                />
-              )}
+              {machine === "FILLER" &&
+                packageType === "START & FINISH" &&
+                (processOrder ? (
+                  <A3StartFinishInspectionTable
+                    key={`start-finish-${currentContextKey || processOrder}`}
+                    plant={plant}
+                    line={line}
+                    machine={machine}
+                    shift={shift}
+                    username={username}
+                    packageName={packageType}
+                    contextKey={currentContextKey}
+                    onDataChange={handleInspectionChange}
+                    initialData={currentInspectionInitialData}
+                  />
+                ) : (
+                  <View style={{ padding: 20, alignItems: "center" }}>
+                    <Text style={{ color: "#777" }}>Menyiapkan data Start & Finish...</Text>
+                  </View>
+                ))}
               {machine === "PACKER" && packageType === "LAPORAN ARTEMA & SMS CARDBOARD" && (
                 <ArtemaCardboardInspectionTable
                   key={`artema-cardboard-${processOrder}`}
