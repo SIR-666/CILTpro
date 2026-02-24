@@ -1,9 +1,9 @@
-import * as Print from "expo-print";
-import { shareAsync } from "expo-sharing";
 import moment from "moment";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
+  InteractionManager,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -12,6 +12,12 @@ import {
   View,
 } from "react-native";
 import { COLORS } from "../../constants/theme";
+import { escapeHtml as esc } from "../../utils/htmlEscape";
+import {
+  getCiltDetailItemFromCache,
+  resolveCiltDetailItem,
+  subscribeCiltDetailItem,
+} from "../../utils/ciltDetailRouteCache";
 
 const normalizePressureInspection = (inspectionData = []) => {
   if (!Array.isArray(inspectionData)) return { jam: [], min30: [] };
@@ -27,15 +33,25 @@ const normalizePressureInspection = (inspectionData = []) => {
   return { jam: [], min30: [] };
 };
 
-/* Utils */
-const esc = (s = "") =>
-  String(s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+const parseInspectionPayload = (payload) => {
+  if (Array.isArray(payload)) return payload;
+  if (payload && typeof payload === "object") return [payload];
+  if (typeof payload === "string") {
+    const raw = payload.trim();
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+      if (parsed && typeof parsed === "object") return [parsed];
+      return [];
+    } catch (e) {
+      return [];
+    }
+  }
+  return [];
+};
 
+/* Utils */
 const monthsShort = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const pad2 = (n) => String(n).padStart(2, "0");
 const formatDDMonYY = (dateLike) => {
@@ -159,6 +175,14 @@ const renderNoDataRow = (slotCount) => (
   <View style={styles.tableRow}>
     <View style={[styles.tableCell, { width: PARAM_WIDTH + COLUMN_WIDTH * slotCount }]}>
       <Text style={styles.noDataText}>Belum ada data inspeksi</Text>
+    </View>
+  </View>
+);
+
+const renderLoadingRow = (slotCount) => (
+  <View style={styles.tableRow}>
+    <View style={[styles.tableCell, { width: PARAM_WIDTH + COLUMN_WIDTH * slotCount, paddingVertical: 12 }]}>
+      <ActivityIndicator size="small" color={COLORS.blue} />
     </View>
   </View>
 );
@@ -438,36 +462,87 @@ export const generatePDFHTML = (item) => {
 
 // COMPONENT: Detail View untuk navigasi
 const DetailLaporanA3Flex = ({ route, navigation }) => {
-  const { item } = route.params;
-  const headerMeta = getHeaderMeta(item.line);
-  const hourSlots = getShiftHourSlots(item.shift);
+  const detailCacheKey = String(route?.params?.detailCacheKey || "").trim();
+  const [item, setItem] = useState(() => resolveCiltDetailItem(route?.params));
 
-  const [inspectionData] = useState(() => {
-    try { return JSON.parse(item.inspectionData); }
-    catch (e) { return []; }
-  });
-  const metaFromInspection = Array.isArray(inspectionData) ? inspectionData[0] || {} : {};
+  useEffect(() => {
+    if (!detailCacheKey) return undefined;
+    const cached = getCiltDetailItemFromCache(detailCacheKey);
+    if (cached) {
+      setItem((prev) => (prev === cached ? prev : cached));
+    }
+    const unsubscribe = subscribeCiltDetailItem(detailCacheKey, (nextItem) => {
+      if (!nextItem) return;
+      setItem((prev) => (prev === nextItem ? prev : nextItem));
+    });
+    return unsubscribe;
+  }, [detailCacheKey]);
+
+  const headerMeta = useMemo(() => getHeaderMeta(item.line), [item?.line]);
+  const hourSlots = useMemo(() => getShiftHourSlots(item.shift), [item?.shift]);
+  const [inspectionData, setInspectionData] = useState([]);
+  const [isInspectionHydrated, setIsInspectionHydrated] = useState(false);
+  const hasInspectionPayload = Object.prototype.hasOwnProperty.call(item || {}, "inspectionData");
+  const waitingFullPayload = Boolean(detailCacheKey && !hasInspectionPayload);
+
+  useEffect(() => {
+    let isCancelled = false;
+    setIsInspectionHydrated(false);
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      const parsed = parseInspectionPayload(item?.inspectionData);
+      if (isCancelled) return;
+      setInspectionData(parsed);
+      setIsInspectionHydrated(true);
+    });
+
+    return () => {
+      isCancelled = true;
+      task?.cancel?.();
+    };
+  }, [item?.id, item?.inspectionData]);
+
+  const metaFromInspection = useMemo(
+    () => (Array.isArray(inspectionData) ? inspectionData[0] || {} : {}),
+    [inspectionData]
+  );
   const {
     jam: pressureCheck1Jam,
     min30: pressureCheck30Min,
-  } = normalizePressureInspection(inspectionData);
-  const submittedBy = firstNonEmpty(
-    item?.username,
-    item?.submitBy,
-    item?.submit_by,
-    item?.createdBy,
-    item?.created_by,
-    item?.user,
-    item?.userName,
-    item?.user_name,
-    metaFromInspection?.submittedBy,
-    metaFromInspection?.submitBy,
-    metaFromInspection?.submit_by,
-    metaFromInspection?.username,
-    metaFromInspection?.user,
-    metaFromInspection?.lastModifiedBy,
-    getSubmitterFromRows(pressureCheck1Jam),
-    getSubmitterFromRows(pressureCheck30Min),
+  } = useMemo(() => normalizePressureInspection(inspectionData), [inspectionData]);
+  const submittedBy = useMemo(
+    () =>
+      firstNonEmpty(
+        item?.username,
+        item?.submitBy,
+        item?.submit_by,
+        item?.createdBy,
+        item?.created_by,
+        item?.user,
+        item?.userName,
+        item?.user_name,
+        metaFromInspection?.submittedBy,
+        metaFromInspection?.submitBy,
+        metaFromInspection?.submit_by,
+        metaFromInspection?.username,
+        metaFromInspection?.user,
+        metaFromInspection?.lastModifiedBy,
+        getSubmitterFromRows(pressureCheck1Jam),
+        getSubmitterFromRows(pressureCheck30Min)
+      ),
+    [
+      item?.username,
+      item?.submitBy,
+      item?.submit_by,
+      item?.createdBy,
+      item?.created_by,
+      item?.user,
+      item?.userName,
+      item?.user_name,
+      metaFromInspection,
+      pressureCheck1Jam,
+      pressureCheck30Min,
+    ]
   );
 
   const handleLanjutkanDraft = () => navigation.navigate("EditCilt", { item });
@@ -482,8 +557,10 @@ const DetailLaporanA3Flex = ({ route, navigation }) => {
       </html>
     `;
     try {
-      const { uri } = await Print.printToFileAsync({ html });
-      await shareAsync(uri, { UTI: ".pdf", mimeType: "application/pdf" });
+      const printModule = require("expo-print");
+      const sharingModule = require("expo-sharing");
+      const { uri } = await printModule.printToFileAsync({ html });
+      await sharingModule.shareAsync(uri, { UTI: ".pdf", mimeType: "application/pdf" });
     } catch (error) {
       Alert.alert("Error", "Gagal generate PDF report");
     }
@@ -550,22 +627,26 @@ const DetailLaporanA3Flex = ({ route, navigation }) => {
         <View style={styles.tableWrapper}>
           <Text style={styles.sectionTitle}>PENGECEKAN PRESSURE (1 JAM)</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={styles.tableContainer}>
-              {renderHeaderRow("1jam", hourSlots)}
-              {renderPressureRows(pressureCheck1Jam, "1jam", hourSlots)}
-            </View>
-          </ScrollView>
-        </View>
+              <View style={styles.tableContainer}>
+                {renderHeaderRow("1jam", hourSlots)}
+                {waitingFullPayload || !isInspectionHydrated
+                  ? renderLoadingRow(hourSlots.length)
+                  : renderPressureRows(pressureCheck1Jam, "1jam", hourSlots)}
+              </View>
+            </ScrollView>
+          </View>
 
         <View style={styles.tableWrapper}>
           <Text style={styles.sectionTitle}>PENGECEKAN PRESSURE (30 MENIT)</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={styles.tableContainer}>
-              {renderHeaderRow("30min", hourSlots)}
-              {renderPressureRows(pressureCheck30Min, "30min", hourSlots)}
-            </View>
-          </ScrollView>
-        </View>
+              <View style={styles.tableContainer}>
+                {renderHeaderRow("30min", hourSlots)}
+                {waitingFullPayload || !isInspectionHydrated
+                  ? renderLoadingRow(hourSlots.length)
+                  : renderPressureRows(pressureCheck30Min, "30min", hourSlots)}
+              </View>
+            </ScrollView>
+          </View>
       </ScrollView>
     </SafeAreaView>
   );

@@ -16,6 +16,7 @@ import moment from "moment";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { COLORS } from "../../constants/theme";
 import { api } from "../../utils/axiosInstance";
+import { putCipDetailInCache } from "../../utils/ciltDetailRouteCache";
 
 const ReportCIP = ({ navigation }) => {
   const [selectedDate, setSelectedDate] = useState(null);
@@ -124,6 +125,7 @@ const ReportCIP = ({ navigation }) => {
   };
 
   const handleDetailPress = (item) => {
+    putCipDetailInCache(item, item?.id);
     navigation.navigate("DetailReportCIP", {
       cipReportId: item.id,
       sourceScreen: "ReportCIP",

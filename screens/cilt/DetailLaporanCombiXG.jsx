@@ -4,8 +4,8 @@ import moment from "moment";
 import { useState } from "react";
 import { SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View, Image } from "react-native";
 import { COLORS } from "../../constants/theme";
-
-const esc = (s = "") => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+import { escapeHtml as esc } from "../../utils/htmlEscape";
+import { resolveCiltDetailItem } from "../../utils/ciltDetailRouteCache";
 const headerMeta = { frm: "FIL - 053 - 08", rev: "", berlaku: "15 - Jan - 23", hal: "1 dari 3" };
 
 // EXPORT: Generate PDF HTML untuk dipakai di ListCILT
@@ -111,7 +111,7 @@ export const generatePDFHTML = (item) => {
 
 // COMPONENT
 const DetailLaporanCombiXG = ({ route, navigation }) => {
-  const { item } = route.params;
+  const item = resolveCiltDetailItem(route?.params);
   const [inspectionData] = useState(() => { try { return JSON.parse(item.inspectionData); } catch (e) { return []; } });
   const data = inspectionData[0] || {};
   const handleLanjutkanDraft = () => navigation.navigate("EditCilt", { item });

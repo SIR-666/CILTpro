@@ -4,8 +4,8 @@ import moment from "moment";
 import { useState } from "react";
 import { SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View, Image } from "react-native";
 import { COLORS } from "../../constants/theme";
-
-const esc = (s = "") => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+import { escapeHtml as esc } from "../../utils/htmlEscape";
+import { resolveCiltDetailItem } from "../../utils/ciltDetailRouteCache";
 const headerMeta = { frm: "FIL - 080 - 02", rev: "", berlaku: "21 Juli 2023", hal: "1 dari 2" };
 
 // Helper function to safely parse inspectionData (handles both array and JSON string)
@@ -382,7 +382,7 @@ const getPDFStyles = () => `
 `;
 
 const DetailLaporanArtemaCardboard = ({ route, navigation }) => {
-  const { item } = route.params;
+  const item = resolveCiltDetailItem(route?.params);
   const [isPrinting, setIsPrinting] = useState(false);
 
   const inspectionData = parseInspectionData(item.inspectionData);

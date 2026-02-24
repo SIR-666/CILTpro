@@ -21,9 +21,10 @@ import {
 import { COLORS } from "../../constants/theme";
 import { api } from "../../utils/axiosInstance";
 import { useFocusEffect } from "@react-navigation/native";
+import { resolveCiltDetailItem } from "../../utils/ciltDetailRouteCache";
 
 const DetailLaporanShiftly = ({ route, navigation }) => {
-  const { item } = route.params;
+  const item = resolveCiltDetailItem(route?.params);
   const [data, setData] = useState([]);
   const [uniqueData, setUniqueData] = useState([]);
   const [masterActivities, setMasterActivities] = useState([]);

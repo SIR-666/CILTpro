@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   ActivityIndicator,
   ScrollView,
@@ -15,21 +15,27 @@ import Icon from "react-native-vector-icons/MaterialIcons";
 import moment from "moment";
 import { COLORS } from "../../constants/theme";
 import { api } from "../../utils/axiosInstance";
+import { getCipDetailFromCache, putCipDetailInCache } from "../../utils/ciltDetailRouteCache";
 
 const DetailReportCIP = ({ navigation, route }) => {
   const raw = route.params?.cipReportId ?? route.params?.id;
   const cipReportId = Number(raw);
   const sourceScreen = route.params?.sourceScreen;
-
-  if (!Number.isFinite(cipReportId)) {
-    Alert.alert("Error", "Invalid CIP id");
-    return null;
-  }
-
-  const [cipData, setCipData] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const isValidCipId = Number.isFinite(cipReportId);
+  const cachedInitialRef = useRef(
+    isValidCipId ? getCipDetailFromCache(cipReportId) : null
+  );
+  const [cipData, setCipData] = useState(cachedInitialRef.current);
+  const [isLoading, setIsLoading] = useState(!cachedInitialRef.current);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusList, setStatusList] = useState([]);
+
+  useEffect(() => {
+    if (!isValidCipId) {
+      setIsLoading(false);
+      Alert.alert("Error", "Invalid CIP id");
+    }
+  }, [isValidCipId]);
 
   const navigateBackToOrigin = useCallback(() => {
     if (navigation.canGoBack()) {
@@ -47,7 +53,9 @@ const DetailReportCIP = ({ navigation, route }) => {
 
   // Fetch data function dengan force refresh
   const fetchCIPDetail = useCallback(async (showLoading = true) => {
-    if (showLoading) setIsLoading(true);
+    if (!isValidCipId) return;
+    const hasCached = Boolean(getCipDetailFromCache(cipReportId));
+    if (showLoading && !hasCached) setIsLoading(true);
 
     try {
       console.log("Fetching report ID:", cipReportId);
@@ -84,13 +92,14 @@ const DetailReportCIP = ({ navigation, route }) => {
       console.log("Data normalized, flowRate:", normalized.flowRate);
 
       setCipData(normalized);
+      putCipDetailInCache(normalized, cipReportId);
       setIsLoading(false);
     } catch (error) {
       console.error("Error fetching detail:", error);
       setIsLoading(false);
       Alert.alert("Error", "Failed to load CIP report details");
     }
-  }, [cipReportId]);
+  }, [cipReportId, isValidCipId]);
 
   // Fetch status list
   const fetchStatusList = async () => {
@@ -104,33 +113,37 @@ const DetailReportCIP = ({ navigation, route }) => {
 
   // Initial load
   useEffect(() => {
+    if (!isValidCipId) return;
     fetchCIPDetail();
     fetchStatusList();
-  }, [fetchCIPDetail]);
+  }, [fetchCIPDetail, isValidCipId]);
 
   // Auto-refresh setiap kali screen focus
   useFocusEffect(
     useCallback(() => {
+      if (!isValidCipId) return undefined;
       console.log("Screen focused, refreshing data...");
       fetchCIPDetail(false); // Refresh tanpa loading indicator
       return () => {
         console.log("Screen unfocused");
       };
-    }, [fetchCIPDetail])
+    }, [fetchCIPDetail, isValidCipId])
   );
 
   // Handle navigation params untuk force refresh
   useEffect(() => {
+    if (!isValidCipId) return;
     const { refresh, timestamp } = route.params || {};
     if (refresh || timestamp) {
       console.log("Refresh triggered by params:", { refresh, timestamp });
       fetchCIPDetail(false);
     }
-  }, [route.params, fetchCIPDetail]);
+  }, [route.params, fetchCIPDetail, isValidCipId]);
 
   // Handle hardware back button berdasarkan origin screen
   useFocusEffect(
     useCallback(() => {
+      if (!isValidCipId) return undefined;
       const onBackPress = () => {
         navigateBackToOrigin();
         return true; // Prevent default behavior
@@ -141,7 +154,7 @@ const DetailReportCIP = ({ navigation, route }) => {
       return () => {
         BackHandler.removeEventListener("hardwareBackPress", onBackPress);
       };
-    }, [navigateBackToOrigin])
+    }, [navigateBackToOrigin, isValidCipId])
   );
 
   const handleEdit = () => {
@@ -427,6 +440,20 @@ const DetailReportCIP = ({ navigation, route }) => {
     // LINE B / C
     return `${cipData.flowRateBC || '-'} L/H (min: 9000 L/H)`;
   };
+
+  if (!isValidCipId) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.errorContainer}>
+          <Icon name="error-outline" size={64} color={COLORS.red} />
+          <Text style={styles.errorText}>Invalid CIP Report ID</Text>
+          <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
+            <Text style={styles.backButtonText}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   if (isLoading) {
     return (

@@ -14,8 +14,8 @@ import {
   View,
 } from "react-native";
 import { COLORS } from "../../constants/theme";
-
-const esc = (s = "") => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+import { escapeHtml as esc } from "../../utils/htmlEscape";
+import { resolveCiltDetailItem } from "../../utils/ciltDetailRouteCache";
 const headerMeta = { frm: "FIL - 010 - 02", rev: "-", berlaku: "11-Jun-25", hal: "1 dari 3" };
 
 // Helper: Check if row has meaningful data
@@ -100,14 +100,21 @@ export const generatePDFHTML = (item) => {
 
 // COMPONENT
 const DetailLaporanScrewCap = ({ route, navigation }) => {
-  const { item } = route.params;
+  const item = resolveCiltDetailItem(route?.params);
   const [selectedImage, setSelectedImage] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
 
   const { width } = Dimensions.get("window");
   const modalImageSize = width * 0.8;
 
-  const inspectionData = JSON.parse(item.inspectionData);
+  const inspectionData = (() => {
+    try {
+      if (Array.isArray(item?.inspectionData)) return item.inspectionData;
+      return JSON.parse(item?.inspectionData || "[]");
+    } catch (e) {
+      return [];
+    }
+  })();
   // Filter data untuk tampilan
   const filledInspectionData = Array.isArray(inspectionData) ? inspectionData.filter(isRowFilled) : [];
 

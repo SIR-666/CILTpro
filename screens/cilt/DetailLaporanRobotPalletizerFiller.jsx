@@ -4,8 +4,8 @@ import moment from "moment";
 import { useState } from "react";
 import { SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View, Image } from "react-native";
 import { COLORS } from "../../constants/theme";
-
-const esc = (s = "") => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+import { escapeHtml as esc } from "../../utils/htmlEscape";
+import { resolveCiltDetailItem } from "../../utils/ciltDetailRouteCache";
 const headerMeta = { frm: "FIL - 001 - 08", rev: "", berlaku: "15 - Jan - 2019", hal: "1 dari 2" };
 
 // CSS Styles untuk PDF
@@ -145,7 +145,7 @@ export const generatePDFHTML = (item) => {
 
 // COMPONENT
 const DetailLaporanRobotPalletizerFiller = ({ route, navigation }) => {
-  const { item } = route.params;
+  const item = resolveCiltDetailItem(route?.params);
   const [inspectionData] = useState(() => { try { return JSON.parse(item.inspectionData); } catch (e) { return []; } });
   const data = inspectionData[0] || {};
   const formData = data.formData || {};

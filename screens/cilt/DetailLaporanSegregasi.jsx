@@ -12,6 +12,7 @@ import * as Print from "expo-print";
 import { shareAsync } from "expo-sharing";
 import moment from "moment";
 import { COLORS } from "../../constants/theme";
+import { resolveCiltDetailItem } from "../../utils/ciltDetailRouteCache";
 
 /* Utils */
 const monthsShort = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -38,7 +39,7 @@ const hasDescriptionContent = (rows) => {
 };
 
 const DetailLaporanSegregasi = ({ route }) => {
-  const { item } = route.params;
+  const item = resolveCiltDetailItem(route?.params);
 
   const [inspectionData] = useState(() => {
     try {

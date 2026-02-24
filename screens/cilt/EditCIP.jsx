@@ -20,6 +20,7 @@ import moment from "moment";
 import { COLORS } from "../../constants/theme";
 import { api } from "../../utils/axiosInstance";
 import ReportCIPInspectionTable from "../../components/package/filler/ReportCIPInspectionTable";
+import { putCipDetailInCache } from "../../utils/ciltDetailRouteCache";
 
 const getEditStorageKey = (reportId) => `cip_edit_form_${reportId}`;
 
@@ -500,10 +501,12 @@ const EditCIP = ({ navigation, route }) => {
 
       console.log("Updating CIP data:", JSON.stringify(dataToSubmit, null, 2));
 
-      const response = await api.put(`/cip-report/${formData.id}`, dataToSubmit);
+	      const response = await api.put(`/cip-report/${formData.id}`, dataToSubmit);
 
-      if (response.data.success || response.data.data) {
-        await clearEdits();
+	      if (response.data.success || response.data.data) {
+	        const updatedReport = response.data.data || { ...existingCipData, ...dataToSubmit, id: formData.id };
+	        putCipDetailInCache(updatedReport, formData.id);
+	        await clearEdits();
 
         console.log("Update successful, status:", isDraft ? "Draft" : "Complete");
 

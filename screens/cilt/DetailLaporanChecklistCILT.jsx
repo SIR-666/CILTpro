@@ -14,9 +14,10 @@ import {
   View,
 } from "react-native";
 import { COLORS } from "../../constants/theme";
+import { resolveCiltDetailItem } from "../../utils/ciltDetailRouteCache";
 
 const DetailLaporanChecklistCILT = ({ route, navigation }) => {
-  const { item } = route.params;
+  const item = resolveCiltDetailItem(route?.params);
   const [selectedImage, setSelectedImage] = useState(null);
   const [modalVisible, setModalVisible] = useState(false);
 
@@ -24,7 +25,14 @@ const DetailLaporanChecklistCILT = ({ route, navigation }) => {
   const modalImageSize = width * 0.8; // 80% of screen width
 
   // Parse the inspection data (string to object)
-  const inspectionData = JSON.parse(item.inspectionData);
+  const inspectionData = (() => {
+    try {
+      if (Array.isArray(item?.inspectionData)) return item.inspectionData;
+      return JSON.parse(item?.inspectionData || "[]");
+    } catch (e) {
+      return [];
+    }
+  })();
 
   const handleLanjutkanDraft = (item) => {
     navigation.navigate("EditCilt", { item });

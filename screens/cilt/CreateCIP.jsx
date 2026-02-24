@@ -19,6 +19,7 @@ import moment from "moment";
 import { COLORS } from "../../constants/theme";
 import { api } from "../../utils/axiosInstance";
 import ReportCIPInspectionTable from "../../components/package/filler/ReportCIPInspectionTable";
+import { putCipDetailInCache } from "../../utils/ciltDetailRouteCache";
 
 const CreateCIP = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
@@ -382,9 +383,10 @@ const CreateCIP = ({ navigation }) => {
 
       const response = await api.post("/cip-report", dataToSubmit);
 
-      if (response.data.success || response.data.data) {
-        const createdReport = response.data.data;
-        const reportId = createdReport.id;
+	      if (response.data.success || response.data.data) {
+	        const createdReport = response.data.data;
+	        const reportId = createdReport.id;
+	        putCipDetailInCache(createdReport, reportId);
 
         // Clear server draft after successful save
         await api.delete("/cip-report/draft", {

@@ -4,8 +4,8 @@ import moment from "moment";
 import { useState } from "react";
 import { SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View, Image } from "react-native";
 import { COLORS } from "../../constants/theme";
-
-const esc = (s = "") => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+import { escapeHtml as esc } from "../../utils/htmlEscape";
+import { resolveCiltDetailItem } from "../../utils/ciltDetailRouteCache";
 const headerMeta = { frm: "FIL - 082 - 01", rev: "", berlaku: "15 - Jan - 23", hal: "1 dari 2" };
 
 // Helper function to safely parse inspectionData
@@ -566,7 +566,7 @@ const getPDFStyles = () => `
 
 // COMPONENT
 const DetailLaporanFransCasePacker = ({ route, navigation }) => {
-  const { item } = route.params;
+  const item = resolveCiltDetailItem(route?.params);
 
   const [inspectionData] = useState(() => parseInspectionData(item.inspectionData));
   const data = inspectionData[0] || {};
