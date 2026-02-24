@@ -152,6 +152,8 @@ const DRAFT_IGNORED_KEYS = new Set([
   "date",
   "saved",
   "savedAt",
+  "selectedHourKey",
+  "cacheMeta",
   "lastModifiedBy",
   "lastModifiedTime",
   "activeTab",
@@ -839,9 +841,9 @@ const CILTinspection = ({ route, navigation }) => {
       return;
     }
 
-    // Segregasi has its own internal hydrate/persist flow.
+    // Segregasi and Pressure have internal hydrate/persist flow.
     // Re-applying cache from parent on every cache mutation causes feedback loops.
-    if (packageType === "SEGREGASI") return;
+    if (packageType === "SEGREGASI" || packageType === "PENGECEKAN PRESSURE") return;
 
     console.log(`Package changed to: ${packageType}`);
 
@@ -910,7 +912,7 @@ const CILTinspection = ({ route, navigation }) => {
   useEffect(() => {
     if (!packageType || !processOrder || !shift) return;
     if (isHydratingDraftRef.current) return;
-    if (packageType === "SEGREGASI") return;
+    if (packageType === "SEGREGASI" || packageType === "PENGECEKAN PRESSURE") return;
 
     const contextKey = getDraftContextCacheKey(packageType, processOrder, shift);
     const shiftKey = getDraftShiftCacheKey(packageType, shift, plant, line, machine);
@@ -1486,6 +1488,25 @@ const CILTinspection = ({ route, navigation }) => {
               // Call GNR save function before submit jika form PERFORMA
               let inspectionDataForSubmit = inspectionData;
               if (
+                packageType === "PENGECEKAN PRESSURE" &&
+                typeof globalThis.pressureBeforeSubmit === "function"
+              ) {
+                console.log(
+                  `Saving pressure data sebelum submit untuk Line ${line}...`
+                );
+                try {
+                  const snapshot = await Promise.resolve(
+                    globalThis.pressureBeforeSubmit()
+                  );
+                  if (Array.isArray(snapshot) && snapshot.length > 0) {
+                    inspectionDataForSubmit = snapshot;
+                    setInspectionData(snapshot);
+                  }
+                } catch (e) {
+                  console.error("Error pressureBeforeSubmit:", e);
+                }
+              }
+              if (
                 packageType === "PERFORMA RED AND GREEN" &&
                 typeof globalThis.gnrBeforeSubmit === "function"
               ) {
@@ -1626,6 +1647,17 @@ const CILTinspection = ({ route, navigation }) => {
                 setDraftId(null);
 
                 Alert.alert("Success", "Data submitted successfully!");
+
+                if (
+                  packageType === "PENGECEKAN PRESSURE" &&
+                  typeof globalThis.pressureAfterSubmitClear === "function"
+                ) {
+                  try {
+                    await Promise.resolve(globalThis.pressureAfterSubmitClear());
+                  } catch (e) {
+                    console.error("Error pressureAfterSubmitClear:", e);
+                  }
+                }
 
                 await clearOfflineData();
 
@@ -1837,7 +1869,16 @@ const CILTinspection = ({ route, navigation }) => {
                     selectedValue={shift}
                     style={styles.dropdown}
                     onValueChange={(itemValue) => {
-                      if (packageType === "PERFORMA RED AND GREEN" && globalThis.gnrBeforeSubmit) {
+                      if (
+                        packageType === "PENGECEKAN PRESSURE" &&
+                        globalThis.pressureBeforeSubmit
+                      ) {
+                        globalThis.pressureBeforeSubmit();
+                      }
+                      if (
+                        packageType === "PERFORMA RED AND GREEN" &&
+                        globalThis.gnrBeforeSubmit
+                      ) {
                         globalThis.gnrBeforeSubmit();
                       }
                       setProcessOrder("");
@@ -1924,9 +1965,19 @@ const CILTinspection = ({ route, navigation }) => {
                     selectedValue={machine}
                     style={styles.dropdown}
                     onValueChange={async (itemValue) => {
-                      if (packageType === "PERFORMA RED AND GREEN" && globalThis.gnrBeforeSubmit) {
+                      if (
+                        packageType === "PENGECEKAN PRESSURE" &&
+                        globalThis.pressureBeforeSubmit
+                      ) {
+                        await globalThis.pressureBeforeSubmit();
+                        await new Promise((r) => setTimeout(r, 100));
+                      }
+                      if (
+                        packageType === "PERFORMA RED AND GREEN" &&
+                        globalThis.gnrBeforeSubmit
+                      ) {
                         await globalThis.gnrBeforeSubmit();
-                        await new Promise(r => setTimeout(r, 100));
+                        await new Promise((r) => setTimeout(r, 100));
                       }
                       setMachine(itemValue);
                       await AsyncStorage.setItem("machine", itemValue);
@@ -1953,9 +2004,19 @@ const CILTinspection = ({ route, navigation }) => {
                     style={styles.dropdown}
                     enabled={!!line}
                     onValueChange={async (itemValue) => {
-                      if (packageType === "PERFORMA RED AND GREEN" && globalThis.gnrBeforeSubmit) {
+                      if (
+                        packageType === "PENGECEKAN PRESSURE" &&
+                        globalThis.pressureBeforeSubmit
+                      ) {
+                        await globalThis.pressureBeforeSubmit();
+                        await new Promise((r) => setTimeout(r, 100));
+                      }
+                      if (
+                        packageType === "PERFORMA RED AND GREEN" &&
+                        globalThis.gnrBeforeSubmit
+                      ) {
                         await globalThis.gnrBeforeSubmit();
-                        await new Promise(r => setTimeout(r, 100));
+                        await new Promise((r) => setTimeout(r, 100));
                       }
                       setPackageType(itemValue);
                     }}
@@ -2133,17 +2194,20 @@ const CILTinspection = ({ route, navigation }) => {
                   initialData={currentInspectionInitialData}
                 />
               )}
-              {machine === "FILLER" && packageType === "PENGECEKAN PRESSURE" && (
-                <A3FlexInspectionTable
-                  key={`pressure-${packageType}`}
-                  plant={plant}
-                  line={line}
-                  machine={machine}
-                  packageName={packageType}
-                  onDataChange={handleInspectionChange}
-                  initialData={currentInspectionInitialData}
-                />
-              )}
+              {machine === "FILLER" &&
+                packageType === "PENGECEKAN PRESSURE" && (
+                  <A3FlexInspectionTable
+                    key={`pressure-${currentContextKey || processOrder}`}
+                    plant={plant}
+                    line={line}
+                    machine={machine}
+                    shift={shift}
+                    contextKey={currentContextKey}
+                    packageName={packageType}
+                    onDataChange={handleInspectionChange}
+                    initialData={currentInspectionInitialData}
+                  />
+                )}
               {machine === "FILLER" && packageType === "START & FINISH" && (
                 <A3StartFinishInspectionTable
                   key={`start-finish-${processOrder}`}
