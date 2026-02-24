@@ -2202,6 +2202,7 @@ const CILTinspection = ({ route, navigation }) => {
                     line={line}
                     machine={machine}
                     shift={shift}
+                    username={username}
                     contextKey={currentContextKey}
                     packageName={packageType}
                     onDataChange={handleInspectionChange}

@@ -4117,9 +4117,9 @@ const ListCILT = ({ navigation }) => {
     if (coorApproved && spvApproved) {
       return (
         <View style={styles.statusBadgeContainer}>
-          <View style={[styles.statusBadge, { backgroundColor: '#d1fae5', borderColor: '#10b981', flexDirection: "column", alignItems: "flex-start" }]}>
-            <Text style={[styles.badgeText, { color: '#065f46', marginLeft: 0 }]}>{`${coorRoleBadge} ✓`}</Text>
-            <Text style={[styles.badgeText, { color: '#075985', marginLeft: 0 }]}>{`${spvRoleBadge} ✓`}</Text>
+          <View style={[styles.statusBadge, { backgroundColor: '#d1fae5', borderColor: '#10b981' }]}>
+            <Icon name="check-circle" size={14} color="#10b981" />
+            <Text style={[styles.badgeText, { color: '#065f46' }]}>Approved</Text>
           </View>
         </View>
       );
@@ -4141,7 +4141,7 @@ const ListCILT = ({ navigation }) => {
         <View style={styles.statusBadgeContainer}>
           <View style={[styles.statusBadge, { backgroundColor: '#fffbeb', borderColor: '#f59e0b' }]}>
             <Icon name="hourglass-empty" size={14} color="#f59e0b" />
-            <Text style={[styles.badgeText, { color: '#92400e' }]}>{`${coorRoleBadge} ✓   Waiting SPV`}</Text>
+            <Text style={[styles.badgeText, { color: '#92400e' }]}>{`${coorRoleBadge} ✓      Waiting SPV`}</Text>
           </View>
         </View>
       );
@@ -4152,7 +4152,7 @@ const ListCILT = ({ navigation }) => {
         <View style={styles.statusBadgeContainer}>
           <View style={[styles.statusBadge, { backgroundColor: '#e0f2fe', borderColor: '#0ea5e9' }]}>
             <Icon name="info" size={14} color="#0ea5e9" />
-            <Text style={[styles.badgeText, { color: '#075985' }]}>{`${spvRoleBadge} ✓   Waiting Coor`}</Text>
+            <Text style={[styles.badgeText, { color: '#075985' }]}>{`${spvRoleBadge} ✓      Waiting Coor`}</Text>
           </View>
         </View>
       );
