@@ -6,6 +6,10 @@ import { SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View, Ima
 import { COLORS } from "../../constants/theme";
 import { escapeHtml as esc } from "../../utils/htmlEscape";
 import { resolveCiltDetailItem } from "../../utils/ciltDetailRouteCache";
+import {
+  REPORT_PDF_HEADER_STYLES,
+  renderReportPdfHeader,
+} from "../../utils/reportPdfHeader";
 const headerMeta = { frm: "FIL - 001 - 08", rev: "", berlaku: "15 - Jan - 2019", hal: "1 dari 2" };
 
 // CSS Styles untuk PDF
@@ -17,23 +21,12 @@ export const robotPalletizerPdfStyles = `
       color: #333;
       margin: 15px;
     }
+    ${REPORT_PDF_HEADER_STYLES}
     .robot-section {
       font-family: Arial, sans-serif;
       font-size: 11px;
       color: #333;
     }
-    .robot-section .header-main-table { width: 100%; border-collapse: collapse; border: 1px solid #000; }
-    .robot-section .header-main-table td { border: 1px solid #000; padding: 8px; }
-    .robot-section .logo-section { width: 120px; background-color:rgb(255, 255, 255); text-align: center; }
-    .robot-section .logo-green { font-weight: bold; font-size: 16px; color: #2d5016; font-style: italic; }
-    .robot-section .company-section { text-align: center; font-weight: bold; font-size: 14px; }
-    .robot-section .meta-section { width: 140px; font-size: 10px; }
-    .robot-section .meta-info-table td { border: none; padding: 2px; font-size: 10px; }
-    .robot-section .meta-label { font-weight: 600; width: 50px; font-size: 10px; }
-    .robot-section .header-title-table { width: 100%; border-collapse: collapse; border: 1px solid #000; border-top: none; }
-    .robot-section .header-title-table td { border: 1px solid #000; padding: 6px; }
-    .robot-section .title-label { width: 100px; text-align: center; background-color: #f5f5f5; font-size: 10px; font-weight: 600; }
-    .robot-section .title-content { text-align: center; font-weight: bold; font-size: 12px; }
     .robot-section .section-title { font-weight: bold; background-color: #dcfce7; color: #166534; padding: 8px 12px; margin: 15px 0 8px 0; font-size: 11px; text-align: center; }
     .robot-section .data-table { width: 100%; border-collapse: collapse; margin: 8px 0; }
     .robot-section .data-table th, .robot-section .data-table td { border: 1px solid #333; padding: 6px 4px; text-align: center; font-size: 10px; }
@@ -88,25 +81,11 @@ export const generatePDFHTML = (item) => {
   return `
     ${robotPalletizerPdfStyles}
     <section class="report-section robot-section">
-      <div class="header-container">
-        <table class="header-main-table">
-          <tr>
-            <td class="logo-section"><div class="logo-green">Greenfields</div></td>
-            <td class="company-section">PT. GREENFIELDS INDONESIA</td>
-            <td class="meta-section">
-              <table class="meta-info-table">
-                <tr><td class="meta-label">FRM</td><td>:</td><td>${headerMeta.frm}</td></tr>
-                <tr><td class="meta-label">Rev</td><td>:</td><td>${headerMeta.rev || "-"}</td></tr>
-                <tr><td class="meta-label">Berlaku</td><td>:</td><td>${headerMeta.berlaku}</td></tr>
-                <tr><td class="meta-label">Hal</td><td>:</td><td>${headerMeta.hal}</td></tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        <table class="header-title-table">
-          <tr><td class="title-label">JUDUL</td><td class="title-content">LAPORAN ROBOT PALLETIZER</td></tr>
-        </table>
-      </div>
+      ${renderReportPdfHeader({
+        title: "LAPORAN ROBOT PALLETIZER",
+        headerMeta,
+        escapeHtml: esc,
+      })}
 
       <div class="report-info">
         <p><strong>Process Order:</strong> ${esc(item.processOrder)}</p>

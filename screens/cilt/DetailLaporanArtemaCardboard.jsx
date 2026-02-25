@@ -6,6 +6,10 @@ import { SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View, Ima
 import { COLORS } from "../../constants/theme";
 import { escapeHtml as esc } from "../../utils/htmlEscape";
 import { resolveCiltDetailItem } from "../../utils/ciltDetailRouteCache";
+import {
+  REPORT_PDF_HEADER_STYLES,
+  renderReportPdfHeader,
+} from "../../utils/reportPdfHeader";
 const headerMeta = { frm: "FIL - 080 - 02", rev: "", berlaku: "21 Juli 2023", hal: "1 dari 2" };
 
 // Helper function to safely parse inspectionData (handles both array and JSON string)
@@ -113,25 +117,11 @@ export const generatePDFHTML = (item) => {
 
   return `
     <section class="report-section artema-section">
-      <div class="header-container">
-        <table class="header-main-table">
-          <tr>
-            <td class="logo-section"><div class="logo-green">Greenfields</div></td>
-            <td class="company-section">PT. GREENFIELDS INDONESIA</td>
-            <td class="meta-section">
-              <table class="meta-info-table">
-                <tr><td class="meta-label">FRM</td><td>:</td><td>${headerMeta.frm}</td></tr>
-                <tr><td class="meta-label">Rev</td><td>:</td><td>${headerMeta.rev || "-"}</td></tr>
-                <tr><td class="meta-label">Berlaku</td><td>:</td><td>${headerMeta.berlaku}</td></tr>
-                <tr><td class="meta-label">Hal</td><td>:</td><td>${headerMeta.hal}</td></tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        <table class="header-title-table">
-          <tr><td class="title-label">JUDUL</td><td class="title-content">LAPORAN ARTEMA & SMS CARDBOARD PACKER</td></tr>
-        </table>
-      </div>
+      ${renderReportPdfHeader({
+        title: "LAPORAN ARTEMA & SMS CARDBOARD PACKER",
+        headerMeta,
+        escapeHtml: esc,
+      })}
 
       <div class="report-info">
         <p><strong>Process Order:</strong> ${esc(item.processOrder)}</p>
@@ -218,25 +208,7 @@ const getPDFStyles = () => `
     line-height: 1.4;
   }
   
-  /* Header Styles */
-  .header-container {
-    border: 2px solid #d7d7d7;
-    border-radius: 8px;
-    margin-bottom: 15px;
-    overflow: hidden;
-  }
-  .header-main-table { width: 100%; border-collapse: collapse; }
-  .header-main-table td { border: 1px solid #e5e5e5; padding: 10px; }
-  .logo-section { width: 120px; background-color: #90EE90; text-align: center; }
-  .logo-green { font-weight: bold; font-size: 18px; color: #2d5016; font-style: italic; }
-  .company-section { text-align: center; font-weight: bold; font-size: 16px; }
-  .meta-section { width: 150px; font-size: 11px; }
-  .meta-info-table td { border: none; padding: 3px; }
-  .meta-label { font-weight: 600; width: 50px; }
-  .header-title-table { width: 100%; border-collapse: collapse; border-top: none; }
-  .header-title-table td { border: 1px solid #e5e5e5; padding: 10px; border-top: none; }
-  .title-label { width: 120px; text-align: center; background-color: #f5f5f5; font-weight: 600; }
-  .title-content { text-align: center; font-weight: bold; font-size: 14px; color: #2f5d43; }
+  ${REPORT_PDF_HEADER_STYLES}
   
   /* Report Info */
   .report-info {

@@ -16,6 +16,10 @@ import {
 import { COLORS } from "../../constants/theme";
 import { escapeHtml as esc } from "../../utils/htmlEscape";
 import { resolveCiltDetailItem } from "../../utils/ciltDetailRouteCache";
+import {
+  REPORT_PDF_HEADER_STYLES,
+  renderReportPdfHeader,
+} from "../../utils/reportPdfHeader";
 const headerMeta = { frm: "FIL - 010 - 02", rev: "-", berlaku: "11-Jun-25", hal: "1 dari 3" };
 const isLanjutanChecked = (value) =>
   value === true ||
@@ -66,25 +70,11 @@ export const generatePDFHTML = (item) => {
 
   return `
     <section class="report-section h2o2-section">
-      <div class="header-container">
-        <table class="header-main-table">
-          <tr>
-            <td class="logo-section"><div class="logo-green">Greenfields</div></td>
-            <td class="company-section">PT. GREENFIELDS INDONESIA</td>
-            <td class="meta-section">
-              <table class="meta-info-table">
-                <tr><td class="meta-label">FRM</td><td>:</td><td>${headerMeta.frm}</td></tr>
-                <tr><td class="meta-label">Rev</td><td>:</td><td>${headerMeta.rev}</td></tr>
-                <tr><td class="meta-label">Berlaku</td><td>:</td><td>${headerMeta.berlaku}</td></tr>
-                <tr><td class="meta-label">Hal</td><td>:</td><td>${headerMeta.hal}</td></tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        <table class="header-title-table">
-          <tr><td class="title-label">JUDUL</td><td class="title-content">PENGECEKAN H2O2 (SPRAY)</td></tr>
-        </table>
-      </div>
+      ${renderReportPdfHeader({
+        title: "PENGECEKAN H2O2 (SPRAY)",
+        headerMeta,
+        escapeHtml: esc,
+      })}
 
       <div class="report-info">
         <p><strong>Process Order:</strong> ${esc(item.processOrder)}</p>
@@ -152,18 +142,7 @@ const DetailLaporanH2O2Check = ({ route, navigation }) => {
           <style>
             body { font-family: Arial, sans-serif; margin: 20px; font-size: 12px; }
             h2 { text-align: center; }
-            .header-main-table { width: 100%; border-collapse: collapse; border: 1px solid #000; }
-            .header-main-table td { border: 1px solid #000; padding: 8px; }
-            .logo-section { width: 120px; background-color: #90EE90; text-align: center; }
-            .logo-green { font-weight: bold; font-size: 16px; color: #2d5016; }
-            .company-section { text-align: center; font-weight: bold; font-size: 14px; }
-            .meta-section { width: 150px; font-size: 10px; }
-            .meta-info-table td { border: none; padding: 2px; }
-            .meta-label { font-weight: 600; width: 50px; }
-            .header-title-table { width: 100%; border-collapse: collapse; border: 1px solid #000; border-top: none; }
-            .header-title-table td { border: 1px solid #000; padding: 8px; }
-            .title-label { width: 120px; text-align: center; background-color: #f5f5f5; }
-            .title-content { text-align: center; font-weight: bold; font-size: 12px; }
+            ${REPORT_PDF_HEADER_STYLES}
             .report-info { margin-bottom: 12px; }
             .general-info-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
             .general-info-table td { border: 1px solid black; padding: 5px; }

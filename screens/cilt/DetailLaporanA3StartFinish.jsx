@@ -13,6 +13,10 @@ import {
 } from "react-native";
 import { COLORS } from "../../constants/theme";
 import { escapeHtml as esc } from "../../utils/htmlEscape";
+import {
+  REPORT_PDF_HEADER_STYLES,
+  renderReportPdfHeader,
+} from "../../utils/reportPdfHeader";
 import { resolveCiltDetailItem } from "../../utils/ciltDetailRouteCache";
 
 const NO_COL_WIDTH = 52;
@@ -160,6 +164,7 @@ export const generatePDFHTML = (item) => {
         font-size: 11px;
         color: #000;
       }
+      ${REPORT_PDF_HEADER_STYLES}
       .section-title {
         text-align: center;
         font-weight: bold;
@@ -198,25 +203,11 @@ export const generatePDFHTML = (item) => {
       }
     </style>
     <section class="report-section a3startfinish-section">
-      <div class="header-container">
-        <table class="header-main-table">
-          <tr>
-            <td class="logo-section"><div class="logo-green">Greenfields</div></td>
-            <td class="company-section">PT. GREENFIELDS INDONESIA</td>
-            <td class="meta-section">
-              <table class="meta-info-table">
-                <tr><td class="meta-label">FRM</td><td>:</td><td>${headerMeta.frm}</td></tr>
-                <tr><td class="meta-label">Rev</td><td>:</td><td>${headerMeta.rev || "-"}</td></tr>
-                <tr><td class="meta-label">Berlaku</td><td>:</td><td>${headerMeta.berlaku}</td></tr>
-                <tr><td class="meta-label">Hal</td><td>:</td><td>${headerMeta.hal}</td></tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        <table class="header-title-table">
-          <tr><td class="title-label">JUDUL</td><td class="title-content">START & FINISH PRODUKSI</td></tr>
-        </table>
-      </div>
+      ${renderReportPdfHeader({
+        title: "START & FINISH PRODUKSI",
+        headerMeta,
+        escapeHtml: esc,
+      })}
 
       <div class="report-info">
         <p><strong>Process Order:</strong> ${esc(item.processOrder)}</p>

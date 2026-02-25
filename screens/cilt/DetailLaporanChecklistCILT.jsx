@@ -15,6 +15,31 @@ import {
 } from "react-native";
 import { COLORS } from "../../constants/theme";
 import { resolveCiltDetailItem } from "../../utils/ciltDetailRouteCache";
+import { escapeHtml as esc } from "../../utils/htmlEscape";
+import {
+  REPORT_PDF_HEADER_STYLES,
+  renderReportPdfHeader,
+} from "../../utils/reportPdfHeader";
+
+const monthsShort = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const pad2 = (n) => String(n).padStart(2, "0");
+const formatDDMonYY = (dateLike) => {
+  const d = dateLike instanceof Date ? dateLike : new Date(dateLike || Date.now());
+  return `${pad2(d.getDate())}-${monthsShort[d.getMonth()]}-${String(d.getFullYear()).slice(-2)}`;
+};
+const normalizeLine = (line) => String(line || "").toUpperCase().replace(/\s+/g, "_");
+const getHeaderMeta = (line) => {
+  const normalized = normalizeLine(line);
+  switch (normalized) {
+    case "LINE_E":
+      return { frm: "FIL - 052 - 12", rev: "", berlaku: "1 - Jul - 24", hal: "4 dari 5" };
+    case "LINE_F":
+    case "LINE_G":
+      return { frm: "FIL - 081 - 08", rev: "", berlaku: "10 - Oct - 22", hal: "4 dari 5" };
+    default:
+      return { frm: "FIL - 052 - 12", rev: "-", berlaku: formatDDMonYY(new Date()), hal: "4 dari 5" };
+  }
+};
 
 const DetailLaporanChecklistCILT = ({ route, navigation }) => {
   const item = resolveCiltDetailItem(route?.params);
@@ -39,109 +64,112 @@ const DetailLaporanChecklistCILT = ({ route, navigation }) => {
   };
 
   const printToFile = async () => {
-    // Format Data Tambahan dengan layout dua kolom
+    const headerMeta = getHeaderMeta(item?.line);
     const formattedData = `
-      <p><strong>Process Order:</strong> ${item.processOrder}</p>
+      <p><strong>Process Order:</strong> ${esc(item?.processOrder || "-")}</p>
       <table class="general-info-table">
         <tr>
-          <td><strong>Date:</strong> ${moment(
-            item.date,
-            "YYYY-MM-DD HH:mm:ss.SSS"
-          ).format("DD/MM/YY HH:mm:ss")}</td>
-          <td><strong>Product:</strong> ${item.product}</td>
+          <td><strong>Date:</strong> ${esc(
+            moment(item?.date, "YYYY-MM-DD HH:mm:ss.SSS").format("DD/MM/YY HH:mm:ss")
+          )}</td>
+          <td><strong>Product:</strong> ${esc(item?.product || "-")}</td>
         </tr>
         <tr>
-          <td><strong>Plant:</strong> ${item.plant}</td>
-          <td><strong>Line:</strong> ${item.line}</td>
+          <td><strong>Plant:</strong> ${esc(item?.plant || "-")}</td>
+          <td><strong>Line:</strong> ${esc(item?.line || "-")}</td>
         </tr>
         <tr>
-          <td><strong>Machine:</strong> ${item.machine}</td>
-          <td><strong>Shift:</strong> ${item.shift}</td>
+          <td><strong>Machine:</strong> ${esc(item?.machine || "-")}</td>
+          <td><strong>Shift:</strong> ${esc(item?.shift || "-")}</td>
         </tr>
         <tr>
-          <td><strong>Package:</strong> ${item.packageType}</td>
-          <td><strong>Group:</strong>  </td>
+          <td><strong>Package:</strong> ${esc(item?.packageType || "-")}</td>
+          <td><strong>Group:</strong> -</td>
         </tr>
       </table>
     `;
 
-    // Mapping inspectionData ke dalam tabel
-    const inspectionRows = inspectionData
-      .map((item, index) => {
-        return `
-        <tr>
-          <td>${index + 1}</td>
-          <td>${item.job_type}</td>
-          <td>${item.componen}</td>
-          <td>${item.results}</td>
-          <td>${item.user}</td>
-          <td>${item.time}</td>
-        </tr>
-      `;
-      })
-      .join("");
+    const inspectionRows =
+      inspectionData.length > 0
+        ? inspectionData
+            .map(
+              (row, index) => `
+              <tr>
+                <td>${index + 1}</td>
+                <td>${esc(row?.job_type || "-")}</td>
+                <td>${esc(row?.componen || "-")}</td>
+                <td>${esc(row?.results || "-")}</td>
+                <td>${esc(row?.user || "-")}</td>
+                <td>${esc(row?.time || "-")}</td>
+              </tr>
+            `
+            )
+            .join("")
+        : `<tr><td colspan="6" class="empty-cell">Tidak ada data inspeksi</td></tr>`;
 
-    // HTML untuk file yang akan dicetak
     const html = `
       <html>
         <head>
           <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no" />
           <style>
-            body { font-family: Arial, sans-serif; margin: 20px; }
-            h2 { text-align: center; }
-            .report-info { text-align: left; margin-bottom: 12px; }
-            
+            body {
+              font-family: Arial, Helvetica, sans-serif;
+              font-size: 11px;
+              color: #000;
+              margin: 10mm;
+            }
+            ${REPORT_PDF_HEADER_STYLES}
+            .report-info {
+              text-align: left;
+              margin-bottom: 12px;
+            }
             p {
-              margin-bottom: 0; /* Hilangkan margin bawah dari paragraf */
+              margin-bottom: 0;
             }
-
-            .row {
-              display: flex;
-              gap: 10px; /* Jarak antar elemen dalam row */
-              margin-top: 0; /* Hilangkan margin atas agar lebih dekat */
-            }
-  
             .general-info-table {
-              width: 100%; 
-              border-collapse: collapse; 
-              margin-top: 3px;
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 8px;
             }
-  
-            .general-info-table td { 
-              border: 1px solid black; 
-              padding: 5px; 
-              text-align: left; 
-              vertical-align: top; 
+            .general-info-table td {
+              border: 1px solid #000;
+              padding: 5px;
+              text-align: left;
+              vertical-align: top;
             }
-  
-            table { 
-              width: 100%; 
-              border-collapse: collapse; 
-              margin-top: 10px; 
+            .data-table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-top: 10px;
             }
-  
-            th, td { 
-              border: 1px solid black; 
-              padding: 8px; 
-              text-align: left; 
+            .data-table th,
+            .data-table td {
+              border: 1px solid #000;
+              padding: 7px 6px;
+              text-align: left;
             }
-  
-            th { 
-              background-color: #f2f2f2; 
+            .data-table th {
+              background-color: #f2f2f2;
+              font-weight: 700;
             }
-  
-            img { 
-              display: block; 
-              margin: auto; 
+            .empty-cell {
+              text-align: center !important;
+              font-style: italic;
+              color: #666;
+              padding: 14px 6px !important;
             }
           </style>
         </head>
         <body>
-          <h2>PT. GREENFIELDS INDONESIA</h2>
+          ${renderReportPdfHeader({
+            title: "DETAIL CHECKLIST CILT",
+            headerMeta,
+            escapeHtml: esc,
+          })}
           <div class="report-info">
             ${formattedData}
           </div>
-          <table>
+          <table class="data-table">
             <thead>
               <tr>
                 <th>No</th>

@@ -27,6 +27,7 @@ import * as Print from "expo-print";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { generatePDFHTML as htmlA3Flex } from "./DetailLaporanA3Flex";
 import { generatePDFHTML as htmlA3StartFinish } from "./DetailLaporanA3StartFinish";
+import { generatePDFHTML as htmlA3Paper } from "./DetailLaporanA3Paper";
 import { generatePDFHTML as htmlCombiXG } from "./DetailLaporanCombiXG";
 import { generatePDFHTML as htmlArtemaCardboard } from "./DetailLaporanArtemaCardboard";
 import { generatePDFHTML as htmlFransCasePacker } from "./DetailLaporanFransCasePacker";
@@ -129,6 +130,9 @@ const FRM_REV_MAP = {
   SEGREGASI: { frm: "FIL - 010 - 02", rev: "-", berlaku: "11-Jun-25", hal: "1 dari 3" },
   "PEMAKAIAN SCREW CAP": { frm: "FIL - 010 - 02", rev: "-", berlaku: "11-Jun-25", hal: "1 dari 3" },
   "PEMAKAIAN PAPER": { frm: "FIL - 010 - 02", rev: "-", berlaku: "11-Jun-25", hal: "1 dari 3" },
+  "PAPER A3|LINE E": { frm: "FIL - 052 - 12", rev: "", berlaku: "1 - Jul - 24", hal: "3 dari 5" },
+  "PAPER A3|LINE F": { frm: "FIL - 081 - 08", rev: "", berlaku: "10 - Oct - 22", hal: "3 dari 5" },
+  "PAPER A3|LINE G": { frm: "FIL - 081 - 08", rev: "", berlaku: "10 - Oct - 22", hal: "3 dari 5" },
   "PENGECEKAN H2O2 ( SPRAY )": { frm: "FIL - 010 - 02", rev: "-", berlaku: "11-Jun-25", hal: "1 dari 3" },
   "PERFORMA RED AND GREEN": { frm: "FIL - 010", rev: "02", berlaku: "11-Jun-25", hal: "2 dari 3" },
   // Checklist – khusus per LINE sesuai instruksi
@@ -160,6 +164,10 @@ const PACKAGE_CONFIG = {
   "PEMAKAIAN PAPER": {
     screen: "DetailLaporanPaperUsage",
     htmlGenerator: htmlPaperUsageImported,
+  },
+  "PAPER A3": {
+    screen: "DetailLaporanA3Paper",
+    htmlGenerator: htmlA3Paper,
   },
 
   // PACKAGES YANG TETAP PAKAI INLINE FUNCTION
@@ -1930,6 +1938,7 @@ const PACKAGE_ORIENTATIONS = {
   "PENGECEKAN PRESSURE": "landscape",
   "A3 FLEX PAGE 1": "landscape",
   "A3 FLEX": "landscape",
+  "PAPER A3": "landscape",
   "START FINISH PRODUKSI": "landscape",
   "START & FINISH PRODUKSI": "landscape",
   "START & FINISH": "landscape",
@@ -1990,6 +1999,7 @@ const getPackageOrderRank = (item) => {
     "A3 / FLEX ( PAGE 1 )",
     "A3 FLEX PAGE 1",
     "A3 FLEX",
+    "PAPER A3",
     "PENGECEKAN PRESSURE",
     "START FINISH PRODUKSI",
     "START & FINISH PRODUKSI",
